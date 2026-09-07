@@ -419,6 +419,49 @@ async function listDnsRecords(domain) {
   });
 }
 
+/**
+ * List every TXT record in a domain's zone file.
+ *
+ * Deliberately not part of listDnsRecords. A and CNAME hold one value per
+ * name, so every caller keys them by name; TXT holds many values under one
+ * name — `_vercel.sitey.my` carries one verification token per subdomain —
+ * and a map keyed by name would silently keep only the last of them. Widening
+ * listDnsRecords would also hand its callers a record type they do not expect,
+ * with the value still wrapped in quotes.
+ *
+ * Only the first quoted string of a line is read; nothing here ever writes the
+ * multi-string form (`"a" "b"`).
+ */
+async function listTxtRecords(domain) {
+  if (isBindDevMode) {
+    return [];
+  }
+
+  return withDomainLock(domain, async () => {
+    const zoneFilePath = getZoneFilePath(domain);
+    let data;
+    try {
+      data = await fs.readFile(zoneFilePath, "utf8");
+    } catch (error) {
+      if (error.code === "ENOENT") {
+        throw new Error("Zone file not found for " + domain + " at " + zoneFilePath + ". Check BIND_DB_PATH and zone file permissions.");
+      }
+      throw error;
+    }
+
+    const results = [];
+    // Spaces and tabs only, as in txtLineRegex: `\s` would run past the line
+    // break and match a name on one line against a TXT on the next.
+    const regex = /^(\S+)[ \t]+IN[ \t]+TXT[ \t]+"([^"]*)"/gim;
+    let match;
+    while ((match = regex.exec(data)) !== null) {
+      results.push({ name: match[1], type: "TXT", value: match[2] });
+    }
+    return results;
+  });
+}
+
+
 async function deleteTxtRecord(subdomain, domain, hostPrefix, txtValue) {
   return withDomainLock(domain, async () => {
     const zoneFilePath = getZoneFilePath(domain);
@@ -469,6 +512,7 @@ module.exports = {
   findDnsRecord,
   readDnsRecord,
   listDnsRecords,
+  listTxtRecords,
   createDnsRecord,
   updateDnsRecord,
   deleteDnsRecord,
