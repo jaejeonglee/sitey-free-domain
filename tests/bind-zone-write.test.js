@@ -16,7 +16,9 @@ const ZONE_CONTENT = [
   "@       IN  NS  ns1.example.com.",
   "www     IN  A   1.2.3.4",
   "demo    IN  CNAME  cname.vercel-dns.com.",
-  "_vercel.demo    IN  TXT  \"vc-domain-verify=old\"",
+  "_vercel    IN  TXT  \"vc-domain-verify=demo.example.com,demo-token\"",
+  // left over from the old per-subdomain naming; nothing writes here any more
+  "_vercel.stock    IN  TXT  \"vc-domain-verify=stale\"",
 ].join("\n");
 
 // ---------------------------------------------------------------------------
@@ -207,60 +209,113 @@ describe("zone file writes (BIND_DEV_MODE=false)", () => {
   });
 
   // -------------------------------------------------------------------------
-  // #3 — TXT records live under the subdomain that owns them
+  // #3 — every owner's TXT value shares one name, so add appends and delete
+  //      matches on the value
   // -------------------------------------------------------------------------
 
-  describe("TXT record naming", () => {
-    it("creates the record under the subdomain, not at the apex", async () => {
-      const result = await bind.createOrUpdateTxtRecord(
+  describe("TXT records", () => {
+    const DEMO_TOKEN = "vc-domain-verify=demo.example.com,demo-token";
+
+    it("writes at the shared root name, not under the subdomain", async () => {
+      const result = await bind.addTxtRecord(
         "shop",
         "example.com",
         "_vercel",
-        "vc-domain-verify=shop-token"
+        "vc-domain-verify=shop.example.com,shop-token"
       );
 
-      expect(result.name).toBe("_vercel.shop.example.com");
-      expect(disk[ZONE_PATH]).toContain('_vercel.shop\tIN\tTXT\t"vc-domain-verify=shop-token"');
-      // the apex slot is never written
-      expect(disk[ZONE_PATH]).not.toMatch(/^_vercel\s+IN\s+TXT/im);
+      expect(result.name).toBe("_vercel.example.com");
+      expect(disk[ZONE_PATH]).toContain(
+        '_vercel\tIN\tTXT\t"vc-domain-verify=shop.example.com,shop-token"'
+      );
+      expect(disk[ZONE_PATH]).not.toMatch(/^_vercel\.shop\s+IN\s+TXT/im);
     });
 
-    // Two users verifying with the same provider used to share one apex line,
-    // so the second one silently replaced the first one's token.
-    it("keeps two subdomains' tokens side by side", async () => {
-      await bind.createOrUpdateTxtRecord("shop", "example.com", "_vercel", "token-shop");
-      await bind.createOrUpdateTxtRecord("blog", "example.com", "_vercel", "token-blog");
+    // The bug: creation replaced the line whose *name* matched, so each new
+    // token deleted the previous owner's. 28 rows in the database, 3 lines in
+    // the zone.
+    it("keeps two owners' tokens side by side under the one name", async () => {
+      await bind.addTxtRecord("shop", "example.com", "_vercel", "token-shop");
+      await bind.addTxtRecord("blog", "example.com", "_vercel", "token-blog");
 
-      expect(disk[ZONE_PATH]).toContain('_vercel.shop\tIN\tTXT\t"token-shop"');
-      expect(disk[ZONE_PATH]).toContain('_vercel.blog\tIN\tTXT\t"token-blog"');
+      expect(disk[ZONE_PATH]).toContain('_vercel\tIN\tTXT\t"token-shop"');
+      expect(disk[ZONE_PATH]).toContain('_vercel\tIN\tTXT\t"token-blog"');
+      // ...and the value that was already verifying is untouched
+      expect(disk[ZONE_PATH]).toContain(DEMO_TOKEN);
     });
 
-    it("updates in place when the same subdomain re-verifies", async () => {
-      await bind.createOrUpdateTxtRecord("demo", "example.com", "_vercel", "vc-domain-verify=new");
+    it("removes only the value asked for, leaving the other owners", async () => {
+      await bind.addTxtRecord("shop", "example.com", "_vercel", "token-shop");
+      await bind.addTxtRecord("blog", "example.com", "_vercel", "token-blog");
 
-      expect(disk[ZONE_PATH]).toContain('_vercel.demo    IN  TXT  "vc-domain-verify=new"');
-      expect(disk[ZONE_PATH]).not.toContain("vc-domain-verify=old");
-      expect(disk[ZONE_PATH].match(/_vercel\.demo/g)).toHaveLength(1);
+      const result = await bind.deleteTxtRecord("shop", "example.com", "_vercel", "token-shop");
+
+      expect(result).toEqual({ name: "_vercel.example.com", deleted: true });
+      expect(disk[ZONE_PATH]).not.toContain("token-shop");
+      expect(disk[ZONE_PATH]).toContain('_vercel\tIN\tTXT\t"token-blog"');
+      expect(disk[ZONE_PATH]).toContain(DEMO_TOKEN);
     });
 
-    // Delete looked for `_vercel.<sub>` while create wrote a bare `_vercel`,
-    // so it never found anything and still reported success.
-    it("deletes exactly what create wrote", async () => {
-      await bind.createOrUpdateTxtRecord("shop", "example.com", "_vercel", "token-shop");
-      expect(disk[ZONE_PATH]).toContain("_vercel.shop");
+    it("does not add a second line for a value that is already there", async () => {
+      await bind.addTxtRecord("shop", "example.com", "_vercel", "token-shop");
+      const writesAfterFirst = pathsWrittenTo().length;
 
-      const result = await bind.deleteTxtRecord("shop", "example.com", "_vercel");
+      await bind.addTxtRecord("shop", "example.com", "_vercel", "token-shop");
 
-      expect(result.name).toBe("_vercel.shop.example.com");
-      expect(disk[ZONE_PATH]).not.toContain("_vercel.shop");
-      // the other subdomain's record survives
-      expect(disk[ZONE_PATH]).toContain("_vercel.demo");
+      expect(disk[ZONE_PATH].match(/"token-shop"/g)).toHaveLength(1);
+      // nothing to change, so the zone is not rewritten and named is not reloaded
+      expect(pathsWrittenTo()).toHaveLength(writesAfterFirst);
+    });
+
+    it("drops the caller's own previous value in the same write", async () => {
+      await bind.addTxtRecord("shop", "example.com", "_vercel", "token-old");
+
+      await bind.addTxtRecord("shop", "example.com", "_vercel", "token-new", "token-old");
+
+      expect(disk[ZONE_PATH]).not.toContain("token-old");
+      expect(disk[ZONE_PATH]).toContain('_vercel\tIN\tTXT\t"token-new"');
+      expect(disk[ZONE_PATH]).toContain(DEMO_TOKEN);
+    });
+
+    // Deleting by name would take every other owner's verification with it.
+    it("refuses to delete without a value", async () => {
+      await expect(
+        bind.deleteTxtRecord("shop", "example.com", "_vercel")
+      ).rejects.toThrow("requires the value to remove");
+
+      expect(pathsWrittenTo()).toHaveLength(0);
+      expect(disk[ZONE_PATH]).toBe(ZONE_CONTENT);
+    });
+
+    // "Deleted successfully" for a line that was never found is how records
+    // survived deletion and stayed in the zone.
+    it("says nothing was removed when the value is not in the zone", async () => {
+      const result = await bind.deleteTxtRecord("shop", "example.com", "_vercel", "never-written");
+
+      expect(result).toEqual({
+        name: "_vercel.example.com",
+        deleted: false,
+        alreadyAbsent: true,
+      });
+      expect(pathsWrittenTo()).toHaveLength(0);
+      expect(commands).toHaveLength(0);
+    });
+
+    it("leaves records written under the old naming alone", async () => {
+      await bind.addTxtRecord("shop", "example.com", "_vercel", "token-shop");
+      await bind.deleteTxtRecord("shop", "example.com", "_vercel", "token-shop");
+
+      expect(disk[ZONE_PATH]).toContain('_vercel.stock    IN  TXT  "vc-domain-verify=stale"');
     });
 
     it("treats a missing zone file as nothing to delete", async () => {
       delete disk[ZONE_PATH];
-      const result = await bind.deleteTxtRecord("shop", "example.com", "_vercel");
-      expect(result).toEqual({ name: "_vercel.shop.example.com" });
+      const result = await bind.deleteTxtRecord("shop", "example.com", "_vercel", "token-shop");
+      expect(result).toEqual({
+        name: "_vercel.example.com",
+        deleted: false,
+        alreadyAbsent: true,
+      });
     });
   });
 });

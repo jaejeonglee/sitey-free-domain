@@ -433,12 +433,21 @@ async function domainRoutes(fastify, options) {
         }
         const subdomainId = record.id;
 
-        // Create/update TXT record in BIND
-        await bindService.createOrUpdateTxtRecord(
+        // The value this user had before, if any. TXT records all share the
+        // `_vercel` name, so this is the only way the zone write can tell
+        // which of the lines under that name is this user's to replace.
+        const [prevRows] = await fastify.mysql.execute(
+          "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+          [subdomainId, hostPrefix]
+        );
+
+        // Add the TXT record to BIND alongside everyone else's
+        await bindService.addTxtRecord(
           subdomain,
           domainEntry.domain,
           hostPrefix,
-          sanitizedTxtValue
+          sanitizedTxtValue,
+          prevRows[0]?.txt_value || null
         );
 
         // Upsert into the database

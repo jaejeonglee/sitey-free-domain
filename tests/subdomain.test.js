@@ -77,7 +77,7 @@ beforeEach(() => {
     type: "A",
   });
   bindMod.readDnsRecord = vi.fn().mockResolvedValue(null);
-  bindMod.createOrUpdateTxtRecord = vi.fn().mockResolvedValue({});
+  bindMod.addTxtRecord = vi.fn().mockResolvedValue({});
   bindMod.deleteTxtRecord = vi.fn().mockResolvedValue({});
 
   alertMod.warn = vi.fn().mockResolvedValue(undefined);

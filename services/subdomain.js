@@ -164,9 +164,11 @@ async function updateSubdomain(fastify, params) {
       const hostPrefix = "_vercel";
       txtTouched = true;
       if (txtValue) {
-        await bindService.createOrUpdateTxtRecord(subdomain, domain, hostPrefix, txtValue);
-      } else {
-        await bindService.deleteTxtRecord(subdomain, domain, hostPrefix);
+        // The old value is handed over so the append drops it in the same
+        // write — nothing else knows it once the row above is updated.
+        await bindService.addTxtRecord(subdomain, domain, hostPrefix, txtValue, oldTxtValue);
+      } else if (oldTxtValue) {
+        await bindService.deleteTxtRecord(subdomain, domain, hostPrefix, oldTxtValue);
       }
     }
 
@@ -219,10 +221,12 @@ async function updateSubdomain(fastify, params) {
     if (txtTouched) {
       try {
         const hostPrefix = "_vercel";
+        // Undo our own write: put the old value back and take out the one we
+        // just added, or remove it outright if there was nothing before.
         if (oldTxtValue) {
-          await bindService.createOrUpdateTxtRecord(subdomain, domain, hostPrefix, oldTxtValue);
-        } else {
-          await bindService.deleteTxtRecord(subdomain, domain, hostPrefix);
+          await bindService.addTxtRecord(subdomain, domain, hostPrefix, oldTxtValue, txtValue || null);
+        } else if (txtValue) {
+          await bindService.deleteTxtRecord(subdomain, domain, hostPrefix, txtValue);
         }
         fastify.log.warn(`Compensated TXT record after DB failure: ${subdomain}.${domain}`);
       } catch (txtCompErr) {
@@ -289,7 +293,7 @@ async function deleteSubdomain(fastify, params) {
     // BIND9: delete TXT records
     txtDeleted = true;
     for (const txt of txtRows) {
-      await bindService.deleteTxtRecord(subdomain, domain, txt.host_prefix);
+      await bindService.deleteTxtRecord(subdomain, domain, txt.host_prefix, txt.txt_value);
     }
 
     await connection.commit();
@@ -335,7 +339,7 @@ async function deleteSubdomain(fastify, params) {
     if (txtDeleted && txtRows.length > 0) {
       try {
         for (const txt of txtRows) {
-          await bindService.createOrUpdateTxtRecord(subdomain, domain, txt.host_prefix, txt.txt_value);
+          await bindService.addTxtRecord(subdomain, domain, txt.host_prefix, txt.txt_value);
         }
         fastify.log.warn(`Compensated TXT deletion after DB failure: ${subdomain}.${domain}`);
       } catch (txtCompErr) {

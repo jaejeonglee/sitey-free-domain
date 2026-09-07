@@ -2,6 +2,7 @@
 const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/server/streamableHttp.js");
 const { z } = require("zod");
+const config = require("../configs/index");
 const bindService = require("../services/bind");
 const { validateRecord } = require("../services/validation");
 const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
@@ -437,13 +438,13 @@ function createMcpServer(fastify) {
   // --- Tool: create_txt_record ---
   server.tool(
     "create_txt_record",
-    "Create or update a TXT record for domain verification. Used for services like Vercel (_vercel) and Netlify that require DNS-based ownership proof. The record is always placed under the subdomain you own (e.g. _vercel.demo.sitey.one).",
+    "Create or update a TXT record for domain verification. Used for services like Vercel (_vercel) and Netlify that require DNS-based ownership proof. The record is placed at the root domain under the prefix you give (e.g. _vercel.sitey.my), alongside the other owners' values — that is the name Vercel reads for a subdomain of sitey.my.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
       host_prefix: z.string().describe("TXT record host prefix (e.g. '_vercel' for Vercel verification)"),
       value: z.string().describe("TXT record value (the verification token)"),
-      root_level: z.boolean().optional().describe("No longer supported — apex TXT records are shared by every user of the domain. Passing true returns an error."),
+      root_level: z.boolean().optional().describe("No longer supported — TXT records are always written at the root domain. Passing true returns an error."),
     },
     async ({ subdomain: rawSubdomain, domain: rawDomain, host_prefix: rawHostPrefix, value: txtValue, root_level: rootLevel }, extra) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
@@ -481,15 +482,18 @@ function createMcpServer(fastify) {
         return mcpError("host_prefix and value are required.");
       }
 
-      // See routes/api-v1.js: the apex is one slot shared by the whole domain.
+      // See routes/api-v1.js: every TXT record goes to the root domain now, so
+      // the flag no longer selects anything.
       if (rootLevel) {
         return mcpError(
-          "root_level is no longer supported: a TXT record at the domain apex is shared by every user. " +
-            "Verification services ask for the record under the name you added, so omit root_level."
+          "root_level is no longer supported: TXT records are always written at the root domain " +
+            "under host_prefix, which is where verification services look. Omit the flag."
         );
       }
 
-      const prefixValidation = validateHostPrefix(rawHostPrefix);
+      const prefixValidation = validateHostPrefix(rawHostPrefix, {
+        allowed: config.txt.apexPrefixes,
+      });
       if (!prefixValidation.valid) {
         return mcpError(prefixValidation.message);
       }
@@ -504,11 +508,26 @@ function createMcpServer(fastify) {
       const sanitizedTxtValue = txtValidation.value;
 
       try {
-        const txtRecord = await bindService.createOrUpdateTxtRecord(
+        // The stored value is not bookkeeping: TXT records all share one name,
+        // so it is the only handle delete_txt_record has on this line. This
+        // tool used to write the zone without recording anything, which left
+        // its records undeletable. Mirror what REST does.
+        const [prevRows] = await fastify.mysql.execute(
+          "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+          [record.id, hostPrefix]
+        );
+
+        const txtRecord = await bindService.addTxtRecord(
           subdomain,
           domainEntry.domain,
           hostPrefix,
-          sanitizedTxtValue
+          sanitizedTxtValue,
+          prevRows[0]?.txt_value || null
+        );
+        await fastify.mysql.execute(
+          "INSERT INTO subdomain_txt_records (subdomain_id, host_prefix, txt_value) VALUES (?, ?, ?) " +
+            "ON DUPLICATE KEY UPDATE txt_value = VALUES(txt_value)",
+          [record.id, hostPrefix, sanitizedTxtValue]
         );
         return mcpSuccess({
           success: true,
@@ -571,12 +590,30 @@ function createMcpServer(fastify) {
       const hostPrefix = prefixValidation.value;
 
       try {
-        const txtRecord = await bindService.deleteTxtRecord(subdomain, domainEntry.domain, hostPrefix);
+        const [txtRows] = await fastify.mysql.execute(
+          "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+          [record.id, hostPrefix]
+        );
+        if (!txtRows.length) {
+          return mcpError("No TXT record with that host_prefix on this subdomain.");
+        }
+
+        const txtRecord = await bindService.deleteTxtRecord(
+          subdomain,
+          domainEntry.domain,
+          hostPrefix,
+          txtRows[0].txt_value
+        );
+        await fastify.mysql.execute(
+          "DELETE FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+          [record.id, hostPrefix]
+        );
         return mcpSuccess({
           success: true,
           record: txtRecord.name,
           type: "TXT",
           deleted: true,
+          zone_record_removed: txtRecord.deleted === true,
         });
       } catch (error) {
         fastify.log.error(error, "MCP delete_txt_record failed");

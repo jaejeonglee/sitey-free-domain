@@ -16,7 +16,7 @@ const DOMAIN_ID = 1;
 // BIND_DEV_MODE=true (vitest env) keeps services/bind.js from touching a disk.
 // ---------------------------------------------------------------------------
 
-function buildHarness({ ownedBy = null } = {}) {
+function buildHarness({ ownedBy = null, existingTxt = [] } = {}) {
   const queries = [];
 
   const execute = vi.fn(async (sql, params = []) => {
@@ -35,6 +35,9 @@ function buildHarness({ ownedBy = null } = {}) {
     }
     if (sql.includes("FROM subdomains s JOIN managed_domains")) {
       return [[]];
+    }
+    if (sql.includes("FROM subdomain_txt_records")) {
+      return [existingTxt];
     }
     if (sql.startsWith("INSERT INTO") || sql.startsWith("DELETE FROM")) {
       return [{ affectedRows: 1 }];
@@ -63,21 +66,21 @@ let origDeleteTxt;
 let txtCalls;
 
 beforeEach(() => {
-  origCreateTxt = bindMod.createOrUpdateTxtRecord;
+  origCreateTxt = bindMod.addTxtRecord;
   origDeleteTxt = bindMod.deleteTxtRecord;
   txtCalls = [];
-  bindMod.createOrUpdateTxtRecord = vi.fn(async (subdomain, domain, hostPrefix, value) => {
-    txtCalls.push({ op: "create", subdomain, domain, hostPrefix, value });
-    return { name: `${hostPrefix}.${subdomain}.${domain}`, content: value };
+  bindMod.addTxtRecord = vi.fn(async (subdomain, domain, hostPrefix, value, previousValue = null) => {
+    txtCalls.push({ op: "add", subdomain, domain, hostPrefix, value, previousValue });
+    return { name: `${hostPrefix}.${domain}`, content: value };
   });
-  bindMod.deleteTxtRecord = vi.fn(async (subdomain, domain, hostPrefix) => {
-    txtCalls.push({ op: "delete", subdomain, domain, hostPrefix });
-    return { name: `${hostPrefix}.${subdomain}.${domain}` };
+  bindMod.deleteTxtRecord = vi.fn(async (subdomain, domain, hostPrefix, value) => {
+    txtCalls.push({ op: "delete", subdomain, domain, hostPrefix, value });
+    return { name: `${hostPrefix}.${domain}`, deleted: true };
   });
 });
 
 afterEach(() => {
-  bindMod.createOrUpdateTxtRecord = origCreateTxt;
+  bindMod.addTxtRecord = origCreateTxt;
   bindMod.deleteTxtRecord = origDeleteTxt;
 });
 
@@ -194,22 +197,52 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
     await app.close();
   });
 
-  it("writes a valid prefix under the caller's own subdomain", async () => {
+  it("writes the value at the root domain under the prefix", async () => {
     const { app } = buildHarness({ ownedBy: OWNER_IP });
 
     const res = await post(app, { host_prefix: "_VERCEL", value: "vc-domain-verify=mine" });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json().data.fqdn).toBe(`_vercel.demo.${DOMAIN}`);
+    expect(res.json().data.fqdn).toBe(`_vercel.${DOMAIN}`);
     expect(txtCalls).toEqual([
       {
-        op: "create",
+        op: "add",
         subdomain: "demo",
         domain: DOMAIN,
         hostPrefix: "_vercel",
         value: "vc-domain-verify=mine",
+        previousValue: null,
       },
     ]);
+    await app.close();
+  });
+
+  // The name is shared by the whole domain, so the caller's stored value is the
+  // only thing that says which line under it is theirs to replace.
+  it("hands the caller's stored value to the zone write", async () => {
+    const { app } = buildHarness({
+      ownedBy: OWNER_IP,
+      existingTxt: [{ txt_value: "vc-domain-verify=old" }],
+    });
+
+    const res = await post(app, { host_prefix: "_vercel", value: "vc-domain-verify=new" });
+
+    expect(res.statusCode).toBe(200);
+    expect(txtCalls[0].previousValue).toBe("vc-domain-verify=old");
+    await app.close();
+  });
+
+  // Every TXT record lands on the root name, so the prefix is a claim about the
+  // root domain: _acme-challenge there would get the caller a certificate for
+  // sitey.my itself.
+  it("refuses a prefix that would claim the root domain", async () => {
+    const { app } = buildHarness({ ownedBy: OWNER_IP });
+
+    const res = await post(app, { host_prefix: "_acme-challenge", value: "token" });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("INVALID_HOST_PREFIX");
+    expect(txtCalls).toHaveLength(0);
     await app.close();
   });
 
@@ -252,8 +285,11 @@ describe("DELETE /subdomains/:subdomain/:domain/txt/:hostPrefix", () => {
     await app.close();
   });
 
-  it("deletes the record create wrote", async () => {
-    const { app } = buildHarness({ ownedBy: OWNER_IP });
+  it("deletes by value, so the other owners' lines survive", async () => {
+    const { app } = buildHarness({
+      ownedBy: OWNER_IP,
+      existingTxt: [{ txt_value: "vc-domain-verify=mine" }],
+    });
 
     const res = await app.inject({
       method: "DELETE",
@@ -262,10 +298,31 @@ describe("DELETE /subdomains/:subdomain/:domain/txt/:hostPrefix", () => {
     });
 
     expect(res.statusCode).toBe(200);
-    expect(res.json().data.fqdn).toBe(`_vercel.demo.${DOMAIN}`);
+    expect(res.json().data.fqdn).toBe(`_vercel.${DOMAIN}`);
     expect(txtCalls).toEqual([
-      { op: "delete", subdomain: "demo", domain: DOMAIN, hostPrefix: "_vercel" },
+      {
+        op: "delete",
+        subdomain: "demo",
+        domain: DOMAIN,
+        hostPrefix: "_vercel",
+        value: "vc-domain-verify=mine",
+      },
     ]);
+    await app.close();
+  });
+
+  it("404s instead of guessing when nothing is recorded for that prefix", async () => {
+    const { app } = buildHarness({ ownedBy: OWNER_IP });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/subdomains/demo/${DOMAIN}/txt/_vercel`,
+      remoteAddress: OWNER_IP,
+    });
+
+    expect(res.statusCode).toBe(404);
+    expect(res.json().code).toBe("TXT_NOT_FOUND");
+    expect(txtCalls).toHaveLength(0);
     await app.close();
   });
 });

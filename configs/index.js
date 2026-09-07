@@ -81,6 +81,21 @@ module.exports = {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
     alertChatId: process.env.TELEGRAM_ALERT_CHAT_ID,
   },
+  txt: {
+    // TXT records are written at the root domain under this prefix (see
+    // services/bind.js), so the prefix decides what the record *means for the
+    // root domain itself*. `_acme-challenge` there would let any subdomain
+    // owner answer a DNS-01 challenge for sitey.my and be issued a certificate
+    // for it; `_dmarc` would rewrite the domain's mail policy. `_vercel` is
+    // safe because its value names its own target
+    // (`vc-domain-verify=<fqdn>,<token>`), so an extra value next to someone
+    // else's proves nothing about their domain.
+    // Measured 2026-09-07: 28 of 28 records in use are `_vercel`.
+    apexPrefixes: (process.env.APEX_TXT_PREFIXES || "_vercel")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  },
   infraRecords: (process.env.INFRA_RECORDS || "ns1,ns2,@,www")
     .split(",")
     .map((s) => s.trim().toLowerCase())

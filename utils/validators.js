@@ -21,13 +21,19 @@ function isValidSubdomain(name) {
  * Validate a TXT record host prefix.
  *
  * The prefix ends up as the *name* of a zone file line
- * (`<prefix>.<subdomain>\tIN\tTXT\t"..."`), so anything that is not a plain
+ * (`<prefix>\tIN\tTXT\t"..."`), so anything that is not a plain
  * DNS label lets the caller write arbitrary zone directives — a space turns
  * the rest of the input into extra fields, ";" starts a comment, "$" starts a
  * directive like $ORIGIN. Allow-list the label grammar instead of blocking
  * characters one by one.
+ *
+ * `allowed`, when given, additionally restricts the prefix to a list. Creation
+ * paths pass one because the record lands on the shared root name, where the
+ * prefix decides what the record claims about the root domain — see
+ * configs/index.js. Deletion paths pass nothing, so shrinking the list never
+ * traps an existing record.
  */
-function validateHostPrefix(hostPrefix) {
+function validateHostPrefix(hostPrefix, { allowed } = {}) {
   const trimmed = String(hostPrefix ?? "").trim().toLowerCase();
   if (!trimmed) {
     return { valid: false, message: "host_prefix is required." };
@@ -47,6 +53,15 @@ function validateHostPrefix(hostPrefix) {
           "host_prefix must be dot-separated DNS labels (letters, digits, '-', optional leading '_'), e.g. _vercel or selector1._domainkey.",
       };
     }
+  }
+  if (allowed && !allowed.includes(trimmed)) {
+    return {
+      valid: false,
+      message:
+        `host_prefix "${trimmed}" is not accepted. TXT records are written at the root domain, ` +
+        `where the prefix decides what the record claims about the domain itself. ` +
+        `Accepted: ${allowed.join(", ")}.`,
+    };
   }
   return { valid: true, value: trimmed };
 }

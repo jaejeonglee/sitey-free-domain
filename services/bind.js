@@ -275,39 +275,82 @@ async function deleteDnsRecord(subdomain, domain, recordType = "A") {
 /**
  * Build the zone file line name for a TXT record.
  *
- * Every TXT record lives under the subdomain that owns it. Creation used to
- * write the bare prefix (`_vercel`), which is one slot shared by the whole
- * domain, so two users verifying with the same provider overwrote each other —
- * and deletion looked for `_vercel.<sub>`, a name creation never wrote, so it
- * could never remove anything. Both sides now use this one rule.
+ * The name is the bare prefix at the zone apex — `_vercel`, not
+ * `_vercel.<subdomain>`. Vercel asks for the verification TXT under the
+ * *registrable* domain and works out what that is from the Public Suffix List.
+ * `sitey.my` is not on that list, so Vercel reads `demo.sitey.my` as a host
+ * inside the registrable domain `sitey.my` and the only name it ever looks at
+ * is `_vercel.sitey.my`. Measured 2026-09-07: 28 of 28 TXT records sit there,
+ * and the one subdomain that currently verifies is verified from that name.
+ *
+ * `subdomain` is deliberately unused. Once sitey.my is on the Public Suffix
+ * List, Vercel starts asking for `_vercel.<subdomain>.sitey.my`, and this
+ * function is the single line that has to change — every caller already hands
+ * over the subdomain it owns. See
+ * .claude/docs/decisions/0001-txt-record-naming.md.
  */
 function txtRecordName(subdomain, hostPrefix) {
-  return `${hostPrefix}.${subdomain}`;
+  return hostPrefix;
 }
 
-async function createOrUpdateTxtRecord(subdomain, domain, hostPrefix, txtValue) {
+/**
+ * Match one whole TXT line by name *and* value.
+ *
+ * Every owner's token shares the `_vercel` name, so the value is the only
+ * thing that tells one line from another. Separators are spaces and tabs only:
+ * `\s` would run past the line break into the next record.
+ */
+function txtLineRegex(recordName, txtValue) {
+  return new RegExp(
+    `^${escapeRegex(recordName)}[ \\t]+IN[ \\t]+TXT[ \\t]+"${escapeRegex(txtValue)}"[ \\t]*\\r?\\n?`,
+    "im"
+  );
+}
+
+/**
+ * Add one TXT value under `hostPrefix`.
+ *
+ * DNS holds several TXT records under one name, and that is exactly what this
+ * slot needs: `_vercel.sitey.my` carries one verification token per subdomain,
+ * side by side. The old code replaced the line whose *name* matched, so every
+ * new token deleted the previous owner's — 28 rows in the database had left 3
+ * lines in the zone. The original comment already said a "value list" was the
+ * intent; only the implementation disagreed.
+ *
+ * Nothing here overwrites anything:
+ *  - the same (name, value) pair already in the zone is a no-op,
+ *  - anything else is appended as a new line,
+ *  - `previousValue` — the caller's own earlier value, read from the database —
+ *    is the one exception. It goes away in the same zone write, because
+ *    otherwise re-verifying leaves a line nobody can ever delete: the database
+ *    only remembers the current value, and delete matches on the value.
+ */
+async function addTxtRecord(subdomain, domain, hostPrefix, txtValue, previousValue = null) {
   return withDomainLock(domain, async () => {
     const zoneFilePath = getZoneFilePath(domain);
     const recordName = txtRecordName(subdomain, hostPrefix);
-    const recordContent = `"${txtValue}"`;
-    const newRecordLine = `${recordName}\tIN\tTXT\t${recordContent}`;
+    const newRecordLine = `${recordName}\tIN\tTXT\t"${txtValue}"`;
 
     if (isBindDevMode) {
-      logger.debug({ op: "createOrUpdateTxtRecord", recordName, domain }, "BIND_DEV_MODE skip");
+      logger.debug({ op: "addTxtRecord", recordName, domain }, "BIND_DEV_MODE skip");
       return { name: `${recordName}.${domain}`, content: txtValue };
     }
 
-    const escapedName = escapeRegex(recordName);
-    const regex = new RegExp(
-      `^(${escapedName}\\s+IN\\s+TXT\\s+)(?:".*")$`,
-      "im"
-    );
+    const present = txtLineRegex(recordName, txtValue);
+    const stale =
+      previousValue && previousValue !== txtValue
+        ? txtLineRegex(recordName, previousValue)
+        : null;
 
-    await mutateZoneFile(domain, zoneFilePath, (content) =>
-      regex.test(content)
-        ? content.replace(regex, `$1${recordContent}`)
-        : content + `\n${newRecordLine}`
-    );
+    await mutateZoneFile(domain, zoneFilePath, (content) => {
+      const withoutStale =
+        stale && stale.test(content) ? content.replace(stale, "") : content;
+      if (present.test(withoutStale)) {
+        // Already there — only write if the stale line still has to go.
+        return withoutStale === content ? null : withoutStale;
+      }
+      return `${withoutStale}\n${newRecordLine}`;
+    });
 
     return { name: `${recordName}.${domain}`, content: txtValue };
   });
@@ -376,33 +419,48 @@ async function listDnsRecords(domain) {
   });
 }
 
-async function deleteTxtRecord(subdomain, domain, hostPrefix) {
+async function deleteTxtRecord(subdomain, domain, hostPrefix, txtValue) {
   return withDomainLock(domain, async () => {
     const zoneFilePath = getZoneFilePath(domain);
-    const recordName = hostPrefix ? txtRecordName(subdomain, hostPrefix) : subdomain;
+    const recordName = txtRecordName(subdomain, hostPrefix);
 
     if (isBindDevMode) {
       logger.debug({ op: "deleteTxtRecord", recordName, domain }, "BIND_DEV_MODE skip");
-      return { name: `${recordName}.${domain}` };
+      return { name: `${recordName}.${domain}`, deleted: true };
     }
 
-    const escapedName = escapeRegex(recordName);
-    const regex = new RegExp(`^${escapedName}\\s+IN\\s+TXT\\s+.*\\n?`, "im");
+    // The name is shared by every subdomain of the domain, so deleting by name
+    // would take every other owner's verification with it.
+    if (!txtValue) {
+      throw new Error(
+        "deleteTxtRecord requires the value to remove: the TXT name is shared by every subdomain."
+      );
+    }
 
+    const regex = txtLineRegex(recordName, txtValue);
+    let changed;
     try {
-      await mutateZoneFile(domain, zoneFilePath, (content) =>
-        // Record not found: nothing to delete, treat as success.
+      changed = await mutateZoneFile(domain, zoneFilePath, (content) =>
         regex.test(content) ? content.replace(regex, "") : null
       );
     } catch (error) {
       if (error.code === "ENOENT") {
-        // If the file doesn't exist, there's nothing to delete.
-        return { name: `${recordName}.${domain}` };
+        return { name: `${recordName}.${domain}`, deleted: false, alreadyAbsent: true };
       }
       throw error;
     }
 
-    return { name: `${recordName}.${domain}` };
+    // Reporting "deleted" for a line that was never found is how records
+    // survived deletion and stayed in the zone forever. Say what happened.
+    if (!changed) {
+      logger.warn(
+        { op: "deleteTxtRecord", recordName, domain },
+        "TXT value not present in zone file; nothing was removed"
+      );
+      return { name: `${recordName}.${domain}`, deleted: false, alreadyAbsent: true };
+    }
+
+    return { name: `${recordName}.${domain}`, deleted: true };
   });
 }
 
@@ -415,6 +473,11 @@ module.exports = {
   updateDnsRecord,
   deleteDnsRecord,
   normalizeRecordType,
-  createOrUpdateTxtRecord,
+  addTxtRecord,
   deleteTxtRecord,
+  // Exported for deploy/migrate-vercel-txt.js so the backfill cannot
+  // disagree with the app about where a TXT line lives or what counts
+  // as the same line.
+  txtRecordName,
+  txtLineRegex,
 };

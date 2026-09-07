@@ -1,4 +1,5 @@
 // routes/api-v1.js — REST API /api/v1/ (external, API key + anonymous IP auth)
+const config = require("../configs/index");
 const bindService = require("../services/bind");
 const { validateRecord } = require("../services/validation");
 const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
@@ -329,20 +330,23 @@ async function apiV1Routes(fastify, options) {
       apiError(400, "host_prefix and value are required.", "INVALID_INPUT");
     }
 
-    // root_level wrote at the zone apex, a single slot shared by every user of
-    // the domain, with no check that the caller owned anything there. Refuse it
-    // explicitly rather than silently downgrading to the subdomain-level name.
+    // root_level used to pick between the zone apex and <prefix>.<subdomain>.
+    // Every TXT record now goes to the root domain (that is the only name
+    // Vercel reads for a subdomain of sitey.my), so the flag selects nothing.
+    // Say so instead of accepting a flag whose meaning has changed underneath
+    // the caller.
     if (rootLevel) {
       apiError(
         400,
-        "root_level is no longer supported: a TXT record at the domain apex is shared by every user. " +
-          "Verification services ask for the record under the name you added, so use the default " +
-          "<host_prefix>.<subdomain> placement.",
+        "root_level is no longer supported: TXT records are always written at the root domain " +
+          "under host_prefix, which is where verification services look. Omit the flag.",
         "ROOT_LEVEL_FORBIDDEN"
       );
     }
 
-    const prefixValidation = validateHostPrefix(rawHostPrefix);
+    const prefixValidation = validateHostPrefix(rawHostPrefix, {
+      allowed: config.txt.apexPrefixes,
+    });
     if (!prefixValidation.valid) {
       apiError(400, prefixValidation.message, "INVALID_HOST_PREFIX");
     }
@@ -357,12 +361,21 @@ async function apiV1Routes(fastify, options) {
     // Ownership of parent subdomain
     const record = await findOwnedRecord(fastify, auth, subdomain, domainEntry);
 
+    // The caller's own previous value, so the zone write can drop it: every
+    // subdomain's token lives under the same name, and the value is the only
+    // thing that identifies a line.
+    const [prevRows] = await fastify.mysql.execute(
+      "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+      [record.id, hostPrefix]
+    );
+
     // DB + BIND
-    const txtRecord = await bindService.createOrUpdateTxtRecord(
+    const txtRecord = await bindService.addTxtRecord(
       subdomain,
       domainEntry.domain,
       hostPrefix,
-      sanitizedTxtValue
+      sanitizedTxtValue,
+      prevRows[0]?.txt_value || null
     );
     await fastify.mysql.execute(
       "INSERT INTO subdomain_txt_records (subdomain_id, host_prefix, txt_value) VALUES (?, ?, ?) " +
@@ -394,18 +407,41 @@ async function apiV1Routes(fastify, options) {
     // Ownership of parent subdomain
     const record = await findOwnedRecord(fastify, auth, subdomain, domainEntry);
 
+    // The stored value is what identifies this caller's line in the zone —
+    // the TXT name itself belongs to every subdomain of the domain.
+    const [txtRows] = await fastify.mysql.execute(
+      "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+      [record.id, hostPrefix]
+    );
+    if (!txtRows.length) {
+      apiError(404, "No TXT record with that host_prefix on this subdomain.", "TXT_NOT_FOUND");
+    }
+
     // DB + BIND
-    await bindService.deleteTxtRecord(subdomain, domainEntry.domain, hostPrefix);
+    const removed = await bindService.deleteTxtRecord(
+      subdomain,
+      domainEntry.domain,
+      hostPrefix,
+      txtRows[0].txt_value
+    );
     await fastify.mysql.execute(
       "DELETE FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
       [record.id, hostPrefix]
     );
 
-    fastify.log.info(`TXT record deleted via API: ${hostPrefix}.${subdomain}.${domainEntry.domain}`);
+    if (!removed.deleted) {
+      // The row is gone either way, but say so rather than claim a zone change
+      // that never happened.
+      fastify.log.warn(
+        `TXT record row deleted but no matching zone line: ${removed.name}`
+      );
+    }
+    fastify.log.info(`TXT record deleted via API: ${removed.name}`);
     return ok({
-      fqdn: `${hostPrefix}.${subdomain}.${domainEntry.domain}`,
+      fqdn: removed.name,
       type: "TXT",
       deleted: true,
+      zone_record_removed: removed.deleted === true,
     });
   });
 }
