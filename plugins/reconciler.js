@@ -165,7 +165,37 @@ function diffTxt(zoneTxtLines, dbTxtRows) {
     }
   }
 
+  // A value the database holds, sitting in the zone under a different one of
+  // our names, is one record at the wrong name — not a missing record plus a
+  // stray line. The old code wrote `_vercel.<subdomain>` and Vercel only ever
+  // reads the apex, so the token is present and unreadable, and moving it
+  // clears both halves at once. Two lines in an alert for one fact reads as
+  // two problems, and the fix for the first one looks like it caused the
+  // second.
+  const stillMissing = [];
   for (const row of missing) {
+    const found = [...zoneByName].find(
+      ([name, values]) =>
+        name !== row.name &&
+        values.includes(row.value) &&
+        !explained.has(`${name}|${row.value}`)
+    );
+    if (!found) {
+      stillMissing.push(row);
+      continue;
+    }
+    explained.add(`${found[0]}|${row.value}`);
+    issues.push({
+      type: "txt-name-mismatch",
+      name: row.name,
+      foundAt: found[0],
+      recordType: "TXT",
+      subdomain: row.subdomain,
+      dbValue: row.value,
+    });
+  }
+
+  for (const row of stillMissing) {
     const spare = (zoneByName.get(row.name) || []).filter(
       (value) => !explained.has(`${row.name}|${value}`)
     );
@@ -290,13 +320,21 @@ async function reconcile(fastify) {
         name: issue.name,
         type: issue.recordType,
         subdomain: issue.subdomain || null,
+        // only txt-name-mismatch sets this: the name the value is actually under
+        foundAt: issue.foundAt ?? null,
         zoneValue: issue.zoneValue ?? null,
         dbValue: issue.dbValue ?? null,
       };
-      if (issue.type === "db-only" || issue.type === "txt-db-only") {
+      if (
+        issue.type === "db-only" ||
+        issue.type === "txt-db-only" ||
+        issue.type === "txt-name-mismatch"
+      ) {
         // The database says this record exists and DNS is not answering with
         // it: somebody's site or domain verification is down right now. This
         // is the case that went unseen for months — TXT was never compared.
+        // A record at the wrong name belongs here too: nothing reads that
+        // name, so for its owner it is simply absent.
         fastify.log.error(line, "Reconciler: in the database, missing from the zone");
       } else {
         fastify.log.warn(line, "Reconciler: zone and database disagree");
@@ -323,6 +361,7 @@ async function reconcile(fastify) {
         if (i.type === "db-only") return `[DB-ONLY] ${i.name}.${i.domain} ${i.recordType} = ${i.dbValue}`;
         if (i.type === "txt-db-only") return `[TXT-DB-ONLY] ${i.name}.${i.domain} <- ${i.subdomain} = ${i.dbValue}`;
         if (i.type === "txt-zone-only") return `[TXT-ZONE-ONLY] ${i.name}.${i.domain} = ${i.zoneValue}`;
+        if (i.type === "txt-name-mismatch") return `[TXT-WRONG-NAME] ${i.subdomain}: at ${i.foundAt}.${i.domain}, should be ${i.name}.${i.domain} = ${i.dbValue}`;
         if (i.type === "txt-value-drift") return `[TXT-DRIFT] ${i.name}.${i.domain} <- ${i.subdomain} zone=${i.zoneValue} db=${i.dbValue}`;
         return `[DRIFT] ${i.name}.${i.domain} ${i.recordType} zone=${i.zoneValue} db=${i.dbValue}`;
       })

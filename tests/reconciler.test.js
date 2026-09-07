@@ -101,6 +101,61 @@ describe("TXT reconciliation", () => {
     ]);
   });
 
+  it("reports a record found under the wrong name as one finding", () => {
+    // The database expects the apex `_vercel` and the value is in the zone
+    // under the fossil `_vercel.stock`. That is one record in the wrong place,
+    // and saying so once is the difference between "move it" and two findings
+    // that look unrelated.
+    const issues = diff({
+      zoneTxtLines: [txtLine("_vercel.stock", tokenFor("stock"))],
+      dbTxtRows: [txtRow("stock", tokenFor("stock"))],
+    });
+
+    expect(issues).toEqual([
+      {
+        type: "txt-name-mismatch",
+        name: VERCEL,
+        foundAt: "_vercel.stock",
+        recordType: "TXT",
+        subdomain: "stock",
+        dbValue: tokenFor("stock"),
+      },
+    ]);
+  });
+
+  it("does not hand one misplaced line to two rows", () => {
+    // Only the row whose value it is may claim it; the other is still missing.
+    const issues = diff({
+      zoneTxtLines: [
+        txtLine(VERCEL, tokenFor("demo")),
+        txtLine("_vercel.stock", tokenFor("stock")),
+      ],
+      dbTxtRows: [
+        txtRow("demo", tokenFor("demo")),
+        txtRow("stock", tokenFor("stock")),
+        txtRow("gone", tokenFor("gone")),
+      ],
+    });
+
+    expect(issues).toEqual([
+      {
+        type: "txt-name-mismatch",
+        name: VERCEL,
+        foundAt: "_vercel.stock",
+        recordType: "TXT",
+        subdomain: "stock",
+        dbValue: tokenFor("stock"),
+      },
+      {
+        type: "txt-db-only",
+        name: VERCEL,
+        recordType: "TXT",
+        subdomain: "gone",
+        dbValue: tokenFor("gone"),
+      },
+    ]);
+  });
+
   it("reports a changed value as drift when the name belongs to one row", () => {
     const issues = diff({
       zoneTxtLines: [txtLine("_acme", "old-value")],
