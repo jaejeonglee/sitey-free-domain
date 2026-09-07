@@ -135,12 +135,18 @@ describe("createSubdomain compensation", () => {
     );
   });
 
-  it("does not attempt compensation when BIND write itself throws", async () => {
+  // createDnsRecord writes the zone line and *then* runs named-checkzone /
+  // reload, so a throw from it is the most likely way to leave an orphan.
+  // Compensation used to be skipped for exactly this case.
+  it("compensates when the BIND write itself throws", async () => {
     bindMod.createDnsRecord.mockRejectedValue(new Error("BIND write failed"));
 
     await expect(createSubdomain(fastify, BASE_PARAMS)).rejects.toThrow("BIND write failed");
-    expect(bindMod.deleteDnsRecord).not.toHaveBeenCalled();
-    expect(alertMod.warn).not.toHaveBeenCalled();
+    expect(bindMod.deleteDnsRecord).toHaveBeenCalledWith("test", "example.com", "A");
+    expect(alertMod.warn).toHaveBeenCalledWith(
+      "ORPHAN_COMPENSATED",
+      expect.objectContaining({ subdomain: "test", domain: "example.com" })
+    );
     expect(alertMod.critical).not.toHaveBeenCalled();
   });
 });

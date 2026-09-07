@@ -2,6 +2,17 @@ const bindService = require("./bind");
 const alertService = require("./alert");
 
 /**
+ * Zone files store CNAME targets with a trailing dot; the DB stores them
+ * without. Normalize before comparing a zone value to a DB value.
+ */
+function asZoneValue(recordType, value) {
+  if (recordType === "CNAME" && value && !String(value).endsWith(".")) {
+    return `${value}.`;
+  }
+  return value;
+}
+
+/**
  * Create a subdomain record (DB + BIND9)
  * DB first (transaction) -> BIND9 -> commit / rollback
  *
@@ -42,13 +53,17 @@ async function createSubdomain(fastify, params) {
       [userId, domainId, subdomain, recordValue, recordType, ownerType, ownerIp]
     );
 
+    // Flag before the call, not after: the most common failures are inside
+    // createDnsRecord (checkzone / reload), and setting it afterwards skipped
+    // compensation for exactly those cases. deleteDnsRecord is idempotent, so
+    // compensating a write that never landed is harmless.
+    bindWritten = true;
     const newRecord = await bindService.createDnsRecord(
       subdomain,
       recordValue,
       domain,
       recordType
     );
-    bindWritten = true;
 
     await connection.commit();
     fastify.log.info(`Subdomain created: ${newRecord.name}`);
@@ -140,19 +155,19 @@ async function updateSubdomain(fastify, params) {
       }
     }
 
-    // BIND9: update main record
-    await bindService.updateDnsRecord(subdomain, recordValue, domain, recordType);
+    // BIND9: update main record (flag first — see createSubdomain)
     bindUpdated = true;
+    await bindService.updateDnsRecord(subdomain, recordValue, domain, recordType);
 
     // BIND9: handle TXT record
     if (recordType === "CNAME" && typeof txtValue !== "undefined") {
       const hostPrefix = "_vercel";
+      txtTouched = true;
       if (txtValue) {
-        await bindService.createOrUpdateTxtRecord(domain, hostPrefix, txtValue);
+        await bindService.createOrUpdateTxtRecord(subdomain, domain, hostPrefix, txtValue);
       } else {
         await bindService.deleteTxtRecord(subdomain, domain, hostPrefix);
       }
-      txtTouched = true;
     }
 
     await connection.commit();
@@ -169,14 +184,20 @@ async function updateSubdomain(fastify, params) {
         if (current) {
           const currentVal = current.value;
           // Normalize for comparison: CNAME values end with "." in zone files
-          const formatted = recordType === "CNAME" && !recordValue.endsWith(".")
-            ? recordValue + "."
-            : recordValue;
+          const formatted = asZoneValue(recordType, recordValue);
           if (currentVal === formatted || currentVal === recordValue) {
             // Our write is still there, reverse it
             await bindService.updateDnsRecord(subdomain, oldRecordValue, domain, recordType);
             fastify.log.warn(`Compensated BIND update after DB failure: ${subdomain}.${domain}`);
             await alertService.warn("UPDATE_COMPENSATED", { subdomain, domain, recordType, error: error.message });
+          } else if (
+            currentVal === asZoneValue(recordType, oldRecordValue) ||
+            currentVal === oldRecordValue
+          ) {
+            // The zone still holds the old value: our write never landed
+            // (checkzone rejected it, or the reload rolled it back).
+            // Nothing to undo — and this is not a race.
+            fastify.log.info(`BIND update never applied, no compensation needed: ${subdomain}.${domain}`);
           } else {
             // Value is different - race detected
             await alertService.critical("UPDATE_COMPENSATION_RACE", {
@@ -199,7 +220,7 @@ async function updateSubdomain(fastify, params) {
       try {
         const hostPrefix = "_vercel";
         if (oldTxtValue) {
-          await bindService.createOrUpdateTxtRecord(domain, hostPrefix, oldTxtValue);
+          await bindService.createOrUpdateTxtRecord(subdomain, domain, hostPrefix, oldTxtValue);
         } else {
           await bindService.deleteTxtRecord(subdomain, domain, hostPrefix);
         }
@@ -261,15 +282,15 @@ async function deleteSubdomain(fastify, params) {
     );
     await connection.execute("DELETE FROM subdomains WHERE id = ?", [recordId]);
 
-    // BIND9: delete main record
-    await bindService.deleteDnsRecord(subdomain, domain, recordType);
+    // BIND9: delete main record (flag first — see createSubdomain)
     bindDeleted = true;
+    await bindService.deleteDnsRecord(subdomain, domain, recordType);
 
     // BIND9: delete TXT records
+    txtDeleted = true;
     for (const txt of txtRows) {
       await bindService.deleteTxtRecord(subdomain, domain, txt.host_prefix);
     }
-    txtDeleted = true;
 
     await connection.commit();
     fastify.log.info(`Subdomain deleted: ${subdomain}.${domain} (${recordType})`);
@@ -287,7 +308,10 @@ async function deleteSubdomain(fastify, params) {
           await bindService.createDnsRecord(subdomain, oldRecordValue, domain, oldRecordType);
           fastify.log.warn(`Compensated BIND deletion after DB failure: ${subdomain}.${domain}`);
           await alertService.warn("DELETE_COMPENSATED", { subdomain, domain, recordType, error: error.message });
-        } else if (current.value !== oldRecordValue) {
+        } else if (
+          current.value !== asZoneValue(recordType, oldRecordValue) &&
+          current.value !== oldRecordValue
+        ) {
           // Different value - race detected
           await alertService.critical("DELETE_COMPENSATION_RACE", {
             subdomain, domain, recordType,
@@ -311,7 +335,7 @@ async function deleteSubdomain(fastify, params) {
     if (txtDeleted && txtRows.length > 0) {
       try {
         for (const txt of txtRows) {
-          await bindService.createOrUpdateTxtRecord(domain, txt.host_prefix, txt.txt_value);
+          await bindService.createOrUpdateTxtRecord(subdomain, domain, txt.host_prefix, txt.txt_value);
         }
         fastify.log.warn(`Compensated TXT deletion after DB failure: ${subdomain}.${domain}`);
       } catch (txtCompErr) {

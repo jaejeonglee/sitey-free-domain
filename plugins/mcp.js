@@ -8,6 +8,7 @@ const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../servic
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
+const { validateHostPrefix, validateTxtValue } = require("../utils/validators");
 
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const IPV4_REGEX = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
@@ -33,14 +34,13 @@ function checkAnonCreateRate() {
 }
 
 /**
- * Extract client IP from Fastify request
+ * Client IP used as the anonymous ownership key.
+ *
+ * See routes/api-v1.js — `request.ip` respects the trusted proxy list, the raw
+ * headers do not.
  */
 function getClientIp(request) {
-  return (
-    request.headers["cf-connecting-ip"] ||
-    request.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-    request.ip
-  );
+  return request.ip;
 }
 
 /**
@@ -437,15 +437,15 @@ function createMcpServer(fastify) {
   // --- Tool: create_txt_record ---
   server.tool(
     "create_txt_record",
-    "Create or update a TXT record for domain verification. Used for services like Vercel (_vercel) and Netlify that require DNS-based ownership proof. Set root_level=true for services like Vercel that check TXT at the apex (e.g. _vercel.sitey.one instead of _vercel.demo.sitey.one).",
+    "Create or update a TXT record for domain verification. Used for services like Vercel (_vercel) and Netlify that require DNS-based ownership proof. The record is always placed under the subdomain you own (e.g. _vercel.demo.sitey.one).",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
       host_prefix: z.string().describe("TXT record host prefix (e.g. '_vercel' for Vercel verification)"),
       value: z.string().describe("TXT record value (the verification token)"),
-      root_level: z.boolean().optional().describe("If true, place TXT at root level (e.g. _vercel.sitey.one) instead of subdomain level (e.g. _vercel.demo.sitey.one). Required for Vercel domain verification."),
+      root_level: z.boolean().optional().describe("No longer supported — apex TXT records are shared by every user of the domain. Passing true returns an error."),
     },
-    async ({ subdomain: rawSubdomain, domain: rawDomain, host_prefix: hostPrefix, value: txtValue, root_level: rootLevel }, extra) => {
+    async ({ subdomain: rawSubdomain, domain: rawDomain, host_prefix: rawHostPrefix, value: txtValue, root_level: rootLevel }, extra) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
       const domainName = (rawDomain || "").trim().toLowerCase();
 
@@ -477,18 +477,44 @@ function createMcpServer(fastify) {
         return mcpError("You must own the subdomain before adding TXT records. Create the subdomain first.");
       }
 
-      if (!hostPrefix || !txtValue) {
+      if (!rawHostPrefix || !txtValue) {
         return mcpError("host_prefix and value are required.");
       }
 
+      // See routes/api-v1.js: the apex is one slot shared by the whole domain.
+      if (rootLevel) {
+        return mcpError(
+          "root_level is no longer supported: a TXT record at the domain apex is shared by every user. " +
+            "Verification services ask for the record under the name you added, so omit root_level."
+        );
+      }
+
+      const prefixValidation = validateHostPrefix(rawHostPrefix);
+      if (!prefixValidation.valid) {
+        return mcpError(prefixValidation.message);
+      }
+      const hostPrefix = prefixValidation.value;
+
+      // The value is written as `"<value>"` into the zone file; REST already
+      // rejects quotes/newlines/control characters, MCP did not.
+      const txtValidation = validateTxtValue(txtValue);
+      if (!txtValidation.valid) {
+        return mcpError(txtValidation.message);
+      }
+      const sanitizedTxtValue = txtValidation.value;
+
       try {
-        const fullPrefix = rootLevel ? hostPrefix : `${hostPrefix}.${subdomain}`;
-        await bindService.createOrUpdateTxtRecord(domainEntry.domain, fullPrefix, txtValue);
+        const txtRecord = await bindService.createOrUpdateTxtRecord(
+          subdomain,
+          domainEntry.domain,
+          hostPrefix,
+          sanitizedTxtValue
+        );
         return mcpSuccess({
           success: true,
-          record: `${fullPrefix}.${domainEntry.domain}`,
+          record: txtRecord.name,
           type: "TXT",
-          value: txtValue,
+          value: sanitizedTxtValue,
         });
       } catch (error) {
         fastify.log.error(error, "MCP create_txt_record failed");
@@ -506,7 +532,7 @@ function createMcpServer(fastify) {
       domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
       host_prefix: z.string().describe("TXT record host prefix (e.g. '_vercel')"),
     },
-    async ({ subdomain: rawSubdomain, domain: rawDomain, host_prefix: hostPrefix }, extra) => {
+    async ({ subdomain: rawSubdomain, domain: rawDomain, host_prefix: rawHostPrefix }, extra) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
       const domainName = (rawDomain || "").trim().toLowerCase();
 
@@ -538,12 +564,17 @@ function createMcpServer(fastify) {
         return mcpError("Subdomain not found or you don't have permission.");
       }
 
+      const prefixValidation = validateHostPrefix(rawHostPrefix);
+      if (!prefixValidation.valid) {
+        return mcpError(prefixValidation.message);
+      }
+      const hostPrefix = prefixValidation.value;
+
       try {
-        const fullPrefix = `${hostPrefix}.${subdomain}`;
-        await bindService.deleteTxtRecord(subdomain, domainEntry.domain, hostPrefix);
+        const txtRecord = await bindService.deleteTxtRecord(subdomain, domainEntry.domain, hostPrefix);
         return mcpSuccess({
           success: true,
-          record: `${fullPrefix}.${domainEntry.domain}`,
+          record: txtRecord.name,
           type: "TXT",
           deleted: true,
         });

@@ -7,6 +7,7 @@ const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
 const {
   isValidSubdomain,
+  validateHostPrefix,
   validateRecordValue,
   validateTxtValue,
 } = require("../utils/validators");
@@ -14,14 +15,15 @@ const {
 const IP_SUBDOMAIN_LIMIT = 3;
 
 /**
- * Extract client IP from Fastify request
+ * Client IP used as the anonymous ownership key.
+ *
+ * `request.ip` is derived by Fastify from the configured trusted proxy list
+ * (see configs/index.js). Reading cf-connecting-ip / x-forwarded-for directly
+ * meant any caller could pick their own identity with one header and read,
+ * change or delete another anonymous user's subdomains.
  */
 function getClientIp(request) {
-  return (
-    request.headers["cf-connecting-ip"] ||
-    request.headers["x-forwarded-for"]?.split(",")[0]?.trim() ||
-    request.ip
-  );
+  return request.ip;
 }
 
 /**
@@ -321,11 +323,30 @@ async function apiV1Routes(fastify, options) {
     const auth = request.apiAuth;
     const subdomain = (request.params.subdomain || "").trim().toLowerCase();
     const domainEntry = await resolveDomain(fastify, request.params.domain);
-    const { host_prefix: hostPrefix, value: rawTxtValue, root_level: rootLevel } = request.body || {};
+    const { host_prefix: rawHostPrefix, value: rawTxtValue, root_level: rootLevel } = request.body || {};
 
-    if (!hostPrefix || !rawTxtValue) {
+    if (!rawHostPrefix || !rawTxtValue) {
       apiError(400, "host_prefix and value are required.", "INVALID_INPUT");
     }
+
+    // root_level wrote at the zone apex, a single slot shared by every user of
+    // the domain, with no check that the caller owned anything there. Refuse it
+    // explicitly rather than silently downgrading to the subdomain-level name.
+    if (rootLevel) {
+      apiError(
+        400,
+        "root_level is no longer supported: a TXT record at the domain apex is shared by every user. " +
+          "Verification services ask for the record under the name you added, so use the default " +
+          "<host_prefix>.<subdomain> placement.",
+        "ROOT_LEVEL_FORBIDDEN"
+      );
+    }
+
+    const prefixValidation = validateHostPrefix(rawHostPrefix);
+    if (!prefixValidation.valid) {
+      apiError(400, prefixValidation.message, "INVALID_HOST_PREFIX");
+    }
+    const hostPrefix = prefixValidation.value;
 
     const txtValidation = validateTxtValue(rawTxtValue);
     if (!txtValidation.valid) {
@@ -337,17 +358,21 @@ async function apiV1Routes(fastify, options) {
     const record = await findOwnedRecord(fastify, auth, subdomain, domainEntry);
 
     // DB + BIND
-    const fullPrefix = rootLevel ? hostPrefix : `${hostPrefix}.${subdomain}`;
-    await bindService.createOrUpdateTxtRecord(domainEntry.domain, fullPrefix, sanitizedTxtValue);
+    const txtRecord = await bindService.createOrUpdateTxtRecord(
+      subdomain,
+      domainEntry.domain,
+      hostPrefix,
+      sanitizedTxtValue
+    );
     await fastify.mysql.execute(
       "INSERT INTO subdomain_txt_records (subdomain_id, host_prefix, txt_value) VALUES (?, ?, ?) " +
       "ON DUPLICATE KEY UPDATE txt_value = VALUES(txt_value)",
       [record.id, hostPrefix, sanitizedTxtValue]
     );
 
-    fastify.log.info(`TXT record created/updated via API: ${fullPrefix}.${domainEntry.domain}`);
+    fastify.log.info(`TXT record created/updated via API: ${txtRecord.name}`);
     return ok({
-      fqdn: `${fullPrefix}.${domainEntry.domain}`,
+      fqdn: txtRecord.name,
       type: "TXT",
       value: sanitizedTxtValue,
     });
@@ -360,7 +385,11 @@ async function apiV1Routes(fastify, options) {
     const auth = request.apiAuth;
     const subdomain = (request.params.subdomain || "").trim().toLowerCase();
     const domainEntry = await resolveDomain(fastify, request.params.domain);
-    const hostPrefix = request.params.hostPrefix;
+    const prefixValidation = validateHostPrefix(request.params.hostPrefix);
+    if (!prefixValidation.valid) {
+      apiError(400, prefixValidation.message, "INVALID_HOST_PREFIX");
+    }
+    const hostPrefix = prefixValidation.value;
 
     // Ownership of parent subdomain
     const record = await findOwnedRecord(fastify, auth, subdomain, domainEntry);

@@ -170,15 +170,25 @@ async function reconcile(fastify) {
 }
 
 async function reconcilerPlugin(fastify) {
+  let intervalId = null;
+  let initialTimeoutId = null;
+
   fastify.addHook("onReady", () => {
     const delayMs = msUntilMidnightKST();
     fastify.log.info({ delayMs, delayHours: (delayMs / 3600000).toFixed(1) },
       "Reconciler: scheduling first run at next midnight KST");
 
-    setTimeout(() => {
+    initialTimeoutId = setTimeout(() => {
       reconcile(fastify);
-      setInterval(() => reconcile(fastify), RECONCILE_INTERVAL_MS);
+      intervalId = setInterval(() => reconcile(fastify), RECONCILE_INTERVAL_MS);
     }, delayMs);
+  });
+
+  // Same shape as validation-scheduler: without this the timers keep the
+  // process alive after fastify.close().
+  fastify.addHook("onClose", async () => {
+    if (initialTimeoutId) clearTimeout(initialTimeoutId);
+    if (intervalId) clearInterval(intervalId);
   });
 }
 

@@ -34,37 +34,109 @@ function getZoneFilePath(domain) {
   return config.bind.zoneFilePath(domain);
 }
 
-// Reload BIND9
-async function reloadBind(domain, zoneFilePath) {
+/**
+ * Bump the zone serial in already-read zone content (pure).
+ */
+function bumpSerial(fileContent) {
+  const serialRegex = /(\d+)\s+;\s+Serial/;
+  const match = fileContent.match(serialRegex);
+  if (!match) {
+    throw new Error("Could not find or update serial number in zone file.");
+  }
+  const newSerial = parseInt(match[1], 10) + 1;
+  return fileContent.replace(serialRegex, `${newSerial}         ; Serial`);
+}
+
+/**
+ * Read a zone file, fail-close on a missing file.
+ */
+async function readZoneFile(zoneFilePath) {
   try {
+    return await fs.readFile(zoneFilePath, "utf8");
+  } catch (error) {
+    if (error.code === "ENOENT") {
+      // Keep the code so idempotent callers (TXT delete) can still treat a
+      // missing zone file as "already gone".
+      throw Object.assign(
+        new Error(
+          `Zone file not found at ${zoneFilePath}. Create the file or enable BIND_DEV_MODE=true for local development.`
+        ),
+        { code: "ENOENT" }
+      );
+    }
+    throw error;
+  }
+}
+
+/**
+ * Replace a zone file atomically: write a temp file next to it, validate the
+ * *temp* file, then rename over the original.
+ *
+ * The previous flow wrote first and validated afterwards, so a rejected record
+ * stayed in the live zone file and blocked every later write on that domain.
+ * Here the live file is only ever replaced by content `named-checkzone` has
+ * already accepted, and a failed reload is rolled back to the original bytes.
+ *
+ * @param {string} originalContent - content before the change, used for rollback
+ */
+async function replaceZoneFile(domain, zoneFilePath, nextContent, originalContent) {
+  const tmpPath = `${zoneFilePath}.tmp.${process.pid}.${Date.now()}`;
+
+  // Keep mode/owner of the live file — named must still be able to read it.
+  const stats = await fs.stat(zoneFilePath);
+
+  try {
+    await fs.writeFile(tmpPath, nextContent, { mode: stats.mode & 0o777 });
+    await fs.chown(tmpPath, stats.uid, stats.gid).catch(() => {});
     await execFile("named-checkconf", []);
-    await execFile("named-checkzone", [domain, zoneFilePath]);
+    await execFile("named-checkzone", [domain, tmpPath]);
+  } catch (error) {
+    await fs.unlink(tmpPath).catch(() => {});
+    logger.error({ err: error, domain }, "Zone validation failed; zone file left unchanged");
+    throw Object.assign(
+      new Error("Zone file validation failed; no change was applied."),
+      { cause: error }
+    );
+  }
+
+  await fs.rename(tmpPath, zoneFilePath);
+
+  try {
     await execFile("systemctl", ["reload", "named"]);
   } catch (error) {
-    logger.error({ err: error }, "BIND reload failed");
+    // named still holds the previous zone in memory, so put the same bytes
+    // back on disk to keep disk and memory in agreement.
+    try {
+      const rollbackPath = `${zoneFilePath}.rollback.${process.pid}.${Date.now()}`;
+      await fs.writeFile(rollbackPath, originalContent, { mode: stats.mode & 0o777 });
+      await fs.chown(rollbackPath, stats.uid, stats.gid).catch(() => {});
+      await fs.rename(rollbackPath, zoneFilePath);
+      logger.error({ err: error, domain }, "BIND reload failed; zone file rolled back");
+    } catch (rollbackError) {
+      logger.fatal(
+        { err: rollbackError, originalErr: error, domain, zoneFilePath },
+        "BIND reload failed AND rollback failed — zone file may be ahead of the running server"
+      );
+    }
     throw Object.assign(new Error("Failed to reload BIND9 service."), { cause: error });
   }
 }
 
 /**
- * Manage zone file serial number
+ * Read a zone file, apply a pure transform, bump the serial, and swap it in
+ * atomically. `transform` returns the new content, `null` when there is
+ * nothing to change, or throws to abort.
+ *
+ * @returns {boolean} true when the zone file was replaced
  */
-async function incrementSerial(zoneFilePath) {
-  let fileContent = await fs.readFile(zoneFilePath, "utf8");
-  const serialRegex = /(\d+)\s+;\s+Serial/;
-  const match = fileContent.match(serialRegex);
-
-  if (match) {
-    const currentSerial = parseInt(match[1], 10);
-    const newSerial = currentSerial + 1;
-    fileContent = fileContent.replace(
-      serialRegex,
-      `${newSerial}         ; Serial`
-    );
-    await fs.writeFile(zoneFilePath, fileContent);
-  } else {
-    throw new Error("Could not find or update serial number in zone file.");
+async function mutateZoneFile(domain, zoneFilePath, transform) {
+  const original = await readZoneFile(zoneFilePath);
+  const mutated = transform(original);
+  if (mutated === null) {
+    return false;
   }
+  await replaceZoneFile(domain, zoneFilePath, bumpSerial(mutated), original);
+  return true;
 }
 
 function escapeRegex(input) {
@@ -131,18 +203,7 @@ async function createDnsRecord(subdomain, value, domain, recordType = "A") {
     if (isBindDevMode) {
       logger.debug({ op: "createDnsRecord", subdomain, domain, type }, "BIND_DEV_MODE skip");
     } else {
-      try {
-        await fs.appendFile(zoneFilePath, newRecord);
-      } catch (error) {
-        if (error.code === "ENOENT") {
-          throw new Error(
-            `Zone file not found at ${zoneFilePath}. Create the file or enable BIND_DEV_MODE=true for local development.`
-          );
-        }
-        throw error;
-      }
-      await incrementSerial(zoneFilePath);
-      await reloadBind(domain, zoneFilePath);
+      await mutateZoneFile(domain, zoneFilePath, (content) => content + newRecord);
     }
 
     return { name: `${subdomain}.${domain}`, content: recordValue, type };
@@ -163,31 +224,18 @@ async function updateDnsRecord(subdomain, newValue, domain, recordType = "A") {
       return { name: `${subdomain}.${domain}`, content: recordValue, type };
     }
 
-    let fileContent;
-    try {
-      fileContent = await fs.readFile(zoneFilePath, "utf8");
-    } catch (error) {
-      if (error.code === "ENOENT") {
-        throw new Error(
-          `Zone file not found at ${zoneFilePath}. Create the file or enable BIND_DEV_MODE=true for local development.`
-        );
-      }
-      throw error;
-    }
     const escapedName = escapeRegex(subdomain);
     const regex = new RegExp(
       `^(${escapedName}\\s+IN\\s+${type}\\s+)(\\S+.*)$`,
       "im"
     );
 
-    if (!regex.test(fileContent)) {
-      throw new Error(`${type} record not found in zone file.`);
-    }
-
-    fileContent = fileContent.replace(regex, `$1${recordValue}`);
-    await fs.writeFile(zoneFilePath, fileContent);
-    await incrementSerial(zoneFilePath);
-    await reloadBind(domain, zoneFilePath);
+    await mutateZoneFile(domain, zoneFilePath, (content) => {
+      if (!regex.test(content)) {
+        throw new Error(`${type} record not found in zone file.`);
+      }
+      return content.replace(regex, `$1${recordValue}`);
+    });
 
     return { name: `${subdomain}.${domain}`, content: recordValue, type };
   });
@@ -206,40 +254,41 @@ async function deleteDnsRecord(subdomain, domain, recordType = "A") {
       return { name: `${subdomain}.${domain}`, type };
     }
 
-    let fileContent;
-    try {
-      fileContent = await fs.readFile(zoneFilePath, "utf8");
-    } catch (error) {
-      if (error.code === "ENOENT") {
-        throw new Error(
-          `Zone file not found at ${zoneFilePath}. Create the file or enable BIND_DEV_MODE=true for local development.`
-        );
-      }
-      throw error;
-    }
     const escapedName = escapeRegex(subdomain);
     const regex = new RegExp(
       `^${escapedName}\\s+IN\\s+${type}\\s+.*\\n?`,
       "im"
     );
 
-    if (!regex.test(fileContent)) {
+    const changed = await mutateZoneFile(domain, zoneFilePath, (content) =>
+      regex.test(content) ? content.replace(regex, "") : null
+    );
+
+    if (!changed) {
       return { name: `${subdomain}.${domain}`, type, alreadyAbsent: true };
     }
-
-    fileContent = fileContent.replace(regex, "");
-    await fs.writeFile(zoneFilePath, fileContent);
-    await incrementSerial(zoneFilePath);
-    await reloadBind(domain, zoneFilePath);
 
     return { name: `${subdomain}.${domain}`, type };
   });
 }
 
-async function createOrUpdateTxtRecord(domain, hostPrefix, txtValue) {
+/**
+ * Build the zone file line name for a TXT record.
+ *
+ * Every TXT record lives under the subdomain that owns it. Creation used to
+ * write the bare prefix (`_vercel`), which is one slot shared by the whole
+ * domain, so two users verifying with the same provider overwrote each other —
+ * and deletion looked for `_vercel.<sub>`, a name creation never wrote, so it
+ * could never remove anything. Both sides now use this one rule.
+ */
+function txtRecordName(subdomain, hostPrefix) {
+  return `${hostPrefix}.${subdomain}`;
+}
+
+async function createOrUpdateTxtRecord(subdomain, domain, hostPrefix, txtValue) {
   return withDomainLock(domain, async () => {
     const zoneFilePath = getZoneFilePath(domain);
-    const recordName = hostPrefix; // dig TXT _vercel.sitey.one 시 value list가 추출되어야하기 때문에 subdomain이 아닌 hostPrefix 기준으로 레코드 생성
+    const recordName = txtRecordName(subdomain, hostPrefix);
     const recordContent = `"${txtValue}"`;
     const newRecordLine = `${recordName}\tIN\tTXT\t${recordContent}`;
 
@@ -248,35 +297,17 @@ async function createOrUpdateTxtRecord(domain, hostPrefix, txtValue) {
       return { name: `${recordName}.${domain}`, content: txtValue };
     }
 
-    let fileContent;
-    try {
-      fileContent = await fs.readFile(zoneFilePath, "utf8");
-    } catch (error) {
-      if (error.code === "ENOENT") {
-        throw new Error(
-          `Zone file not found at ${zoneFilePath}. Enable BIND_DEV_MODE=true for local dev.`
-        );
-      }
-      throw error;
-    }
-
     const escapedName = escapeRegex(recordName);
     const regex = new RegExp(
       `^(${escapedName}\\s+IN\\s+TXT\\s+)(?:".*")$`,
       "im"
     );
 
-    if (regex.test(fileContent)) {
-      // Update existing record
-      fileContent = fileContent.replace(regex, `$1${recordContent}`);
-    } else {
-      // Add new record
-      fileContent += `\n${newRecordLine}`;
-    }
-
-    await fs.writeFile(zoneFilePath, fileContent);
-    await incrementSerial(zoneFilePath);
-    await reloadBind(domain, zoneFilePath);
+    await mutateZoneFile(domain, zoneFilePath, (content) =>
+      regex.test(content)
+        ? content.replace(regex, `$1${recordContent}`)
+        : content + `\n${newRecordLine}`
+    );
 
     return { name: `${recordName}.${domain}`, content: txtValue };
   });
@@ -348,16 +379,21 @@ async function listDnsRecords(domain) {
 async function deleteTxtRecord(subdomain, domain, hostPrefix) {
   return withDomainLock(domain, async () => {
     const zoneFilePath = getZoneFilePath(domain);
-    const recordName = hostPrefix ? `${hostPrefix}.${subdomain}` : subdomain;
+    const recordName = hostPrefix ? txtRecordName(subdomain, hostPrefix) : subdomain;
 
     if (isBindDevMode) {
       logger.debug({ op: "deleteTxtRecord", recordName, domain }, "BIND_DEV_MODE skip");
       return { name: `${recordName}.${domain}` };
     }
 
-    let fileContent;
+    const escapedName = escapeRegex(recordName);
+    const regex = new RegExp(`^${escapedName}\\s+IN\\s+TXT\\s+.*\\n?`, "im");
+
     try {
-      fileContent = await fs.readFile(zoneFilePath, "utf8");
+      await mutateZoneFile(domain, zoneFilePath, (content) =>
+        // Record not found: nothing to delete, treat as success.
+        regex.test(content) ? content.replace(regex, "") : null
+      );
     } catch (error) {
       if (error.code === "ENOENT") {
         // If the file doesn't exist, there's nothing to delete.
@@ -365,19 +401,6 @@ async function deleteTxtRecord(subdomain, domain, hostPrefix) {
       }
       throw error;
     }
-
-    const escapedName = escapeRegex(recordName);
-    const regex = new RegExp(`^${escapedName}\\s+IN\\s+TXT\\s+.*\\n?`, "im");
-
-    if (!regex.test(fileContent)) {
-      // Record not found, consider it a success
-      return { name: `${recordName}.${domain}` };
-    }
-
-    fileContent = fileContent.replace(regex, "");
-    await fs.writeFile(zoneFilePath, fileContent);
-    await incrementSerial(zoneFilePath);
-    await reloadBind(domain, zoneFilePath);
 
     return { name: `${recordName}.${domain}` };
   });

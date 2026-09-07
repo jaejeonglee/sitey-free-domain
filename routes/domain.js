@@ -435,6 +435,7 @@ async function domainRoutes(fastify, options) {
 
         // Create/update TXT record in BIND
         await bindService.createOrUpdateTxtRecord(
+          subdomain,
           domainEntry.domain,
           hostPrefix,
           sanitizedTxtValue

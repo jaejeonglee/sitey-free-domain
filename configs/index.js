@@ -88,5 +88,14 @@ module.exports = {
   server: {
     port: process.env.PORT || 3000,
     host: "0.0.0.0",
+    // Which peers may set X-Forwarded-For. Caddy terminates HTTPS on this same
+    // host and proxies over loopback, so loopback is the only honest source.
+    // `trustProxy: true` trusted every hop, which let any caller pick their own
+    // client IP with one header and take over another anonymous user's records.
+    // Override only if the proxy ever moves off-box.
+    trustProxy: (process.env.TRUSTED_PROXIES || "127.0.0.1,::1")
+      .split(",")
+      .map((s) => s.trim())
+      .filter(Boolean),
   },
 };

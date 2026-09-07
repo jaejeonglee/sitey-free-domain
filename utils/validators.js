@@ -8,8 +8,47 @@ const HOSTNAME_REGEX =
 
 const TXT_MAX_LENGTH = 512;
 
+// TXT host prefix: one or more DNS labels, each optionally starting with "_"
+// (_vercel, _acme-challenge, selector1._domainkey ...).
+const HOST_PREFIX_LABEL_REGEX = /^_?[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+const HOST_PREFIX_MAX_LENGTH = 100;
+
 function isValidSubdomain(name) {
   return SUBDOMAIN_REGEX.test(name);
+}
+
+/**
+ * Validate a TXT record host prefix.
+ *
+ * The prefix ends up as the *name* of a zone file line
+ * (`<prefix>.<subdomain>\tIN\tTXT\t"..."`), so anything that is not a plain
+ * DNS label lets the caller write arbitrary zone directives — a space turns
+ * the rest of the input into extra fields, ";" starts a comment, "$" starts a
+ * directive like $ORIGIN. Allow-list the label grammar instead of blocking
+ * characters one by one.
+ */
+function validateHostPrefix(hostPrefix) {
+  const trimmed = String(hostPrefix ?? "").trim().toLowerCase();
+  if (!trimmed) {
+    return { valid: false, message: "host_prefix is required." };
+  }
+  if (trimmed.length > HOST_PREFIX_MAX_LENGTH) {
+    return {
+      valid: false,
+      message: `host_prefix must be ${HOST_PREFIX_MAX_LENGTH} characters or fewer.`,
+    };
+  }
+  const labels = trimmed.split(".");
+  for (const label of labels) {
+    if (!HOST_PREFIX_LABEL_REGEX.test(label)) {
+      return {
+        valid: false,
+        message:
+          "host_prefix must be dot-separated DNS labels (letters, digits, '-', optional leading '_'), e.g. _vercel or selector1._domainkey.",
+      };
+    }
+  }
+  return { valid: true, value: trimmed };
 }
 
 function validateRecordValue(recordType, value, { subdomain, domain }) {
@@ -69,6 +108,7 @@ module.exports = {
   IPV4_REGEX,
   HOSTNAME_REGEX,
   isValidSubdomain,
+  validateHostPrefix,
   validateRecordValue,
   validateTxtValue,
 };

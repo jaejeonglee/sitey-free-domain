@@ -6,6 +6,10 @@
 | 파일 | 용도 |
 |---|---|
 | `dns-controller.service` | 앱을 systemd 서비스로 올린다 (재부팅·크래시 자동 복구) |
+| `migrate-vercel-txt.js` | apex TXT → `<prefix>.<서브도메인>` 이관 (dry-run 기본) |
+
+> 🔴 **이 저장소의 보안 수정 중 «TXT 이름 분리»는 PSL 등재 전에 배포하면 안 된다.**
+> 아래 3절을 먼저 읽을 것. 나머지 수정과 systemd 유닛은 지금 적용해도 된다.
 
 ---
 
@@ -89,3 +93,55 @@ systemctl status dns-controller --no-pager | head -5   # active (running), 재�
 systemctl disable --now dns-controller
 cd /root/dns-controller && nohup node server.js > /dev/null 2>&1 &
 ```
+
+---
+
+## 3. 🔴 TXT 이름 분리 — PSL 등재 전에는 배포 금지
+
+보안 수정 3번으로 TXT 레코드 이름 규칙이 `<prefix>`(도메인 apex 공유) →
+**`<prefix>.<서브도메인>`** 으로 통일됐다. 근거는 `.claude/docs/decisions/0001-txt-record-naming.md`.
+
+### 왜 지금 배포하면 안 되는가
+
+Vercel 은 «등록 도메인» 기준으로 `_vercel` TXT 를 요구한다.
+`sitey.my`·`sitey.one` 이 **Public Suffix List 에 없으므로** Vercel 은 `demo.sitey.my` 를
+등록 도메인 `sitey.my` 의 하위로 보고 **apex 의 `_vercel.sitey.my`** 를 요구한다.
+
+지금 배포하면 앱이 더 이상 apex 에 쓰지 않으므로 **Vercel 인증이 전원 불가**가 된다.
+2026-09-07 실측 기준 TXT 28건이 **100% `_vercel`** 이다.
+
+### 배포 순서 (이 순서를 지킨다)
+
+1. `sitey.my` · `sitey.one` 을 **Public Suffix List 에 등재** (https://github.com/publicsuffix/list)
+2. 등재가 Vercel 쪽에 반영됐는지 **서브도메인 하나로 실제 검증 성공**을 확인
+3. 그 다음에 이 변경을 배포 (`git pull` → `systemctl restart dns-controller`)
+4. 아래 마이그레이션 실행
+5. apex 에 남은 옛 `_vercel` 줄은 **한동안 그대로 둔다** (기존 검증이 그걸 보고 있다)
+
+### 마이그레이션
+
+DB 에는 사용자별 토큰이 각각 보존돼 있다. 스크립트가 그걸 기준으로
+각자의 TXT 를 자기 이름 자리에 복원한다.
+
+```bash
+cd /root/dns-controller
+
+# 1) 계획만 본다 (아무것도 쓰지 않는다)
+node deploy/migrate-vercel-txt.js
+
+# 2) 출력이 납득되면 적용
+node deploy/migrate-vercel-txt.js --apply
+
+# 3) 검증
+dig +short TXT _vercel.<서브도메인>.sitey.my @127.0.0.1
+named-checkzone sitey.my /etc/bind/db.sitey.my
+```
+
+⚠️ 스크립트는 **apex 에 남아 있는 옛 줄을 지우지 않는다.** 보고만 한다.
+그 줄이 누구 것인지(운영자가 손으로 넣은 것일 수도 있다) 확인한 뒤 사람이 판단해서 지운다.
+
+### 그때까지 다른 수정만 먼저 배포하려면
+
+나머지 다섯 건(입력 검증·신뢰 프록시·`/mcp` 레이트리밋·zone 원자적 쓰기·보상 플래그)은
+PSL 과 무관하게 지금 적용해도 된다. 다만 같은 커밋에 묶여 있으므로
+**분리해서 배포하려면 알려줄 것** — apex 쓰기를 유지하는 별도 커밋을 만들어 준다.
