@@ -1,8 +1,10 @@
 #!/usr/bin/env node
 // Backfill the TXT values that overwriting destroyed.
 //
-//   node deploy/migrate-vercel-txt.js            # dry run, writes nothing
-//   node deploy/migrate-vercel-txt.js --apply    # actually writes
+//   node deploy/migrate-vercel-txt.js                          # dry run, writes nothing
+//   node deploy/migrate-vercel-txt.js --apply                  # actually writes
+//   node deploy/migrate-vercel-txt.js --prune-orphans          # dry run, also lists what it would remove
+//   node deploy/migrate-vercel-txt.js --prune-orphans --apply  # writes, then removes those lines
 //
 // Background: TXT creation used to *replace* the line whose name matched, so
 // every new token deleted the previous owner's. 2026-09-07 on the live server:
@@ -22,6 +24,10 @@ const config = require("../configs/index");
 const bindService = require("../services/bind");
 
 const APPLY = process.argv.includes("--apply");
+// Off by default, and even then it still needs --apply. The lines it removes
+// are the ones no database row owns, so nothing can restore them afterwards
+// except the zone file backup.
+const PRUNE = process.argv.includes("--prune-orphans");
 
 bindService.setLogger({
   info: () => {},
@@ -70,9 +76,16 @@ function buildPlan(rows, zones) {
 
   // Lines already in the zone under one of these prefixes that no row claims —
   // put there by hand, or fossils of the old `<prefix>.<subdomain>` naming.
-  // Reported so a human can look at them; never touched.
+  // This is also the list --prune-orphans deletes, so ownership is worked out
+  // from *every* row, not just the newest of each retry: a value some row
+  // still holds must never end up here, even a row the backfill skips.
   const prefixes = [...new Set(rows.map((r) => r.host_prefix))];
-  const claimed = new Set(items.map((i) => `${i.zonePath} ${i.txt_value}`));
+  const claimed = new Set(
+    rows.map((r) => `${config.bind.zoneFilePath(r.domain)} ${r.txt_value}`)
+  );
+  const domainOf = new Map(
+    rows.map((r) => [config.bind.zoneFilePath(r.domain), r.domain])
+  );
   const unclaimed = [];
   for (const [zonePath, zone] of zones) {
     for (const prefix of prefixes) {
@@ -83,7 +96,12 @@ function buildPlan(rows, zones) {
       let match;
       while ((match = scan.exec(zone)) !== null) {
         if (!claimed.has(`${zonePath} ${match[2]}`)) {
-          unclaimed.push({ zonePath, name: match[1], value: match[2] });
+          unclaimed.push({
+            zonePath,
+            domain: domainOf.get(zonePath),
+            name: match[1],
+            value: match[2],
+          });
         }
       }
     }
@@ -120,10 +138,17 @@ function printPlan({ items, duplicates, unclaimed }, totalRows) {
 
   if (unclaimed.length) {
     console.log();
-    console.log("In the zone but claimed by no row (left untouched, decide by hand):");
+    console.log(
+      PRUNE
+        ? `In the zone but claimed by no row — ${unclaimed.length} line(s) TO REMOVE:`
+        : "In the zone but claimed by no row (left untouched, decide by hand):"
+    );
     for (const line of unclaimed) {
       console.log(`  ${line.zonePath}: ${line.name}  IN  TXT  "${truncate(line.value)}"`);
     }
+  } else if (PRUNE) {
+    console.log();
+    console.log("No orphan lines to remove — every TXT line in the zone is owned by a row.");
   }
   return missing;
 }
@@ -162,7 +187,11 @@ async function main() {
 
     if (!APPLY) {
       console.log();
-      console.log("Nothing was written. Re-run with --apply to add the values above.");
+      console.log(
+        PRUNE
+          ? "Nothing was written. Re-run with --prune-orphans --apply to apply both lists above."
+          : "Nothing was written. Re-run with --apply to add the values above."
+      );
       return;
     }
 
@@ -178,7 +207,27 @@ async function main() {
       console.log(`  added ${item.fqdn}  <- ${item.subdomain}`);
     }
     console.log();
-    console.log(`Done — ${missing.length} value(s) added, nothing removed.`);
+    console.log(
+      PRUNE
+        ? `${missing.length} value(s) added.`
+        : `Done — ${missing.length} value(s) added, nothing removed.`
+    );
+
+    if (PRUNE) {
+      // plan.unclaimed is the whole guard: a line is in it only when no row in
+      // the database holds that value. Names are shared, so the name is never
+      // enough — deleteTxtLine takes the value and removes that one line.
+      let removed = 0;
+      for (const line of plan.unclaimed) {
+        const result = await bindService.deleteTxtLine(line.domain, line.name, line.value);
+        if (result.deleted) removed++;
+        console.log(
+          `  ${result.deleted ? "removed" : "not found"} ${line.name}.${line.domain}  "${truncate(line.value)}"`
+        );
+      }
+      console.log();
+      console.log(`Done — ${removed} orphan line(s) removed of ${plan.unclaimed.length} listed.`);
+    }
   } finally {
     await connection.end();
   }

@@ -7,7 +7,7 @@
 |---|---|
 | `dns-controller.service` | 앱을 systemd 서비스로 올린다 (재부팅·크래시 자동 복구) |
 | `caddy-canonical.snippet` | `sitey.one`·`www.*` → `sitey.my` 301 리다이렉트 |
-| `migrate-vercel-txt.js` | 덮어쓰기로 사라진 TXT 값을 DB 기준으로 복구 (dry-run 기본) |
+| `migrate-vercel-txt.js` | 덮어쓰기로 사라진 TXT 값을 DB 기준으로 복구 + `--prune-orphans` 로 주인 없는 줄 정리 (둘 다 dry-run 기본) |
 
 > ✅ **PSL 등재 선행조건은 없어졌다** (2026-09-07 재조사).
 > 이전 판은 TXT 이름을 서브도메인별로 나누려 했고, 그러면 PSL 등재 전까지 검증이 전원 불가해졌다.
@@ -224,7 +224,50 @@ named-checkzone sitey.my /etc/bind/db.sitey.my
 - `ok` = 이미 존에 있는 값. 건드리지 않는다
 - `ADD` = 존에 없어서 덧붙일 값
 - 같은 서브도메인의 중복 행(재시도 흔적)은 **가장 최근 1건만** 쓴다
-- 「claimed by no row」 = 존에는 있는데 DB 에 없는 줄. **보고만 하고 지우지 않는다.**
+- 「claimed by no row」 = 존에는 있는데 DB 에 없는 줄. 기본값은 **보고만 하고 지우지 않는다.**
   (`_vercel.stock.sitey.one` 은 옛 이름 규칙의 화석이다 — 그 서브도메인은 응답이 없다)
+
+### 고아 TXT 정리 — `--prune-orphans`
+
+**DB 에 주인이 없는 TXT 줄만** 지운다. 2026-09-07 실측으로 두 줄 남아 있다.
+
+```
+/etc/bind/db.sitey.one: _vercel        IN TXT "vc-domain-verify=udt.sitey.one,00d528..."
+/etc/bind/db.sitey.one: _vercel.stock  IN TXT "vc-domain-verify=stock.sitey.one,012762..."
+```
+
+⚠️ **이름으로 지우지 않는다.** `_vercel` 한 이름을 28명이 공유하므로 이름으로 지우면 남의 검증까지
+날아간다. 지우는 기준은 **값**이고, 그 값을 가진 DB 행이 하나라도 있으면 목록에 오르지 않는다
+(중복 재시도 행까지 전부 본다 — 복구 대상에서 빠진 옛 행도 «주인 있음»으로 친다).
+
+- **기본은 여전히 dry-run.** `--prune-orphans` 만 주면 무엇을 지울지 출력만 한다
+- **`--prune-orphans --apply` 를 둘 다** 줘야 실제로 지운다
+- 삭제는 앱과 같은 경로를 쓴다 — `named-checkzone` 통과한 임시 파일을 rename 으로 갈아끼우고 reload
+
+```bash
+# 존 파일 백업부터 — 이 명령은 «지우는» 동작이라 되돌리려면 백업이 필요하다
+cp /etc/bind/db.sitey.my  /etc/bind/db.sitey.my.bak.$(date +%F)
+cp /etc/bind/db.sitey.one /etc/bind/db.sitey.one.bak.$(date +%F)
+
+cd /root/dns-controller
+
+# 1) 무엇을 지울지 본다 (아무것도 쓰지 않는다)
+node deploy/migrate-vercel-txt.js --prune-orphans
+
+# 2) 목록이 위 두 줄과 같으면 적용
+node deploy/migrate-vercel-txt.js --prune-orphans --apply
+
+# 3) 검증 — 살아 있는 값들은 그대로 있고 고아만 빠져야 한다
+dig +short TXT _vercel.sitey.one @127.0.0.1
+dig +short TXT _vercel.stock.sitey.one @127.0.0.1   # 빈 응답이어야 한다
+named-checkzone sitey.one /etc/bind/db.sitey.one
+```
+
+📌 **지우기 전에 reconciler 가 같은 것을 보는지 확인해도 된다.** 재시작 후 자정에 돌면
+`txt-zone-only` 로 같은 두 줄이 로그에 남는다.
+
+```bash
+journalctl -u dns-controller -o cat | grep '"evt":"reconcile"' | jq -c 'select(.issue|startswith("txt"))'
+```
 
 ---

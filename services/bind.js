@@ -461,11 +461,21 @@ async function listTxtRecords(domain) {
   });
 }
 
-
 async function deleteTxtRecord(subdomain, domain, hostPrefix, txtValue) {
+  return deleteTxtLine(domain, txtRecordName(subdomain, hostPrefix), txtValue);
+}
+
+/**
+ * Remove one TXT line, addressed by the name as it stands in the zone file.
+ *
+ * deleteTxtRecord works that name out from a subdomain and a prefix. Orphan
+ * cleanup (deploy/migrate-vercel-txt.js --prune-orphans) cannot: the lines it
+ * removes are precisely the ones no database row owns, so there is no
+ * subdomain to resolve a name from and it passes the name it read.
+ */
+async function deleteTxtLine(domain, recordName, txtValue) {
   return withDomainLock(domain, async () => {
     const zoneFilePath = getZoneFilePath(domain);
-    const recordName = txtRecordName(subdomain, hostPrefix);
 
     if (isBindDevMode) {
       logger.debug({ op: "deleteTxtRecord", recordName, domain }, "BIND_DEV_MODE skip");
@@ -519,6 +529,7 @@ module.exports = {
   normalizeRecordType,
   addTxtRecord,
   deleteTxtRecord,
+  deleteTxtLine,
   // Exported for deploy/migrate-vercel-txt.js so the backfill cannot
   // disagree with the app about where a TXT line lives or what counts
   // as the same line.
