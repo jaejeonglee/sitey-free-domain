@@ -38,6 +38,9 @@ function buildApp(options = {}) {
   // Must stay AFTER rate-limit: a global hook only applies to routes registered
   // after it, so registering /mcp first left the MCP endpoint unthrottled.
   fastify.register(require("./plugins/mcp"));
+  // Page routes must win over the static wildcard so each path gets its own
+  // canonical / og tags. Explicit routes outrank "/*" in the router.
+  fastify.register(require("./routes/pages"));
   fastify.register(require("@fastify/static"), {
     root: path.join(__dirname, "public"),
     prefix: "/",
@@ -52,13 +55,14 @@ function buildApp(options = {}) {
     done();
   });
 
-  // 3. Set not-found handler for client-side routing
+  // 3. Unknown URLs are real 404s.
+  // This used to answer every non-API GET with index.html and a 200, so search
+  // engines saw an unlimited supply of duplicate pages (a soft 404) and a
+  // missing asset came back as HTML instead of failing.
   fastify.setNotFoundHandler((request, reply) => {
-    // For GET requests that are not API calls, serve index.html
     if (request.method === "GET" && !request.url.startsWith("/api")) {
-      return reply.sendFile("index.html");
+      return fastify.sendPageNotFound(reply);
     }
-    // For other cases, send a 404
     reply.code(404).send({ error: "Not Found" });
   });
 

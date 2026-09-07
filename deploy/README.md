@@ -6,6 +6,7 @@
 | 파일 | 용도 |
 |---|---|
 | `dns-controller.service` | 앱을 systemd 서비스로 올린다 (재부팅·크래시 자동 복구) |
+| `caddy-canonical.snippet` | `sitey.one`·`www.*` → `sitey.my` 301 리다이렉트 |
 | `migrate-vercel-txt.js` | apex TXT → `<prefix>.<서브도메인>` 이관 (dry-run 기본) |
 
 > 🔴 **이 저장소의 보안 수정 중 «TXT 이름 분리»는 PSL 등재 전에 배포하면 안 된다.**
@@ -92,6 +93,81 @@ systemctl status dns-controller --no-pager | head -5   # active (running), 재�
 ```bash
 systemctl disable --now dns-controller
 cd /root/dns-controller && nohup node server.js > /dev/null 2>&1 &
+```
+
+---
+
+## 2. 정본 도메인 301 리다이렉트 (Caddy)
+
+`sitey.one` · `www.sitey.one` · `www.sitey.my` → **`sitey.my`** 로 301.
+정본을 `sitey.my` 로 정한 것은 Jay 결정(2026-09-07).
+
+### 왜 앱이 아니라 Caddy 인가
+
+- Caddy 가 이미 이 네 호스트의 TLS 를 종단한다. 여기서 처리하면 **Node 까지 오지 않는다.**
+- **앱이 죽어 있어도 리다이렉트는 동작한다.** 앱에서 처리하면 앱이 죽는 순간 정본 도메인도 같이 죽는다.
+- 앱이 «어느 호스트로 불렸는지»는 `Host` 헤더로만 알 수 있는데, 그걸 신뢰하려면 프록시 신뢰 문제가 또 생긴다.
+
+### ⚠️ 적용 전에 반드시 확인할 것
+
+1. **`*.sitey.my` 서브도메인은 리다이렉트 대상이 아니다.**
+   사용자 서브도메인은 각자의 서버를 가리키는 A/CNAME 이라 이 서버의 Caddy 를 거치지 않는다.
+   스니펫의 호스트 목록에 **와일드카드를 절대 넣지 말 것.**
+
+2. **Google OAuth 콜백 URL 을 먼저 옮긴다.**
+   `GOOGLE_CALLBACK_URL` 이 `sitey.one` 계열이면 리다이렉트를 켠 뒤 로그인 흐름이 도메인을 넘나든다.
+   순서를 지킨다:
+   - ① Google Cloud Console → OAuth 클라이언트 → 승인된 리디렉션 URI 에
+     `https://sitey.my/api/auth/google/callback` **추가**(기존 것은 남겨둔다)
+   - ② 서버 환경변수 파일의 `GOOGLE_CALLBACK_URL` 을 `https://sitey.my/...` 로 변경
+   - ③ `systemctl restart dns-controller`
+   - ④ 실제로 구글 로그인 1회 성공 확인
+   - ⑤ 그 다음에 아래 리다이렉트 적용
+   - ⑥ 한동안 문제없으면 콘솔에서 옛 URI 제거
+
+3. 현재 Caddyfile 내용을 모르므로 **덮어쓰지 말고 병합**한다. 백업부터.
+
+### 적용
+
+```bash
+cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak.$(date +%F)
+
+# 스니펫을 보고 Caddyfile 에 «병합» (기존 sitey 블록이 있으면 그 자리를 대체)
+cat /root/dns-controller/deploy/caddy-canonical.snippet
+
+caddy validate --config /etc/caddy/Caddyfile
+systemctl reload caddy
+```
+
+### 검증
+
+```bash
+# 셋 다 301 + Location: https://sitey.my/... 이어야 한다
+curl -sSI https://sitey.one/         | head -3
+curl -sSI https://www.sitey.one/docs | head -3
+curl -sSI https://www.sitey.my/blog  | head -3
+
+# API 는 308 이어야 한다 (301 이면 POST 가 GET 으로 바뀌어 기존 API 사용자가 깨진다)
+curl -sSI https://sitey.one/api/v1/domains | head -3
+
+# 정본은 200
+curl -sSI https://sitey.my/ | head -1
+
+# 경로별 canonical — 홈이 아니라 /docs 가 나와야 한다
+curl -sS https://sitey.my/docs | grep -o '<link rel="canonical"[^>]*>'
+
+# 없는 경로는 진짜 404 (soft 404 제거 확인)
+curl -sSI https://sitey.my/no-such-page | head -1
+
+# 사용자 서브도메인은 영향 없어야 한다
+curl -sSI https://jay.sitey.my/ | head -1
+```
+
+### 되돌리기
+
+```bash
+cp /etc/caddy/Caddyfile.bak.<날짜> /etc/caddy/Caddyfile
+caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
 ```
 
 ---

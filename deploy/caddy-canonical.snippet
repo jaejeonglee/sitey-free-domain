@@ -1,0 +1,34 @@
+# 정본 도메인 = sitey.my
+#
+# 이 파일은 «그대로 복사해 쓰는 Caddyfile» 이 아니다.
+# 서버의 /etc/caddy/Caddyfile 에 병합할 «조각» 이다. 적용 절차는 deploy/README.md 2절.
+#
+# ⚠️ 적용 전에 확인할 것
+#   1. 반드시 백업: cp /etc/caddy/Caddyfile /etc/caddy/Caddyfile.bak.$(date +%F)
+#   2. 기존 sitey.my 블록에 tls·encode·header 같은 지시어가 이미 있으면
+#      아래 reverse_proxy 한 줄만 참고하고 나머지는 건드리지 말 것.
+#   3. GOOGLE_CALLBACK_URL 을 먼저 sitey.my 로 옮긴다 (README 2절 ⚠️ 2번).
+#   4. 와일드카드(*.sitey.my)는 절대 넣지 않는다 — 사용자 서브도메인은
+#      각자의 서버를 가리키므로 이 Caddy 를 거치지 않는다. 여기에 적으면
+#      이 서버가 남의 서브도메인 트래픽을 가로채게 된다.
+
+# 옛 도메인과 www 는 정본으로 리다이렉트.
+# {uri} 가 경로와 쿼리스트링을 그대로 보존한다.
+sitey.one, www.sitey.one, www.sitey.my {
+	# API·MCP 는 308 을 쓴다.
+	# 301 은 클라이언트가 POST 를 GET 으로 바꿔도 되는 코드라, 그대로 두면
+	# sitey.one 으로 호출하던 기존 API 사용자의 생성·수정 요청이 조용히 깨진다.
+	# 308 은 메서드와 본문을 보존한다.
+	@api path /api/* /mcp /mcp/*
+	redir @api https://sitey.my{uri} 308
+
+	# 사람이 보는 페이지는 301 (검색엔진이 가장 잘 이해하는 신호).
+	redir https://sitey.my{uri} permanent
+}
+
+# 정본만 앱으로 보낸다.
+# 앱은 127.0.0.1 에서 온 X-Forwarded-For 만 신뢰한다(configs/index.js).
+# Caddy 는 reverse_proxy 시 X-Forwarded-For 를 자동으로 붙인다.
+sitey.my {
+	reverse_proxy 127.0.0.1:3000
+}

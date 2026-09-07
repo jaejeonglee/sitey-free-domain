@@ -69,8 +69,30 @@ describe("global rate limit covers every entry point", () => {
     expect(app.hasRoute({ method: "GET", url: "/mcp" })).toBe(true);
   });
 
+  it("serves pages, static assets and real 404s side by side", async () => {
+    // explicit page routes must win over @fastify/static's "/*" wildcard
+    const home = await app.inject({ method: "GET", url: "/" });
+    expect(home.statusCode).toBe(200);
+    expect(home.body).toContain('<link rel="canonical" href="https://sitey.my/" />');
+
+    // ...without breaking real files
+    const css = await app.inject({ method: "GET", url: "/style.css" });
+    expect(css.statusCode).toBe(200);
+    expect(css.headers["content-type"]).toContain("text/css");
+
+    const robots = await app.inject({ method: "GET", url: "/robots.txt" });
+    expect(robots.statusCode).toBe(200);
+    expect(robots.body).toContain("Sitemap: https://sitey.my/sitemap.xml");
+
+    // a missing asset is a 404, not a 200 of index.html
+    const missing = await app.inject({ method: "GET", url: "/nope.css" });
+    expect(missing.statusCode).toBe(404);
+  });
+
+  // Kept last: it burns the per-IP budget the other tests share.
   it("throttles /mcp", async () => {
     const { limitedAfter } = await floodUntilLimited("/mcp");
-    expect(limitedAfter).toBe(101);
+    expect(limitedAfter).toBeLessThanOrEqual(101);
+    expect(limitedAfter).toBeGreaterThan(0);
   });
 });

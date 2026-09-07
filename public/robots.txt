@@ -3,4 +3,4 @@ Allow: /
 Disallow: /api/
 Disallow: /dashboard
 
-Sitemap: https://www.sitey.one/sitemap.xml
+Sitemap: https://sitey.my/sitemap.xml

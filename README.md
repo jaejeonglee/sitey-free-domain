@@ -1,4 +1,4 @@
-# sitey.one
+# sitey.my
 
 Free subdomain service for developers. Get a subdomain in seconds — no credit card, no hassle.
 
@@ -12,7 +12,7 @@ Free subdomain service for developers. Get a subdomain in seconds — no credit 
 
 ## Quick Start
 
-1. Visit [sitey.one](https://sitey.one)
+1. Visit [sitey.my](https://sitey.my)
 2. Sign in with Google
 3. Type a subdomain + IP address → done
 
@@ -20,7 +20,9 @@ Free subdomain service for developers. Get a subdomain in seconds — no credit 
 
 Programmatic access for developers and AI agents.
 
-**Base URL:** `https://sitey.one/api/v1`
+**Base URL:** `https://sitey.my/api/v1`
+
+`sitey.one` and the `www.` hosts redirect here (308 for `/api/*`, so POST bodies survive).
 
 ### Authentication
 
@@ -29,7 +31,7 @@ Programmatic access for developers and AI agents.
 | Anonymous | None (IP-based) | 3 subdomains |
 | API key | `Authorization: Bearer styo_xxx` | Unlimited |
 
-Get an API key: sign in at sitey.one → Dashboard → API Keys.
+Get an API key: sign in at sitey.my → Dashboard → API Keys.
 
 ### Endpoints
 
@@ -48,12 +50,12 @@ Get an API key: sign in at sitey.one → Dashboard → API Keys.
 
 ```bash
 # Check availability
-curl https://sitey.one/api/v1/check/demo/sitey.one
+curl https://sitey.my/api/v1/check/demo/sitey.my
 
 # Create subdomain
-curl -X POST https://sitey.one/api/v1/subdomains \
+curl -X POST https://sitey.my/api/v1/subdomains \
   -H "Content-Type: application/json" \
-  -d '{"subdomain":"demo","domain":"sitey.one","type":"A","value":"1.2.3.4"}'
+  -d '{"subdomain":"demo","domain":"sitey.my","type":"A","value":"1.2.3.4"}'
 ```
 
 ### For AI Agents (MCP)
@@ -83,7 +85,7 @@ We run our own authoritative nameservers (`ns1.sitey.one`, `ns2.sitey.one`) — 
 
 ## Use Cases
 
-- Deploy a side project to `myapp.sitey.one`
+- Deploy a side project to `myapp.sitey.my`
 - Give hackathon demos a real URL
 - Automate domain setup via REST API or MCP
 - Share staging environments with teammates
