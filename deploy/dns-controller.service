@@ -34,8 +34,12 @@ EnvironmentFile=-/root/dns-controller/.env
 # (LOG_PRETTY=true 를 주면 터미널용 출력으로 되돌릴 수 있다.)
 Environment=NODE_ENV=production
 
-# node 절대경로. 설치 전에 `command -v node` 로 확인하고 다르면 이 줄을 고친다.
-ExecStart=/usr/bin/node /root/dns-controller/server.js
+# node 절대경로. 2026-09-07 실측: 이 서버의 node 는 nvm 아래에 있고 /usr/bin/node 는 없다.
+# systemd 의 기본 PATH(/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin)에도 없으므로
+# 맨 이름으로 부르면 서비스가 뜨지 않는다.
+# ⚠️ node 를 업그레이드(nvm install)하면 이 경로가 바뀐다 — 그때 이 줄도 같이 고쳐야 한다.
+#    확인: readlink -f /proc/$(pgrep -f dns-controller/server.js)/exe
+ExecStart=/root/.nvm/versions/node/v24.11.0/bin/node /root/dns-controller/server.js
 
 # 죽으면 항상 되살린다.
 # 서버 메모리 여유가 160Mi 뿐이라 OOM killer 가 이 프로세스를 잡을 여지가 있는데,
