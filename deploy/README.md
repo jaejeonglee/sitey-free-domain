@@ -249,7 +249,7 @@ named-checkzone sitey.one /etc/bind/db.sitey.one
 `txt-zone-only` 로 같은 두 줄이 로그에 남는다.
 
 ```bash
-journalctl -u dns-controller -o cat | grep '"evt":"reconcile"' | jq -c 'select(.issue|startswith("txt"))'
+grep '"evt":"reconcile"' /root/.pm2/logs/server-out.log | jq -c 'select(.issue|startswith("txt"))'
 ```
 
 ---
