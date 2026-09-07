@@ -5,7 +5,7 @@
 
 | 파일 | 용도 |
 |---|---|
-| `dns-controller.service` | 앱을 systemd 서비스로 올린다 (재부팅·크래시 자동 복구) |
+| ~~`dns-controller.service`~~ | ⛔ **쓰지 않는다.** 이 서버는 **PM2** 로 운영한다(2026-09-07 Jay 결정). 참고용으로만 남긴다 — 1절 |
 | `caddy-canonical.snippet` | `sitey.one`·`www.*` → `sitey.my` 301 리다이렉트 |
 | `migrate-vercel-txt.js` | 덮어쓰기로 사라진 TXT 값을 DB 기준으로 복구 + `--prune-orphans` 로 주인 없는 줄 정리 (둘 다 dry-run 기본) |
 
@@ -15,85 +15,60 @@
 
 ---
 
-## 1. systemd 유닛 설치
+## 1. 프로세스 관리자 — PM2 (systemd 아님)
 
-### 왜 필요한가
+> 🔴 **2026-09-07 정정.** 이 절은 원래 「프로세스 관리자가 없으니 systemd 를 넣자」였다. **둘 다 틀렸다.**
+> **PM2 가 2026-04-11 부터 돌고 있었다.** 앱만 보고(`ps -C node`) 부모를 안 본 것이 원인이다(`ps -o ppid=` 한 줄이면 나왔다).
+> 그리고 Jay 결정 — **PM2 를 쓴다.** systemd 유닛은 서버에서 제거했다. 둘을 같이 두면 포트 3000 을 두고 싸운다(실측: `EADDRINUSE` 재시작 루프).
 
-지금 앱은 `node /root/dns-controller/server.js` 로 **프로세스 관리자 없이** 떠 있다
-(2026-09-07 실측: 프로세스 52일째, systemd 유닛·pm2·`@reboot` cron 전부 없음).
+### 진짜 고장은 무엇이었나
 
-- 앱이 죽으면 **아무도 살리지 않는다.**
-- 재부팅하면 **서비스가 아예 뜨지 않는다.** sitey.my·sitey.one 에 물린 서브도메인 전부(jay.sitey.my 포함)가 멈춘다.
-- 앱 로그 파일이 없다. journald 로 올리면 자동으로 받는다.
+PM2 는 돌고 있었지만 **부팅 등록이 안 돼 있었다.**
 
-### 사전 확인
+- `pm2-root.service` **not-found** → 재부팅하면 **PM2 자체가 안 뜬다**
+- `/root/.pm2/dump.pm2` **없음** → PM2 를 되살려도 **앱 목록이 비어 있다**
 
-```bash
-# node 실제 경로 — /usr/bin/node 가 아니면 유닛의 ExecStart 를 고쳐야 한다
-command -v node
+→ 「재부팅하면 서비스가 안 뜬다」는 **맞았고 이유만 틀렸다.** 명령 두 줄로 끝난다.
 
-# 지금 떠 있는 프로세스 확인 (pid 를 적어둔다)
-ps -o pid=,etime=,args= -C node | grep dns-controller
-
-# 앱이 쓰는 외부 명령이 systemd 기본 PATH 안에 있는지
-# (systemd 서비스 PATH = /usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin)
-command -v named-checkconf named-checkzone systemctl
-```
-
-⚠️ `command -v node` 결과가 `/usr/bin/node` 가 아니면 **유닛 파일의 `ExecStart` 를 그 경로로 고친 뒤** 진행한다.
-(launchd 든 systemd 든 «맨 이름으로 부르면 못 찾는다»는 함정은 똑같다.)
-
-### 설치
+### 적용 (2026-09-07 완료)
 
 ```bash
-# 1) 저장소를 최신으로
+export PATH=/root/.nvm/versions/node/v24.11.0/bin:$PATH   # node 가 nvm 아래에 있다
+
 cd /root/dns-controller && git pull
+NODE_ENV=production pm2 restart server --update-env    # 없으면 pm2 start server.js --name server --time
 
-# 2) 유닛 배치
-cp /root/dns-controller/deploy/dns-controller.service /etc/systemd/system/dns-controller.service
-systemctl daemon-reload
+pm2 startup systemd -u root --hp /root   # 부팅 시 PM2 자동 기동
+pm2 save                                  # 프로세스 목록 저장 (이게 없으면 부팅 후 빈 목록)
 
-# 3) 기존 맨손 프로세스 종료 (여기서 수 초간 API 가 끊긴다 — DNS 응답은 named 가 하므로 영향 없음)
-kill <위에서 확인한 pid>
-sleep 2
-pgrep -af "dns-controller/server.js" || echo "정리됨"
-
-# 4) 서비스로 기동 + 부팅 시 자동 시작 등록
-systemctl enable --now dns-controller
+pm2 install pm2-logrotate                 # 로그 압축 보관 (Jay 지시: 삭제 말고 압축)
+pm2 set pm2-logrotate:compress true
+pm2 set pm2-logrotate:retain 90
+pm2 set pm2-logrotate:max_size 10M
+pm2 set pm2-logrotate:rotateInterval "0 0 * * *"
 ```
 
-📌 **3번에서 끊기는 것은 웹/API 뿐이다.** DNS 응답은 `named` 가 별도 프로세스로 계속 처리하므로
-사용자 서브도메인은 이 작업 중에도 정상 동작한다.
+⚠️ **`NODE_ENV=production` 을 빠뜨리지 마라.** 없으면 pino 가 pino-pretty 로 **여러 줄** 출력을 내고,
+`services/access-log.js` 가 만드는 **탈주 로그가 파싱 불가 형태**가 된다(2026-09-07 실측 — 배포 직후 눈으로 확인해서 잡았다).
+📌 **프로세스 관리자를 바꾸면 환경변수가 따라오지 않는다.**
+
+⚠️ `node` 는 `/usr/bin/node` 가 아니라 **`/root/.nvm/versions/node/v24.11.0/bin/node`** 다.
+nvm 으로 업그레이드하면 경로가 바뀐다 — 확인: `readlink -f /proc/$(pgrep -f dns-controller/server.js)/exe`
 
 ### 검증 (이걸 통과해야 끝난 것)
 
 ```bash
-# 서비스 상태 — active (running) 이어야 한다
-systemctl status dns-controller --no-pager
+pm2 list                                  # server online, pm2-logrotate online
+systemctl is-enabled pm2-root             # enabled
+ls -la /root/.pm2/dump.pm2                # 존재해야 한다
 
-# 부팅 자동 시작 등록 확인 — enabled 여야 한다
-systemctl is-enabled dns-controller
+# 로그가 JSON 한 줄인지 — 여러 줄이면 NODE_ENV 가 빠진 것이다
+tail -1 /root/.pm2/logs/server-out.log
 
-# 로그가 journald 로 들어오는지
-journalctl -u dns-controller -n 30 --no-pager
+curl -sSI https://sitey.my/ | head -1     # 밖에서도 살아 있는지
 
-# 앱이 실제로 응답하는지 (managed_domains 목록이 나와야 한다)
-curl -sS http://127.0.0.1:3000/api/managed-domains
-
-# 밖에서도 살아 있는지
-curl -sSI https://sitey.my/ | head -1
-
-# 자동 복구가 실제로 도는지 — 죽여보고 5초 뒤 되살아나는지 확인
-systemctl kill -s SIGKILL dns-controller
-sleep 8
-systemctl status dns-controller --no-pager | head -5   # active (running), 재시작 흔적
-```
-
-### 되돌리기
-
-```bash
-systemctl disable --now dns-controller
-cd /root/dns-controller && nohup node server.js > /dev/null 2>&1 &
+# 자동 복구가 실제로 도는지
+pm2 describe server | grep restarts
 ```
 
 ---
@@ -121,7 +96,7 @@ cd /root/dns-controller && nohup node server.js > /dev/null 2>&1 &
    - ① Google Cloud Console → OAuth 클라이언트 → 승인된 리디렉션 URI 에
      `https://sitey.my/api/auth/google/callback` **추가**(기존 것은 남겨둔다)
    - ② 서버 환경변수 파일의 `GOOGLE_CALLBACK_URL` 을 `https://sitey.my/...` 로 변경
-   - ③ `systemctl restart dns-controller`
+   - ③ `NODE_ENV=production pm2 restart server --update-env`
    - ④ 실제로 구글 로그인 1회 성공 확인
    - ⑤ 그 다음에 아래 리다이렉트 적용
    - ⑥ 한동안 문제없으면 콘솔에서 옛 URI 제거
@@ -192,8 +167,9 @@ caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
 ### 배포
 
 ```bash
+export PATH=/root/.nvm/versions/node/v24.11.0/bin:$PATH
 cd /root/dns-controller && git pull
-systemctl restart dns-controller
+NODE_ENV=production pm2 restart server --update-env
 ```
 
 ### 복구 실행
