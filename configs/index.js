@@ -81,6 +81,22 @@ module.exports = {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
     alertChatId: process.env.TELEGRAM_ALERT_CHAT_ID,
   },
+  log: {
+    // journald wants one JSON object per line; pino-pretty is for a terminal.
+    // The app has no log file at all today, so this format *is* the record.
+    pretty:
+      String(
+        process.env.LOG_PRETTY ??
+          (process.env.NODE_ENV === "production" ? "false" : "true")
+      )
+        .trim()
+        .toLowerCase() === "true",
+    // Key material for hashing client IPs in the access log. Derived from
+    // JWT_SECRET so turning the log on needs no new deployment step;
+    // ACCESS_LOG_SECRET overrides it, and rotating it only makes older hashes
+    // stop matching newer ones.
+    hashSecret: process.env.ACCESS_LOG_SECRET || process.env.JWT_SECRET,
+  },
   txt: {
     // TXT records are written at the root domain under this prefix (see
     // services/bind.js), so the prefix decides what the record *means for the

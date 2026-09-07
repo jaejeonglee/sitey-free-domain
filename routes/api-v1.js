@@ -100,10 +100,13 @@ async function apiV1Routes(fastify, options) {
     if (statusCode >= 500) {
       fastify.log.error(error);
     }
+    // Every v1 failure already names itself; the access log wants the same name.
+    request.outcome =
+      error.apiCode || (statusCode === 429 ? "RATE_LIMITED" : "INTERNAL_ERROR");
     return reply.code(statusCode).send({
       error: true,
       message: error.message || "Internal server error",
-      code: error.apiCode || (statusCode === 429 ? "RATE_LIMITED" : "INTERNAL_ERROR"),
+      code: request.outcome,
     });
   });
 

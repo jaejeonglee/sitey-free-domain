@@ -29,6 +29,11 @@ WorkingDirectory=/root/dns-controller
 # dotenv 가 이미 같은 파일을 읽으므로 이 줄 때문에 서비스가 못 뜨는 상황을 만들지 않는다.
 EnvironmentFile=-/root/dns-controller/.env
 
+# 로그를 사람용 pino-pretty 가 아니라 «JSON 한 줄» 로 내보내게 한다.
+# journald 가 받아 `journalctl -u dns-controller -o cat | jq` 로 바로 읽힌다.
+# (LOG_PRETTY=true 를 주면 터미널용 출력으로 되돌릴 수 있다.)
+Environment=NODE_ENV=production
+
 # node 절대경로. 설치 전에 `command -v node` 로 확인하고 다르면 이 줄을 고친다.
 ExecStart=/usr/bin/node /root/dns-controller/server.js
 

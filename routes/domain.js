@@ -47,12 +47,14 @@ async function domainRoutes(fastify, options) {
     const subdomain = (rawSubdomain || "").trim().toLowerCase();
 
     if (!subdomain || !isValidSubdomain(subdomain)) {
+      request.outcome = "INVALID_SUBDOMAIN";
       return reply.code(400).send({ error: "Invalid domain format" });
     }
 
     try {
       const managedDomains = await getManagedDomains(fastify);
       if (!managedDomains.length) {
+        request.outcome = "NO_MANAGED_DOMAINS";
         return reply
           .code(503)
           .send({ error: "No managed domains are configured." });
@@ -91,8 +93,13 @@ async function domainRoutes(fastify, options) {
         })
       );
 
+      // Whether the names people try are free is one of the three explanations
+      // for the accounts that never issue anything, and the status code is 200
+      // either way.
+      request.outcome = results.some((r) => r.isAvailable) ? "AVAILABLE" : "NAME_TAKEN";
       return reply.code(200).send({ results });
     } catch (error) {
+      request.outcome = "SERVER_ERROR";
       fastify.log.error(error, "Failed to check multi-domain availability");
       return reply
         .code(500)
@@ -146,16 +153,19 @@ async function domainRoutes(fastify, options) {
       const recordType = normalizeRecordType(rawRecordType);
 
       if (!subdomain || !rawValue || !domainName) {
+        request.outcome = "INVALID_INPUT";
         return reply.code(400).send({
           error: "Domain name, record value, and domain are required",
         });
       }
       if (!isValidSubdomain(subdomain)) {
+        request.outcome = "INVALID_SUBDOMAIN";
         return reply.code(400).send({ error: "Invalid domain format" });
       }
 
       const blacklistCheck = isBlacklisted(subdomain);
       if (blacklistCheck.blocked) {
+        request.outcome = "BLOCKED_NAME";
         return reply.code(400).send({ error: blacklistCheck.reason });
       }
 
@@ -165,6 +175,7 @@ async function domainRoutes(fastify, options) {
       );
 
       if (!domainEntry) {
+        request.outcome = "INVALID_DOMAIN";
         return reply
           .code(400)
           .send({ error: "Requested domain is not managed by this service." });
@@ -175,6 +186,7 @@ async function domainRoutes(fastify, options) {
         domain: domainEntry.domain,
       });
       if (!validation.valid) {
+        request.outcome = "INVALID_VALUE";
         return reply.code(400).send({ error: validation.message });
       }
       const recordValue = validation.value;
@@ -186,6 +198,7 @@ async function domainRoutes(fastify, options) {
           recordType === "A"
             ? `Target IP ${recordValue} is not reachable on port 80 or 443.`
             : `Target domain ${recordValue} does not resolve to any address.`;
+        request.outcome = "VALIDATION_UNREACHABLE";
         return reply
           .code(400)
           .send({ error: msg, code: "VALIDATION_UNREACHABLE" });
@@ -209,8 +222,10 @@ async function domainRoutes(fastify, options) {
         });
       } catch (error) {
         if (error.statusCode === 409) {
+          request.outcome = "NAME_TAKEN";
           return reply.code(409).send({ error: error.message });
         }
+        request.outcome = "SERVER_ERROR";
         fastify.log.error(error, "Failed to process domain creation");
         return reply
           .code(500)
@@ -396,6 +411,7 @@ async function domainRoutes(fastify, options) {
       const hostPrefix = "_vercel"; // As requested
 
       if (!domainName || !txtValue) {
+        request.outcome = "INVALID_INPUT";
         return reply
           .code(400)
           .send({ error: "Domain and TXT value are required" });
@@ -403,6 +419,7 @@ async function domainRoutes(fastify, options) {
 
       const txtValidation = validateTxtValue(txtValue);
       if (!txtValidation.valid) {
+        request.outcome = "INVALID_TXT_VALUE";
         return reply.code(400).send({ error: txtValidation.message });
       }
       const sanitizedTxtValue = txtValidation.value;
@@ -427,6 +444,7 @@ async function domainRoutes(fastify, options) {
         const record = rows[0];
 
         if (!record) {
+          request.outcome = "NOT_OWNED";
           return reply.code(404).send({
             error: "Domain not found or you do not own this record.",
           });
@@ -464,6 +482,7 @@ async function domainRoutes(fastify, options) {
           .code(200)
           .send({ success: true, message: "TXT record updated successfully." });
       } catch (error) {
+        request.outcome = "SERVER_ERROR";
         fastify.log.error(error, "Failed to update TXT record");
         return reply
           .code(500)

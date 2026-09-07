@@ -5,6 +5,7 @@ const config = require("./configs/index");
 const apiRoutes = require("./routes/index");
 const bindService = require("./services/bind");
 const alertService = require("./services/alert");
+const accessLog = require("./services/access-log");
 
 function buildApp(options = {}) {
   const fastify = Fastify({
@@ -12,12 +13,17 @@ function buildApp(options = {}) {
     // Only the local reverse proxy may set X-Forwarded-For — see configs/index.js.
     trustProxy: config.server.trustProxy,
     logger: {
-      transport: {
-        target: "pino-pretty",
-        options: {
-          ignore: "pid,hostname",
-        },
-      },
+      // Pretty output is for a terminal. Under systemd the lines go to
+      // journald, where one JSON object per line is the readable form —
+      // pino-pretty there would mangle the structured access log.
+      transport: config.log.pretty
+        ? {
+            target: "pino-pretty",
+            options: {
+              ignore: "pid,hostname",
+            },
+          }
+        : undefined,
     },
     ...options,
   });
@@ -47,10 +53,14 @@ function buildApp(options = {}) {
   });
 
   // --- 2. onResponse hook (logging) ---
+  // One structured line per request. The line it replaced carried the URL and
+  // a raw IP and nothing else — not even the status code — so there was no way
+  // to tell a successful subdomain issue from a failed one, let alone say why
+  // it failed. See services/access-log.js.
   fastify.addHook("onResponse", (request, reply, done) => {
-    const url = request.raw.url;
-    if (url.startsWith("/api")) {
-      fastify.log.info(` ${url} | ${request.ip}`);
+    const fields = accessLog.fieldsFor(request, reply);
+    if (fields) {
+      request.log.info(fields);
     }
     done();
   });
