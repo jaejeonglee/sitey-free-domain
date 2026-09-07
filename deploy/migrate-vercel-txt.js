@@ -22,6 +22,7 @@ const mysql = require("mysql2/promise");
 const fs = require("fs").promises;
 const config = require("../configs/index");
 const bindService = require("../services/bind");
+const { liveTxtRows } = require("../services/txt-records");
 
 const APPLY = process.argv.includes("--apply");
 // Off by default, and even then it still needs --apply. The lines it removes
@@ -47,18 +48,14 @@ bindService.setLogger({
  * @param {Map<string,string>} zones - zone file path -> contents
  */
 function buildPlan(rows, zones) {
-  // Retries left several rows for the same (subdomain, prefix). The newest id
-  // is the value the user last asked for, and the only one worth restoring.
-  const newest = new Map();
-  for (const row of rows) {
-    const key = `${row.subdomain_id} ${row.host_prefix}`;
-    const previous = newest.get(key);
-    if (!previous || row.id > previous.id) newest.set(key, row);
-  }
-  const duplicates = rows.length - newest.size;
+  // Retries left several rows for the same (subdomain, prefix). The newest is
+  // the value the user last asked for, and the only one worth restoring —
+  // services/txt-records.js holds that rule for every tool that needs it.
+  const live = liveTxtRows(rows);
+  const duplicates = rows.length - live.length;
 
   const items = [];
-  for (const row of newest.values()) {
+  for (const row of live) {
     const zonePath = config.bind.zoneFilePath(row.domain);
     const zone = zones.get(zonePath) || "";
     const recordName = bindService.txtRecordName(row.subdomain, row.host_prefix);
