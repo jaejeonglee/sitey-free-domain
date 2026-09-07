@@ -200,7 +200,7 @@ named-checkzone sitey.my /etc/bind/db.sitey.my
 - `ok` = 이미 존에 있는 값. 건드리지 않는다
 - `ADD` = 존에 없어서 덧붙일 값
 - 같은 서브도메인의 중복 행(재시도 흔적)은 **가장 최근 1건만** 쓴다
-- 「claimed by no row」 = 존에는 있는데 DB 에 없는 줄. 기본값은 **보고만 하고 지우지 않는다.**
+- 「claimed by no row」 = 존에는 있는데 **살아 있는 DB 행이 없는** 줄. 기본값은 **보고만 하고 지우지 않는다.**
   (`_vercel.stock.sitey.one` 은 옛 이름 규칙의 화석이다 — 그 서브도메인은 응답이 없다)
 
 ### 고아 TXT 정리 — `--prune-orphans`
@@ -213,8 +213,14 @@ named-checkzone sitey.my /etc/bind/db.sitey.my
 ```
 
 ⚠️ **이름으로 지우지 않는다.** `_vercel` 한 이름을 28명이 공유하므로 이름으로 지우면 남의 검증까지
-날아간다. 지우는 기준은 **값**이고, 그 값을 가진 DB 행이 하나라도 있으면 목록에 오르지 않는다
-(중복 재시도 행까지 전부 본다 — 복구 대상에서 빠진 옛 행도 «주인 있음»으로 친다).
+날아간다. 지우는 기준은 **값**이고, **살아 있는 DB 행**이 그 값을 가지고 있으면 목록에 오르지 않는다.
+
+> 🔴 **2026-09-08 변경 — 「살아 있는 행」의 정의가 셋 다 같아졌다.**
+> 이전 판은 **재시도로 남은 옛 행도 «주인»으로 쳤다.** 그래서 `_vercel.stock` 이 목록에서 빠졌고,
+> reconciler 는 그 줄을 매일 밤 보고하는데 prune 은 지우지 않는 상태가 됐다.
+> 이제 셋(복구·reconciler·prune)이 전부 `services/txt-records.js` 의 `liveTxtRows()` 를 쓴다 —
+> **(subdomain_id, host_prefix) 별 `id` 최댓값 행만 주인이다.** 옛 재시도 값은 Vercel 이 더는 묻지 않는다.
+> **DB 행은 지우지 않는다.** 읽는 쪽만 바뀌었다 — 이력은 그대로 남는다.
 
 - **기본은 여전히 dry-run.** `--prune-orphans` 만 주면 무엇을 지울지 출력만 한다
 - **`--prune-orphans --apply` 를 둘 다** 줘야 실제로 지운다

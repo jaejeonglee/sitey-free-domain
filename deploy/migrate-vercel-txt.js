@@ -71,14 +71,21 @@ function buildPlan(rows, zones) {
     (a, b) => a.domain.localeCompare(b.domain) || a.subdomain.localeCompare(b.subdomain)
   );
 
-  // Lines already in the zone under one of these prefixes that no row claims —
-  // put there by hand, or fossils of the old `<prefix>.<subdomain>` naming.
-  // This is also the list --prune-orphans deletes, so ownership is worked out
-  // from *every* row, not just the newest of each retry: a value some row
-  // still holds must never end up here, even a row the backfill skips.
+  // Lines already in the zone under one of these prefixes that no live row
+  // claims — put there by hand, or fossils of the old `<prefix>.<subdomain>`
+  // naming, or a value a later retry replaced.
+  //
+  // Ownership is the same question the reconciler answers, so it gets the same
+  // answer: a superseded row is not an owner. Its token is one Vercel stopped
+  // asking for the moment the user re-requested, and leaving it in the zone
+  // means every nightly run reports a line nothing will ever claim. Measured
+  // 2026-09-08, this is what puts `_vercel.stock` on the list.
+  //
+  // Which *names* are scanned still comes from every row: the fossil name only
+  // exists because a row that is now superseded was written there.
   const prefixes = [...new Set(rows.map((r) => r.host_prefix))];
   const claimed = new Set(
-    rows.map((r) => `${config.bind.zoneFilePath(r.domain)} ${r.txt_value}`)
+    live.map((r) => `${config.bind.zoneFilePath(r.domain)} ${r.txt_value}`)
   );
   const domainOf = new Map(
     rows.map((r) => [config.bind.zoneFilePath(r.domain), r.domain])

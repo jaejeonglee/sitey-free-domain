@@ -11,6 +11,11 @@ const config = require2("../configs/index.js");
 // delete list, and every subdomain's token shares the name `_vercel`, so the
 // only thing keeping one owner's line off that list is its value. These tests
 // pin that down.
+//
+// An owner means a *live* row: the newest per (subdomain_id, host_prefix),
+// the same rule the reconciler uses (services/txt-records.js). If the two
+// disagreed the tools would fight — one reporting a line every night that the
+// other refused to remove.
 // ---------------------------------------------------------------------------
 
 const DOMAIN = "sitey.one";
@@ -70,10 +75,12 @@ describe("--prune-orphans delete list", () => {
     ]);
   });
 
-  it("protects a duplicate retry row the backfill itself skips", () => {
-    // buildPlan restores only the newest row per (subdomain, prefix). An older
-    // row's value is still someone's live verification, so it must not be
-    // treated as an orphan.
+  it("lists the value a later retry superseded", () => {
+    // Two rows for one subdomain is a retry, and Vercel only ever asks for the
+    // newest token. The older one is history: a line in the zone that no live
+    // row claims, which is exactly what this list is for. Until 2026-09-08 an
+    // older row counted as an owner, so the line stayed and the reconciler
+    // reported it every night with nothing able to clear it.
     const rows = [
       row(1, "demo", "vc-domain-verify=demo.sitey.one,old"),
       row(2, "demo", "vc-domain-verify=demo.sitey.one,new"),
@@ -82,7 +89,34 @@ describe("--prune-orphans delete list", () => {
 
     const { unclaimed } = buildPlan(
       rows,
-      zoneWith('_vercel\tIN\tTXT\t"vc-domain-verify=demo.sitey.one,old"')
+      zoneWith(
+        '_vercel\tIN\tTXT\t"vc-domain-verify=demo.sitey.one,old"',
+        '_vercel\tIN\tTXT\t"vc-domain-verify=demo.sitey.one,new"'
+      )
+    );
+
+    expect(unclaimed).toEqual([
+      {
+        zonePath: ZONE_PATH,
+        domain: DOMAIN,
+        name: "_vercel",
+        value: "vc-domain-verify=demo.sitey.one,old",
+      },
+    ]);
+  });
+
+  it("never lists the newest value of a retry, even sharing the name", () => {
+    // The other half of the same rule, and the one that costs a user their
+    // verification if it breaks: `old` goes, `new` stays.
+    const rows = [
+      row(1, "demo", "vc-domain-verify=demo.sitey.one,old"),
+      row(2, "demo", "vc-domain-verify=demo.sitey.one,new"),
+    ];
+    rows[1].subdomain_id = 1;
+
+    const { unclaimed } = buildPlan(
+      rows,
+      zoneWith('_vercel\tIN\tTXT\t"vc-domain-verify=demo.sitey.one,new"')
     );
 
     expect(unclaimed).toEqual([]);
