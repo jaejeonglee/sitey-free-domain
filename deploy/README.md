@@ -7,10 +7,11 @@
 |---|---|
 | `dns-controller.service` | 앱을 systemd 서비스로 올린다 (재부팅·크래시 자동 복구) |
 | `caddy-canonical.snippet` | `sitey.one`·`www.*` → `sitey.my` 301 리다이렉트 |
-| `migrate-vercel-txt.js` | apex TXT → `<prefix>.<서브도메인>` 이관 (dry-run 기본) |
+| `migrate-vercel-txt.js` | 덮어쓰기로 사라진 TXT 값을 DB 기준으로 복구 (dry-run 기본) |
 
-> 🔴 **이 저장소의 보안 수정 중 «TXT 이름 분리»는 PSL 등재 전에 배포하면 안 된다.**
-> 아래 3절을 먼저 읽을 것. 나머지 수정과 systemd 유닛은 지금 적용해도 된다.
+> ✅ **PSL 등재 선행조건은 없어졌다** (2026-09-07 재조사).
+> 이전 판은 TXT 이름을 서브도메인별로 나누려 했고, 그러면 PSL 등재 전까지 검증이 전원 불가해졌다.
+> 지금은 이름을 그대로 두고 **덮어쓰기만** 고쳤다 — 3절 참고. 세 파일 모두 지금 적용해도 된다.
 
 ---
 
@@ -172,34 +173,39 @@ caddy validate --config /etc/caddy/Caddyfile && systemctl reload caddy
 
 ---
 
-## 3. 🔴 TXT 이름 분리 — PSL 등재 전에는 배포 금지
+## 3. TXT 값 복구 (backfill)
 
-보안 수정 3번으로 TXT 레코드 이름 규칙이 `<prefix>`(도메인 apex 공유) →
-**`<prefix>.<서브도메인>`** 으로 통일됐다. 근거는 `.claude/docs/decisions/0001-txt-record-naming.md`.
+보안 수정 3번이 다시 쓰였다. 근거는 `.claude/docs/decisions/0001-txt-record-naming.md`.
 
-### 왜 지금 배포하면 안 되는가
+- **이름은 그대로 루트의 `_vercel`** — Vercel 이 `sitey.my` 의 서브도메인에 대해 읽는 자리는 여기 하나뿐이다
+  (PSL 미등재라 등록 도메인이 `sitey.my` 로 판정된다). 실측 28/28 이 이 자리에 있다.
+- **추가는 append** — 같은 (이름, 값)이 있으면 no-op, 그 밖에는 새 줄. 기존 줄을 지우지 않는다.
+- **삭제는 값으로** — 이름이 같고 값이 일치하는 한 줄만. 못 찾으면 «성공»이라 하지 않는다.
+- **루트에 쓸 수 있는 접두어는 `_vercel` 만** (`APEX_TXT_PREFIXES` 로 확장 가능).
+  루트에 `_acme-challenge` 를 심으면 서브도메인 사용자 아무나 `sitey.my` 인증서를 받을 수 있기 때문이다.
 
-Vercel 은 «등록 도메인» 기준으로 `_vercel` TXT 를 요구한다.
-`sitey.my`·`sitey.one` 이 **Public Suffix List 에 없으므로** Vercel 은 `demo.sitey.my` 를
-등록 도메인 `sitey.my` 의 하위로 보고 **apex 의 `_vercel.sitey.my`** 를 요구한다.
+### 왜 지금 배포해도 안전한가
 
-지금 배포하면 앱이 더 이상 apex 에 쓰지 않으므로 **Vercel 인증이 전원 불가**가 된다.
-2026-09-07 실측 기준 TXT 28건이 **100% `_vercel`** 이다.
+**append 는 기존 줄을 건드리지 않는다.** 지금 통과 중인 `kgld-landing-dev.sitey.my` 는
+그대로 살아 있고, 나머지는 잘되면 되살아나고 못해도 지금과 같다. **내려갈 여지가 없다.**
 
-### 배포 순서 (이 순서를 지킨다)
-
-1. `sitey.my` · `sitey.one` 을 **Public Suffix List 에 등재** (https://github.com/publicsuffix/list)
-2. 등재가 Vercel 쪽에 반영됐는지 **서브도메인 하나로 실제 검증 성공**을 확인
-3. 그 다음에 이 변경을 배포 (`git pull` → `systemctl restart dns-controller`)
-4. 아래 마이그레이션 실행
-5. apex 에 남은 옛 `_vercel` 줄은 **한동안 그대로 둔다** (기존 검증이 그걸 보고 있다)
-
-### 마이그레이션
-
-DB 에는 사용자별 토큰이 각각 보존돼 있다. 스크립트가 그걸 기준으로
-각자의 TXT 를 자기 이름 자리에 복원한다.
+### 배포
 
 ```bash
+cd /root/dns-controller && git pull
+systemctl restart dns-controller
+```
+
+### 복구 실행
+
+DB(`subdomain_txt_records`)에 각자의 토큰이 남아 있다. 스크립트가 **존에 없는 값만 골라
+루트 `_vercel` 아래에 덧붙인다.** 지우는 동작은 없다.
+
+```bash
+# 존 파일 백업부터 (--apply 는 줄을 추가만 하므로 되돌리려면 그 줄을 지우면 된다)
+cp /etc/bind/db.sitey.my  /etc/bind/db.sitey.my.bak.$(date +%F)
+cp /etc/bind/db.sitey.one /etc/bind/db.sitey.one.bak.$(date +%F)
+
 cd /root/dns-controller
 
 # 1) 계획만 본다 (아무것도 쓰지 않는다)
@@ -208,16 +214,17 @@ node deploy/migrate-vercel-txt.js
 # 2) 출력이 납득되면 적용
 node deploy/migrate-vercel-txt.js --apply
 
-# 3) 검증
-dig +short TXT _vercel.<서브도메인>.sitey.my @127.0.0.1
+# 3) 검증 — 값이 여러 개 나와야 정상이다
+dig +short TXT _vercel.sitey.my @127.0.0.1
 named-checkzone sitey.my /etc/bind/db.sitey.my
 ```
 
-⚠️ 스크립트는 **apex 에 남아 있는 옛 줄을 지우지 않는다.** 보고만 한다.
-그 줄이 누구 것인지(운영자가 손으로 넣은 것일 수도 있다) 확인한 뒤 사람이 판단해서 지운다.
+출력 읽는 법:
 
-### 그때까지 다른 수정만 먼저 배포하려면
+- `ok` = 이미 존에 있는 값. 건드리지 않는다
+- `ADD` = 존에 없어서 덧붙일 값
+- 같은 서브도메인의 중복 행(재시도 흔적)은 **가장 최근 1건만** 쓴다
+- 「claimed by no row」 = 존에는 있는데 DB 에 없는 줄. **보고만 하고 지우지 않는다.**
+  (`_vercel.stock.sitey.one` 은 옛 이름 규칙의 화석이다 — 그 서브도메인은 응답이 없다)
 
-나머지 다섯 건(입력 검증·신뢰 프록시·`/mcp` 레이트리밋·zone 원자적 쓰기·보상 플래그)은
-PSL 과 무관하게 지금 적용해도 된다. 다만 같은 커밋에 묶여 있으므로
-**분리해서 배포하려면 알려줄 것** — apex 쓰기를 유지하는 별도 커밋을 만들어 준다.
+---
