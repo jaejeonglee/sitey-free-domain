@@ -3,6 +3,7 @@ const crypto = require("crypto");
 const bindService = require("../services/bind");
 const alertService = require("../services/alert");
 const { getManagedDomains } = require("../services/managedDomain");
+const { liveTxtRows } = require("../services/txt-records");
 const config = require("../configs/index");
 
 const RECONCILE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -102,11 +103,21 @@ function diffRecords({ zoneRecords, zoneTxtLines, dbRows, dbTxtRows }) {
  * what actually happened: creation used to overwrite by name, 25 owners wiped
  * each other out, and this reconciler said nothing for months because
  * listDnsRecords only ever read A and CNAME.
+ *
+ * Only live rows are expected to be in the zone. A retry left a second row
+ * behind and the token its owner uses is the newest of them, so the earlier
+ * one is history, not a missing record — see services/txt-records.js. The
+ * first run of this reconciler warned about two of those, which is how the
+ * rule got here.
  */
 function diffTxt(zoneTxtLines, dbTxtRows) {
   // Only the names this app writes are ours to judge. A zone also carries TXT
   // the operator put there by hand (SPF, site verification), and reporting
   // those as orphans every night would bury the ones that matter.
+  //
+  // Which names are ours is decided by *every* row, superseded or not: a name
+  // this app once wrote stays ours, and that is what keeps the fossil
+  // `_vercel.stock` on the list instead of reading it as somebody's SPF.
   const prefixes = [
     ...new Set([
       ...(config.txt.apexPrefixes || []),
@@ -128,7 +139,8 @@ function diffTxt(zoneTxtLines, dbTxtRows) {
     zoneByName.get(name).push(line.value);
   }
 
-  const wanted = dbTxtRows.map((row) => ({
+  // ...but only live rows decide *what should be there*.
+  const wanted = liveTxtRows(dbTxtRows).map((row) => ({
     subdomain: row.subdomain,
     value: row.txt_value,
     name: bindService
@@ -201,7 +213,9 @@ async function computeDiff(fastify, domain, domainId) {
       [domainId]
     ),
     fastify.mysql.execute(
-      "SELECT s.subdomain, t.host_prefix, t.txt_value " +
+      // t.id and t.subdomain_id are what liveTxtRows() sorts retries by;
+      // without them every row of a subdomain reads as a separate record.
+      "SELECT t.id, t.subdomain_id, s.subdomain, t.host_prefix, t.txt_value " +
         "FROM subdomain_txt_records t JOIN subdomains s ON t.subdomain_id = s.id " +
         "WHERE s.domain_id = ?",
       [domainId]

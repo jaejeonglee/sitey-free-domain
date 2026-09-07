@@ -25,11 +25,22 @@ function diff({ zoneRecords = [], zoneTxtLines = [], dbRows = [], dbTxtRows = []
   return diffRecords({ zoneRecords, zoneTxtLines, dbRows, dbTxtRows });
 }
 
-const txtRow = (subdomain, value, hostPrefix = VERCEL) => ({
-  subdomain,
-  host_prefix: hostPrefix,
-  txt_value: value,
-});
+// Rows get an id in call order and share subdomain_id per name, so two calls
+// for one subdomain read as a retry: same owner, the later call the newer row.
+// Real rows carry both columns; the comparison needs them to tell a retry from
+// a second owner.
+const subdomainIds = new Map();
+let nextRowId = 0;
+const txtRow = (subdomain, value, hostPrefix = VERCEL) => {
+  if (!subdomainIds.has(subdomain)) subdomainIds.set(subdomain, subdomainIds.size + 1);
+  return {
+    id: ++nextRowId,
+    subdomain_id: subdomainIds.get(subdomain),
+    subdomain,
+    host_prefix: hostPrefix,
+    txt_value: value,
+  };
+};
 const txtLine = (name, value) => ({ name, type: "TXT", value });
 
 describe("TXT reconciliation", () => {
@@ -164,6 +175,85 @@ describe("TXT reconciliation", () => {
 });
 
 // ---------------------------------------------------------------------------
+// The live server as measured on 2026-09-08, the night the reconciler ran for
+// the first time and sent four warnings. All four were false — nothing had
+// newly broken.
+//
+// Production has no unique key on (subdomain_id, host_prefix), so every Vercel
+// retry left another row behind: `jay` has two, `stock` has two, and only the
+// newest of each is the token its owner uses today. The alert compared against
+// all of them, so both superseded rows came out as "the database has it and
+// the zone does not".
+//
+// Values are the measured ones, cut to the prefix the alert printed.
+// `kgld-landing-dev` stands in for the rows that matched — its token is a
+// placeholder, the other four are real.
+//
+// The point of this fixture: an alarm has to be quiet when nothing is wrong.
+// Two findings are genuine here, both orphan lines in the zone that no live
+// row owns, and they are what --prune-orphans removes.
+// ---------------------------------------------------------------------------
+
+describe("the live server's state, 2026-09-08", () => {
+  const siteyOne = {
+    dbTxtRows: [
+      // id 26 — an earlier retry, superseded
+      txtRow("stock", "vc-domain-verify=stock.sitey.one,012762bee6"),
+      // id 27 — the token in use, and in the zone
+      txtRow("stock", "vc-domain-verify=stock.sitey.one,5588631f55"),
+    ],
+    zoneTxtLines: [
+      txtLine(VERCEL, "vc-domain-verify=stock.sitey.one,5588631f55"),
+      // written through MCP before it recorded rows: no row anywhere owns it
+      txtLine(VERCEL, "vc-domain-verify=udt.sitey.one,00d528cbc6"),
+      // the superseded value, under the name the old code wrote
+      txtLine("_vercel.stock", "vc-domain-verify=stock.sitey.one,012762bee6"),
+    ],
+  };
+
+  const siteyMy = {
+    dbTxtRows: [
+      // id 9 — an earlier retry, superseded, and not in the zone
+      txtRow("jay", "vc-domain-verify=jay.sitey.my,518589e393"),
+      // id 40 — the token in use
+      txtRow("jay", "vc-domain-verify=jay.sitey.my,a7ac65b20a"),
+      txtRow("kgld-landing-dev", "vc-domain-verify=kgld-landing-dev.sitey.my,placeholder"),
+    ],
+    zoneTxtLines: [
+      txtLine(VERCEL, "vc-domain-verify=jay.sitey.my,a7ac65b20a"),
+      txtLine(VERCEL, "vc-domain-verify=kgld-landing-dev.sitey.my,placeholder"),
+    ],
+  };
+
+  it("reports the two orphan lines and nothing else", () => {
+    const issues = [...diff(siteyOne), ...diff(siteyMy)];
+
+    expect(issues).toEqual([
+      {
+        type: "txt-zone-only",
+        name: VERCEL,
+        recordType: "TXT",
+        zoneValue: "vc-domain-verify=udt.sitey.one,00d528cbc6",
+      },
+      {
+        type: "txt-zone-only",
+        name: "_vercel.stock",
+        recordType: "TXT",
+        zoneValue: "vc-domain-verify=stock.sitey.one,012762bee6",
+      },
+    ]);
+  });
+
+  it("says nothing about a subdomain whose retries are all superseded but present", () => {
+    // `jay`'s older token is in no zone file, and that is correct: the value
+    // Vercel asks for is the newest one, which is there.
+    const issues = diff(siteyMy);
+
+    expect(issues).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // computeDiff for real: zone file off a mocked disk, rows out of a stub
 // connection. Same harness as bind-zone-write.test.js — bind.js reads config
 // at module load, so both have to be replaced before the re-require.
@@ -261,7 +351,12 @@ describe("computeDiff reads TXT out of the zone file", () => {
   it("catches the value the database holds and the zone lost", async () => {
     const issues = await computeDiff(fastify, "example.com", 1);
 
-    expect(queries.some((q) => q.includes("FROM subdomain_txt_records"))).toBe(true);
+    const txtQuery = queries.find((q) => q.includes("FROM subdomain_txt_records"));
+    expect(txtQuery).toBeDefined();
+    // Without these two the retry rule cannot tell a retry from a second owner
+    // and quietly stops filtering — the failure this whole rule exists to fix.
+    expect(txtQuery).toContain("t.id");
+    expect(txtQuery).toContain("t.subdomain_id");
     expect(issues).toContainEqual({
       type: "txt-db-only",
       name: "_vercel",
