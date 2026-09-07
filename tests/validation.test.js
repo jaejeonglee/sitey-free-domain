@@ -1,5 +1,6 @@
 import { describe, it, expect, vi } from "vitest";
 import {
+  probeRecord,
   validateARecord,
   validateCnameRecord,
   validateRecord,
@@ -49,5 +50,24 @@ describe("validateRecord", () => {
   it("should return true for unsupported record types", async () => {
     const result = await validateRecord("MX", "mail.example.com");
     expect(result).toBe(true);
+  });
+});
+
+describe("probeRecord", () => {
+  it("says which check ran and what it saw on success", async () => {
+    const probe = await probeRecord("CNAME", "google.com");
+    expect(probe).toMatchObject({ ok: true, check: "dns" });
+    expect(probe.detail).toMatch(/resolved to \d+ address/);
+  });
+
+  it("says why the check failed", async () => {
+    // The reason a record is about to be deleted has to survive into the log.
+    const probe = await probeRecord(
+      "CNAME",
+      "this-domain-does-not-exist-xyz123.com"
+    );
+    expect(probe.ok).toBe(false);
+    expect(probe.check).toBe("dns");
+    expect(probe.detail).toMatch(/resolve failed/);
   });
 });
