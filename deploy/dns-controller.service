@@ -14,6 +14,12 @@ Documentation=https://github.com/jaejeonglee/dns-controller
 After=network-online.target mysql.service named.service
 Wants=network-online.target
 
+# 5분 안에 5번 넘게 재시작하면 멈춘다 — 설정 오류로 무한 재시작 루프를 도는 것을 막는다.
+# ⚠️ 이 둘은 [Service] 가 아니라 [Unit] 에 있어야 한다.
+#    [Service] 에 두면 systemd 가 'Unknown key' 로 무시한다(2026-09-07 배포 중 실측).
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
 [Service]
 Type=simple
 
@@ -47,9 +53,6 @@ ExecStart=/root/.nvm/versions/node/v24.11.0/bin/node /root/dns-controller/server
 # (OOM kill 은 비정상 종료라 on-failure 로도 잡히지만, 종료 코드와 무관하게 살리려고 always 를 쓴다.)
 Restart=always
 RestartSec=5
-# 5분 안에 5번 넘게 재시작하면 멈춘다 — 설정 오류로 무한 재시작 루프를 도는 것을 막는다.
-StartLimitIntervalSec=300
-StartLimitBurst=5
 
 # 로그는 journald 로. (지금은 앱 로그 파일 자체가 없다)
 # 조회: journalctl -u dns-controller -f
