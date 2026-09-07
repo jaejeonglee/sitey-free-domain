@@ -1,0 +1,52 @@
+# sitey dns-controller — systemd unit
+#
+# 설치 절차는 deploy/README.md 참고.
+# 설치 위치: /etc/systemd/system/dns-controller.service
+#
+# 이 유닛이 없으면 앱은 맨 `node server.js` 로만 떠 있고,
+# 죽어도 아무도 살리지 않으며 재부팅하면 아예 뜨지 않는다.
+
+[Unit]
+Description=sitey dns-controller (Fastify API + BIND9 zone writer)
+Documentation=https://github.com/jaejeonglee/dns-controller
+# 앱이 MySQL 을 소유권 원장으로 쓰고 named 를 reload 하므로 둘 다 먼저 올라와야 한다.
+# After 는 «순서»만 강제한다 — 둘 중 하나가 나중에 죽어도 이 유닛은 계속 살아 있다.
+After=network-online.target mysql.service named.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+
+# 현재 운영 상태와 동일하게 root 로 띄운다.
+# 앱이 /etc/bind/db.* 를 직접 쓰고 `systemctl reload named` 를 호출하기 때문이다.
+# 권한을 낮추려면 zone 파일 그룹 쓰기 + named reload 용 sudoers 가 먼저 필요하다(별도 작업).
+User=root
+WorkingDirectory=/root/dns-controller
+
+# 앱 자체가 dotenv 로 WorkingDirectory 의 환경변수 파일을 읽는다.
+# 여기서 한 번 더 경로를 지정해 두면 systemd 로 띄웠을 때도 같은 값이 보장된다.
+# 앞의 '-' 는 «파일이 없거나 못 읽어도 기동을 막지 않는다»는 뜻 —
+# dotenv 가 이미 같은 파일을 읽으므로 이 줄 때문에 서비스가 못 뜨는 상황을 만들지 않는다.
+EnvironmentFile=-/root/dns-controller/.env
+
+# node 절대경로. 설치 전에 `command -v node` 로 확인하고 다르면 이 줄을 고친다.
+ExecStart=/usr/bin/node /root/dns-controller/server.js
+
+# 죽으면 항상 되살린다.
+# 서버 메모리 여유가 160Mi 뿐이라 OOM killer 가 이 프로세스를 잡을 여지가 있는데,
+# Restart=always 가 그 복구까지 겸한다.
+# (OOM kill 은 비정상 종료라 on-failure 로도 잡히지만, 종료 코드와 무관하게 살리려고 always 를 쓴다.)
+Restart=always
+RestartSec=5
+# 5분 안에 5번 넘게 재시작하면 멈춘다 — 설정 오류로 무한 재시작 루프를 도는 것을 막는다.
+StartLimitIntervalSec=300
+StartLimitBurst=5
+
+# 로그는 journald 로. (지금은 앱 로그 파일 자체가 없다)
+# 조회: journalctl -u dns-controller -f
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=dns-controller
+
+[Install]
+WantedBy=multi-user.target
