@@ -28,6 +28,31 @@ function msUntilMidnightKST() {
 }
 
 /**
+ * Is this a name the operator put in the zone rather than one the app wrote?
+ *
+ * Infrastructure records have no row and never will: nameservers, the apex,
+ * and since 2026-09-08 the four Resend needs to send mail as sitey.my. Every
+ * one of them would otherwise be reported as a record that lost its row, every
+ * night, which is how a warning stops being read.
+ *
+ * A listed name covers the name and the names beneath it, because a zone file
+ * writes a relative name with its parent on the right: `resend._domainkey` is
+ * the `resend` node under `_domainkey`. That is what makes `_domainkey` the
+ * right thing to list — DKIM names its selector on the left and a rotated key
+ * gets a new one, so pinning `resend._domainkey` would go stale silently.
+ * Whole labels only: `send` on the list must not swallow `sendgrid`.
+ *
+ * The list is the operator's and `config.txt.apexPrefixes` is the app's, and
+ * the two must not overlap — a name in both silences a check on user data.
+ */
+function isInfraName(name) {
+  const lower = String(name).toLowerCase();
+  return (config.infraRecords || []).some(
+    (entry) => lower === entry || lower.endsWith(`.${entry}`)
+  );
+}
+
+/**
  * Compare one domain's zone file with the database.
  *
  * Pure on purpose — the comparison can be checked against fixtures with no
@@ -56,11 +81,10 @@ function diffRecords({ zoneRecords, zoneTxtLines, dbRows, dbTxtRows }) {
   const issues = [];
 
   // Zone-only: in BIND but not in DB (skip infrastructure records)
-  const infraSet = new Set(config.infraRecords || []);
   for (const [key, value] of zoneMap) {
     if (!dbMap.has(key)) {
       const [name, type] = key.split("|");
-      if (infraSet.has(name.toLowerCase())) continue;
+      if (isInfraName(name)) continue;
       issues.push({ type: "zone-only", name, recordType: type, zoneValue: value });
     }
   }
@@ -133,6 +157,14 @@ function diffTxt(zoneTxtLines, dbTxtRows) {
 
   const zoneByName = new Map();
   for (const line of zoneTxtLines) {
+    // Two locks on the same door, and they are not the same lock. `isOurs`
+    // asks whether the app has ever written this name; isInfraName says the
+    // operator owns it. Today `_dmarc` and `resend._domainkey` are quiet under
+    // either — they match no prefix the app writes — but that is a side effect
+    // of the app's list, and widening APEX_TXT_PREFIXES would end it. Mail
+    // records being infrastructure is a fact about the zone, so it is stated
+    // here rather than inferred.
+    if (isInfraName(line.name)) continue;
     if (!isOurs(line.name)) continue;
     const name = line.name.toLowerCase();
     if (!zoneByName.has(name)) zoneByName.set(name, []);

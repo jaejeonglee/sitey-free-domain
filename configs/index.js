@@ -138,7 +138,28 @@ module.exports = {
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
   },
-  infraRecords: (process.env.INFRA_RECORDS || "ns1,ns2,@,www")
+  // Names in the zone that this app did not write. The reconciler compares the
+  // zone with the database every night, and these have no row to match — that
+  // is what they are, not drift, so it says nothing about them.
+  //
+  // A name here covers that name *and everything under it*. DNS names read
+  // right to left, so `resend._domainkey` is a node beneath `_domainkey`, and
+  // the selector is the half that changes: rotating a key or adding a second
+  // sender mints a new one. Listing `resend._domainkey` would be correct until
+  // the first rotation, and then wrong on the night somebody is doing mail
+  // work. Relative names in a zone file put the parent on the right, so the
+  // test in plugins/reconciler.js is a suffix on whole labels.
+  //
+  // `_vercel` must never appear here: those are user records, every one of
+  // which has a row to match. tests/reconciler.test.js holds the two lists
+  // apart.
+  //
+  // 🔴 Adding a record to a zone by hand means adding its name here too —
+  // deploy/README.md §6. `send`/`rsend`/`_dmarc`/`_domainkey` are Resend's,
+  // added 2026-09-08.
+  infraRecords: (
+    process.env.INFRA_RECORDS || "ns1,ns2,@,www,send,rsend,_dmarc,_domainkey"
+  )
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),

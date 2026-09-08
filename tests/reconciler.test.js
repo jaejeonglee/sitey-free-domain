@@ -17,6 +17,7 @@ const require2 = createRequire(import.meta.url);
 
 const reconciler = require2("../plugins/reconciler.js");
 const { diffRecords } = reconciler;
+const config = require2("../configs/index.js");
 
 const VERCEL = "_vercel";
 const tokenFor = (sub) => `vc-domain-verify=${sub}.example.com,tok-${sub}`;
@@ -432,5 +433,103 @@ describe("computeDiff reads TXT out of the zone file", () => {
     });
     expect(issues.map((i) => i.name)).not.toContain("@");
     expect(issues).toHaveLength(2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Records the operator put in the zone by hand. Four arrived on 2026-09-08 so
+// that mail could come from sitey.my instead of a personal Gmail account:
+//
+//   rsend              IN CNAME rsend-apne1.forge.rmta.net.
+//   send               IN CNAME send.forge.rmta.net.
+//   resend._domainkey  IN TXT   "p=..."
+//   _dmarc             IN TXT   "v=DMARC1; p=none;"
+//
+// None of them has a row in `subdomains` or `subdomain_txt_records` and none
+// ever will: they belong to the domain, not to a user. Left alone the
+// reconciler reports them every night, and the warning that arrives every
+// night is the one nobody reads — the count had just been brought to zero.
+// ---------------------------------------------------------------------------
+
+describe("records the operator put in the zone, not the app", () => {
+  const users = Array.from({ length: 15 }, (_, i) => `user${i + 1}`);
+
+  /** the zone and the database as they stand after the mail records went in */
+  const serverState = () => ({
+    zoneRecords: [
+      { name: "ns1", type: "A", value: "139.59.126.52" },
+      { name: "ns2", type: "A", value: "139.59.126.52" },
+      { name: "@", type: "A", value: "139.59.126.52" },
+      { name: "www", type: "CNAME", value: "sitey.my." },
+      { name: "rsend", type: "CNAME", value: "rsend-apne1.forge.rmta.net." },
+      { name: "send", type: "CNAME", value: "send.forge.rmta.net." },
+      ...users.map((u) => ({ name: u, type: "CNAME", value: "cname.vercel-dns.com." })),
+    ],
+    zoneTxtLines: [
+      txtLine("resend._domainkey", "p=MIGfMA0GCSqGSIb3DQEBAQUAA4GNADCBiQ"),
+      txtLine("_dmarc", "v=DMARC1; p=none;"),
+      ...users.map((u) => txtLine(VERCEL, tokenFor(u))),
+    ],
+    dbRows: users.map((u) => ({
+      subdomain: u,
+      record_type: "CNAME",
+      record_value: "cname.vercel-dns.com",
+    })),
+    dbTxtRows: users.map((u) => txtRow(u, tokenFor(u))),
+  });
+
+  it("says nothing about the state the server is in tonight", () => {
+    expect(diff(serverState())).toEqual([]);
+  });
+
+  it("still reports a `_vercel` line no row owns", () => {
+    // The line above must not be bought with this one. `_vercel` is user data
+    // — every token there has a row to match, and a token without one is
+    // exactly what this reconciler exists to find.
+    const state = serverState();
+    state.zoneTxtLines.push(txtLine(VERCEL, "vc-domain-verify=gone.example.com,orphan"));
+
+    expect(diff(state)).toEqual([
+      {
+        type: "txt-zone-only",
+        name: VERCEL,
+        recordType: "TXT",
+        zoneValue: "vc-domain-verify=gone.example.com,orphan",
+      },
+    ]);
+  });
+
+  it("keeps the ignore list clear of the names the app writes", () => {
+    // The two lists answer opposite questions, so a name in both silences a
+    // check on user data. `_vercel` in INFRA_RECORDS would hide every missing
+    // verification token on the server.
+    for (const prefix of config.txt.apexPrefixes) {
+      expect(config.infraRecords).not.toContain(prefix);
+    }
+  });
+
+  it("ignores a DKIM record whose selector was rotated", () => {
+    // `resend._domainkey` is the `resend` node *under* `_domainkey`, and the
+    // selector is the half that changes — a new key or a second sender mints a
+    // new one. The list names `_domainkey`, so a rotation needs no edit.
+    const state = serverState();
+    state.zoneTxtLines.push(txtLine("resend2._domainkey", "p=rotated"));
+
+    expect(diff(state)).toEqual([]);
+  });
+
+  it("does not let an ignored name swallow one that merely ends the same way", () => {
+    // `send` is on the list; `sendgrid` and `resend` are not, and a user may
+    // hold either. The match is whole labels, not a string prefix.
+    const state = serverState();
+    state.zoneRecords.push(
+      { name: "sendgrid", type: "CNAME", value: "u1.wl.sendgrid.net." },
+      { name: "resend", type: "A", value: "1.2.3.4" }
+    );
+
+    expect(diff(state)).toEqual([
+      { type: "zone-only", name: "sendgrid", recordType: "CNAME", zoneValue: "u1.wl.sendgrid.net." },
+      { type: "zone-only", name: "resend", recordType: "A", zoneValue: "1.2.3.4" },
+    ]);
   });
 });

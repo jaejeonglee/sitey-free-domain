@@ -12,6 +12,11 @@
 | `migrations/002-subdomain-expiry.sql` | `expires_at`·`renewal_notice_stage` 추가 + **시행일 기준 백필** — 4절 |
 | `cleanup-unreachable.js` | 지금 죽어 있는 것들의 **일회성** 정리 (dry-run 기본) — 5절 |
 
+> 🔴 **존에 인프라 레코드를 손으로 추가했으면 `configs/index.js` 의 `infraRecords` 도 같이 고친다.**
+> reconciler 는 존과 DB 를 매일 밤 대조하는데, 인프라 레코드는 DB 에 행이 없다 —
+> 목록에 없으면 **매일 밤 「DB 에 없는 레코드」 경고가 하나씩 늘어난다.**
+> 2026-09-08 메일용 레코드 넷(`send`·`rsend`·`_dmarc`·`resend._domainkey`)을 넣고 여기서 걸렸다.
+
 > ✅ **PSL 등재 선행조건은 없어졌다** (2026-09-07 재조사).
 > 이전 판은 TXT 이름을 서브도메인별로 나누려 했고, 그러면 PSL 등재 전까지 검증이 전원 불가해졌다.
 > 지금은 이름을 그대로 두고 **덮어쓰기만** 고쳤다 — 3절 참고. 세 파일 모두 지금 적용해도 된다.
