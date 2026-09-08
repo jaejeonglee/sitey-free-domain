@@ -70,13 +70,31 @@ module.exports = {
     callbackUrl: process.env.GOOGLE_CALLBACK_URL,
   },
   email: {
-    from: process.env.EMAIL_FROM,
+    // Which way mail goes out. Gmail was the only way until 2026-09-08 and
+    // sent as a personal account; it is kept as the way back, not as a
+    // fallback the code takes on its own — a message that quietly left from
+    // somewhere else would be worse than one that did not leave.
+    provider: (process.env.EMAIL_PROVIDER || "resend").trim().toLowerCase(),
+    // The address recipients see. Resend sends from a domain we own, so this
+    // is a real default rather than something that has to be configured.
+    from: process.env.EMAIL_FROM || "noreply@sitey.my",
+    resend: {
+      // Read from the environment and nowhere else, and never logged. Missing
+      // is not checked at boot: mail is off by default (deploy/README.md §4)
+      // and refusing to start over an unset mail key would take DNS down with
+      // it. services/email.js fails loudly on the send instead.
+      apiKey: process.env.RESEND_API_KEY,
+    },
     gmail: {
       clientId: process.env.GMAIL_CLIENT_ID || process.env.GOOGLE_CLIENT_ID,
       clientSecret: process.env.GMAIL_CLIENT_SECRET || process.env.GOOGLE_CLIENT_SECRET,
       redirectUri: process.env.GMAIL_REDIRECT_URI,
       refreshToken: process.env.GMAIL_REFRESH_TOKEN,
       user: process.env.GMAIL_SENDER || process.env.GMAIL_USER || process.env.SMTP_USER,
+      // Gmail can only send as the account it holds a token for, so the way
+      // back keeps using that account unless an address was set on purpose.
+      // `email.from` above has a default and would otherwise be rejected here.
+      from: process.env.EMAIL_FROM || null,
     },
   },
   validation: {

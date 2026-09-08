@@ -381,9 +381,13 @@ NODE_ENV=production pm2 restart server --update-env
 
 ```bash
 grep '"evt":"email"' /root/.pm2/logs/server-out.log | jq -c
-#   -> {"evt":"email","kind":"renewal_reminder","fqdn":"...","ok":true,...}
-#   ok:false 면 error 필드에 Gmail 이 준 이유가 들어 있다
+#   -> {"evt":"email","kind":"renewal_reminder","provider":"resend","fqdn":"...","ok":true,"id":"..."}
+#   ok:false 면 error 필드에 발송처가 준 거절 사유가 들어 있다
+#   id 는 Resend 대시보드에서 그 한 통을 찾는 값이다
 ```
+
+⚠️ **메일을 켜기 전에 6절(`RESEND_API_KEY`)을 먼저 한다.** 키가 없으면 잡은 돌지만 한 통도 안 나가고
+`ok:false`·`error:"RESEND_API_KEY is not set..."` 만 쌓인다.
 
 도착을 확인한 **뒤에야** 삭제를 켠다 — 같은 파일에 아래 한 줄을 더하고 다시 재시작.
 
@@ -452,4 +456,60 @@ node deploy/cleanup-unreachable.js --purge --apply
 ```bash
 cp /etc/bind/db.sitey.my  /etc/bind/db.sitey.my.bak.$(date +%F)
 cp /etc/bind/db.sitey.one /etc/bind/db.sitey.one.bak.$(date +%F)
+```
+
+
+---
+
+## 6. 메일 발송처 — Resend (2026-09-08)
+
+**발신자가 Jay 개인 Gmail 계정이었다.** 갱신 안내·도달성 안내가 전부 거기서 나갔다.
+이제 **`noreply@sitey.my`** 로 나간다. **바뀐 것은 «보내는 수단» 하나뿐** — 메일 내용·발송 시점·플래그는 그대로다.
+
+### 서버에서 할 일 — 환경변수 한 줄
+
+```
+RESEND_API_KEY=re_...
+```
+```bash
+NODE_ENV=production pm2 restart server --update-env
+```
+
+⚠️ **키는 환경변수 파일에만 둔다.** 저장소·문서·로그·테스트 어디에도 값이 없다(코드가 로그에 안 남긴다).
+
+| 이름 | 기본 | 뜻 |
+|---|---|---|
+| `RESEND_API_KEY` | 없음 | Resend API 키. **없으면 한 통도 안 나간다**(조용히 넘어가지 않고 `ok:false` + 사유를 남긴다) |
+| `EMAIL_FROM` | `noreply@sitey.my` | 받는 사람에게 보이는 발신 주소 |
+| `EMAIL_PROVIDER` | `resend` | `resend` 또는 `gmail`. 그 밖의 값은 **발송 거부**(오타로 엉뚱한 곳에서 나가지 않게) |
+
+### 존에 필요한 레코드 (2026-09-08 이미 넣었다)
+
+```
+rsend              IN CNAME rsend-apne1.forge.rmta.net.
+send               IN CNAME send.forge.rmta.net.
+resend._domainkey  IN TXT   "p=..."
+_dmarc             IN TXT   "v=DMARC1; p=none;"
+```
+
+📌 이 넷은 **DB 에 행이 없다.** 그래서 `configs/index.js` 의 `infraRecords` 에 같이 넣었다 — 안 넣으면
+reconciler 가 매일 밤 「DB 에 없는 레코드」로 보고한다. **존에 손으로 넣는 레코드는 항상 그 목록도 같이 고친다.**
+
+### 되돌리기 — Gmail 로
+
+```
+EMAIL_PROVIDER=gmail
+```
+```bash
+NODE_ENV=production pm2 restart server --update-env
+```
+
+Gmail 경로는 지우지 않고 남겨뒀다. **`EMAIL_FROM` 을 따로 지정하지 않았다면 Gmail 은 예전처럼
+자기 계정 주소로 보낸다** — Gmail API 는 인증된 계정이 아닌 발신 주소를 거부하기 때문이다.
+
+### 확인
+
+```bash
+# 실제 발송은 자비스가 한 통 시험 발송해서 받은 편지함으로 확인한다
+grep '"evt":"email"' /root/.pm2/logs/server-out.log | jq -c 'select(.provider=="resend")'
 ```

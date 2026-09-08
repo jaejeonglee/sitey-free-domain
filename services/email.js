@@ -42,7 +42,7 @@ function ensureGmailConfig() {
 }
 
 function ensureFromAddress(defaultUser) {
-  const from = config.email?.from || defaultUser;
+  const from = config.email?.gmail?.from || defaultUser;
   if (!from) {
     throw new Error(
       "EMAIL_FROM or GMAIL_SENDER must be configured to send verification emails."
@@ -86,6 +86,81 @@ function buildRawMessage({ from, to, subject, html }) {
     .replace(/=+$/, "");
 }
 
+const RESEND_ENDPOINT = "https://api.resend.com/emails";
+
+/**
+ * Resend's HTTP API, over the runtime's own fetch.
+ *
+ * One POST, so no client library: a package here would be a package the
+ * nightly mail cannot go out without, and this send is already the last step
+ * before somebody loses a subdomain they still want.
+ *
+ * The key is read at call time and stays in this function — it is not in the
+ * log line, not in the error, and not in any test.
+ */
+async function sendViaResend({ to, subject, html }) {
+  const apiKey = config.email?.resend?.apiKey;
+  if (!apiKey) {
+    throw new Error(
+      "RESEND_API_KEY is not set — nothing was sent. Put it in the server's " +
+        "environment file, or set EMAIL_PROVIDER=gmail to go back to the old path."
+    );
+  }
+
+  const response = await fetch(RESEND_ENDPOINT, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      from: config.email.from,
+      to: [to],
+      subject,
+      html,
+    }),
+  });
+
+  // Resend answers in JSON either way — `{id}` when it took the message,
+  // `{name, message}` when it refused. The status decides, so a body that will
+  // not parse cannot turn a refusal into a success or a success into a crash.
+  const body = await response.json().catch(() => null);
+  if (!response.ok) {
+    throw new Error(body?.message || `Resend API ${response.status}`);
+  }
+  return { id: body?.id ?? null };
+}
+
+async function sendViaGmail({ to, subject, html }) {
+  const gmail = getGmailClient();
+  const { user } = ensureGmailConfig();
+  const from = ensureFromAddress(user);
+  const raw = buildRawMessage({ from, to, subject, html });
+
+  const response = await gmail.users.messages.send({
+    userId: "me",
+    requestBody: { raw },
+  });
+  return { id: response?.data?.id ?? null };
+}
+
+const TRANSPORTS = { resend: sendViaResend, gmail: sendViaGmail };
+
+/**
+ * Fail-close: a name that is not a transport sends nothing. Falling back to
+ * the default would mail from an address nobody chose, and the whole reason
+ * for this switch is that mail was going out from the wrong sender.
+ */
+function pickTransport(provider) {
+  const transport = TRANSPORTS[provider];
+  if (!transport) {
+    throw new Error(
+      `EMAIL_PROVIDER must be one of ${Object.keys(TRANSPORTS).join(", ")} — got "${provider}"`
+    );
+  }
+  return transport;
+}
+
 /**
  * Send one message and write down what happened to it.
  *
@@ -93,32 +168,32 @@ function buildRawMessage({ from, to, subject, html }) {
  * delivered was unknowable, which is the reason the notice below is off by
  * default until one has been watched arriving. The line names the record, not
  * the person — an address is personal data, and the fqdn is enough to find the
- * owner in the database when a delivery has to be chased.
+ * owner in the database when a delivery has to be chased. `id` is what the
+ * provider called the message, which is what a support request is answered
+ * with; `error` is why it refused.
  *
  * Never throws: a mail that cannot be sent is not a reason to abandon the job
  * that was sending it. The caller reads `ok`.
  *
- * @returns {Promise<{ok: boolean, error?: string}>}
+ * @returns {Promise<{ok: boolean, id?: string|null, error?: string}>}
  */
 async function send({ kind, to, subject, html, fqdn }) {
-  const line = { evt: "email", kind, fqdn, to: hashRecipient(to) };
+  const provider = config.email?.provider;
+  const line = { evt: "email", kind, provider, fqdn, to: hashRecipient(to) };
   try {
-    const gmail = getGmailClient();
-    const { user } = ensureGmailConfig();
-    const from = ensureFromAddress(user);
-    const raw = buildRawMessage({ from, to, subject, html });
+    const { id } = await pickTransport(provider)({ to, subject, html });
 
-    const response = await gmail.users.messages.send({
-      userId: "me",
-      requestBody: { raw },
-    });
-
-    logger.info({ ...line, ok: true, id: response?.data?.id ?? null }, `Sent ${kind} for ${fqdn}`);
-    return { ok: true };
+    logger.info({ ...line, ok: true, id }, `Sent ${kind} for ${fqdn}`);
+    return { ok: true, id };
   } catch (error) {
-    // Gmail puts the useful part in the response body, not in error.message.
+    // Gmail puts the useful part in the response body, not in error.message;
+    // fetch says only "fetch failed" and hangs the real reason off `cause`.
     const reason =
-      error?.response?.data?.error?.message || error?.code || error?.message || "unknown";
+      error?.response?.data?.error?.message ||
+      error?.cause?.code ||
+      error?.code ||
+      error?.message ||
+      "unknown";
     logger.error({ ...line, ok: false, error: String(reason) }, `Failed to send ${kind} for ${fqdn}`);
     return { ok: false, error: String(reason) };
   }
