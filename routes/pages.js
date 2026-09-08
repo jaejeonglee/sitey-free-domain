@@ -5,10 +5,16 @@
 // canonical — search engines treated them as duplicates of "/". Social
 // scrapers never run the SPA router, so client-side tag updates would not help
 // them either; the tags have to be right in the delivered HTML.
+//
+// The same argument applies to the body: it lived in <template> elements that
+// only the client router copied into <main id="app-root">, so a reader without
+// JavaScript got correct tags wrapped around a blank page. Public pages now
+// ship their body too — see services/page-body.js.
 const fs = require("fs").promises;
 const path = require("path");
 const fp = require("fastify-plugin");
 const { loadPost } = require("../services/blog");
+const { extractTemplate, docsBody, injectAppRoot } = require("../services/page-body");
 
 // One canonical origin for the whole site. robots.txt and sitemap.xml carry the
 // same value — change all three together.
@@ -23,19 +29,27 @@ const DEFAULT_DESCRIPTION =
 // Mirrors the client router in public/modules/router.js. Anything not listed
 // here is a real 404 — the old handler answered every unknown URL with the home
 // page and a 200 (a soft 404).
+//
+// "template" names the <template> whose contents are rendered into the body.
+// Pages behind sign-in deliberately have none: their markup is an empty shell
+// waiting on an API call, so shipping it would only put a contentless page in
+// front of crawlers.
 const PAGES = {
   "/": {
     title: "Sitey — free subdomains for developers",
     description: DEFAULT_DESCRIPTION,
+    template: "template-home",
   },
   "/docs": {
     title: `Docs — ${SITE_TITLE_SUFFIX}`,
     description: "How to create a subdomain, point it at your server, and use the REST API.",
+    template: "template-docs",
   },
   "/guide": {
     title: `Docs — ${SITE_TITLE_SUFFIX}`,
     description: "How to create a subdomain, point it at your server, and use the REST API.",
     canonicalPath: "/docs", // same page under two paths
+    template: "template-docs",
   },
   "/blog": {
     title: `Blog — ${SITE_TITLE_SUFFIX}`,
@@ -44,7 +58,9 @@ const PAGES = {
   "/help": {
     title: `Help — ${SITE_TITLE_SUFFIX}`,
     description: "Answers to common questions about sitey subdomains.",
+    template: "template-help",
   },
+  // No template below this line: sign-in and the dashboard are behind auth.
   "/login": {
     title: `Sign in — ${SITE_TITLE_SUFFIX}`,
     description: "Sign in with Google to manage your sitey subdomains.",
@@ -70,10 +86,10 @@ function escapeAttr(value) {
 }
 
 /**
- * Replacement text is always produced by a function. Blog titles and
- * descriptions come from markdown front matter, and "$&", "$`" or "$'" in a
- * string replacement are patterns, not literals: a post titled "Save $&" would
- * splice the matched tag back into its own content attribute.
+ * Replacement text is always produced by a function: blog titles, descriptions
+ * and post bodies come from markdown we do not control the punctuation of, and
+ * a literal "$&" or "$\'" in a string replacement would splice the surrounding
+ * document into the tag.
  */
 function replaceWith(html, pattern, value) {
   return html.replace(pattern, () => value);
@@ -85,7 +101,7 @@ function setMeta(html, attr, name, value) {
   return replaceWith(html, pattern, `<meta ${attr}="${name}" content="${escapeAttr(value)}" />`);
 }
 
-function renderPage(template, { canonicalPath, title, description, noindex }) {
+function renderPage(template, { canonicalPath, title, description, noindex, body }) {
   const canonicalUrl = `${CANONICAL_ORIGIN}${canonicalPath}`;
 
   let html = replaceWith(
@@ -109,17 +125,26 @@ function renderPage(template, { canonicalPath, title, description, noindex }) {
     );
   }
 
-  return html;
+  return injectAppRoot(html, body || "");
 }
 
 async function pageRoutes(fastify, options) {
   const template = await fs.readFile(INDEX_PATH, "utf8");
 
+  // Read the <template> bodies once at startup. extractTemplate throws if one
+  // is missing, so a renamed template fails the boot instead of quietly
+  // serving blank pages again.
+  const staticBodies = {
+    "template-home": extractTemplate(template, "template-home"),
+    "template-docs": docsBody(extractTemplate(template, "template-docs")),
+    "template-help": extractTemplate(template, "template-help"),
+  };
   function send(reply, page, statusCode = 200) {
+    const body = page.body ?? (page.template ? staticBodies[page.template] : "");
     return reply
       .code(statusCode)
       .type("text/html; charset=utf-8")
-      .send(renderPage(template, page));
+      .send(renderPage(template, { ...page, body }));
   }
 
   /** the 404 body: still the app shell, but with an honest status code */
