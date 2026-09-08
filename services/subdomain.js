@@ -1,5 +1,6 @@
 const bindService = require("./bind");
 const alertService = require("./alert");
+const { expiryAfter } = require("./expiry");
 
 /**
  * Zone files store CNAME targets with a trailing dot; the DB stores them
@@ -48,9 +49,13 @@ async function createSubdomain(fastify, params) {
     }
 
     await connection.beginTransaction();
+    // A name is lent for a period and has to be renewed; how long depends on
+    // who the owner is (services/expiry.js). Set at insert rather than left to
+    // a default so the row is never briefly immortal.
     await connection.execute(
-      "INSERT INTO subdomains (user_id, domain_id, subdomain, record_value, record_type, owner_type, owner_ip) VALUES (?, ?, ?, ?, ?, ?, ?)",
-      [userId, domainId, subdomain, recordValue, recordType, ownerType, ownerIp]
+      "INSERT INTO subdomains (user_id, domain_id, subdomain, record_value, record_type, owner_type, owner_ip, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+      [userId, domainId, subdomain, recordValue, recordType, ownerType, ownerIp,
+       expiryAfter(new Date(), ownerType)]
     );
 
     // Flag before the call, not after: the most common failures are inside

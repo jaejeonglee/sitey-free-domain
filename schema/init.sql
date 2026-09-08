@@ -39,6 +39,9 @@ CREATE TABLE IF NOT EXISTS subdomains (
   owner_type ENUM('user','agent') DEFAULT 'user',
   owner_ip VARCHAR(45) DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  -- NULL means never expires; the expiry job skips those rows.
+  expires_at TIMESTAMP NULL,
+  renewal_notice_stage TINYINT NULL,
   UNIQUE INDEX (subdomain, domain_id),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (domain_id) REFERENCES managed_domains(id) ON DELETE CASCADE
@@ -68,3 +71,4 @@ CREATE TABLE IF NOT EXISTS api_keys (
 -- ALTER TABLE subdomains ADD COLUMN owner_type ENUM('user','agent') DEFAULT 'user';
 -- ALTER TABLE subdomains ADD COLUMN owner_ip VARCHAR(45) DEFAULT NULL;
 -- deploy/migrations/001-unreachable-notice.sql  (unreachable_notified_at)
+-- deploy/migrations/002-subdomain-expiry.sql     (expires_at, renewal_notice_stage)
