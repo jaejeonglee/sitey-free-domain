@@ -22,15 +22,35 @@ const renewalToken = require("./renewal-token");
 const { REMINDER_DAYS, daysUntil, reminderStageFor, shouldSendReminder } = require("./expiry");
 
 /**
- * Write to the people whose records are coming due.
+ * Gather what is coming due into one mail per person per reminder.
  *
- * Only user-owned records: an agent-created one has no address attached, which
- * is why its expiry date is carried in the API responses it reads instead.
+ * 🔴 The grouping key is (owner, stage), not owner alone.
+ *
+ * Stage first: the backfill dated all 44 existing records from the day it ran,
+ * so one owner's records fall due together and one mail covers them — but new
+ * records are dated from when they were made, and two records a fortnight
+ * apart are at different points in the countdown. They cannot share a mail,
+ * because
+ *   1. the mail states a deadline, and it would have to state two, and
+ *   2. `renewal_notice_stage` is recorded per record against the mail that was
+ *      sent. One send cannot honestly record two different stages.
+ * Grouping by owner alone would either lie about a date or mark a record as
+ * reminded at a stage it was never reminded at, and a record marked too early
+ * is a record whose real reminder never goes out.
+ *
+ * Owner second: a mail per record meant 33 mails over one period for the
+ * person holding 11 subdomains. At that point the button they press is
+ * "unsubscribe", and the mail that matters — the one before deletion — is the
+ * one that never arrives.
+ *
+ * Only user-owned records are here at all: the join to `users` is what leaves
+ * agent-created ones out, and they have no address attached, which is why
+ * their expiry date is carried in the API responses they read instead.
  */
 async function sendRenewalReminders(fastify, now = new Date()) {
   const [rows] = await fastify.mysql.query(
     `SELECT s.id, s.subdomain, s.expires_at, s.renewal_notice_stage,
-            m.domain_name, u.email
+            s.user_id, m.domain_name, u.email
        FROM subdomains s
        JOIN managed_domains m ON s.domain_id = m.id
        JOIN users u ON s.user_id = u.id
@@ -39,55 +59,83 @@ async function sendRenewalReminders(fastify, now = new Date()) {
       ORDER BY s.expires_at`
   );
 
-  let sent = 0;
+  const groups = new Map();
   for (const record of rows) {
     const daysLeft = daysUntil(record.expires_at, now);
     const stage = reminderStageFor(daysLeft);
     if (!shouldSendReminder(stage, record.renewal_notice_stage)) continue;
 
-    const base = {
-      evt: "renewal_reminder",
+    const key = `${record.user_id}:${stage}`;
+    let group = groups.get(key);
+    if (!group) {
+      group = { email: record.email, stage, daysLeft, records: [] };
+      groups.set(key, group);
+    }
+    // The soonest of them is the deadline the mail leads with, because the one
+    // button renews the lot. Every record's own date is in the list as well.
+    group.daysLeft = Math.min(group.daysLeft, daysLeft);
+    group.records.push({
+      id: record.id,
       subdomain: record.subdomain,
       domain: record.domain_name,
-      stage,
-      days_left: daysLeft,
+      expiresAt: record.expires_at,
+    });
+  }
+
+  let sent = 0;
+  let messages = 0;
+  for (const group of groups.values()) {
+    const fqdns = group.records.map((r) => `${r.subdomain}.${r.domain}`);
+    const base = {
+      evt: "renewal_reminder",
+      fqdns,
+      records: group.records.length,
+      stage: group.stage,
+      days_left: group.daysLeft,
     };
 
     if (!config.expiry.remindersEnabled) {
       fastify.log.warn(
         { ...base, action: "withheld" },
-        `Renewal reminder not sent (RENEWAL_REMINDERS_ENABLED is off): ${record.subdomain}.${record.domain_name}`
+        `Renewal reminder not sent (RENEWAL_REMINDERS_ENABLED is off): ${fqdns.join(" ")}`
       );
       continue;
     }
 
-    const result = await sendRenewalReminderEmail(record.email, {
-      subdomain: record.subdomain,
-      domain: record.domain_name,
-      daysLeft,
-      expiresAt: record.expires_at,
-      renewUrl: `${config.server.publicOrigin}/renew/${renewalToken.sign(record.id)}`,
+    const result = await sendRenewalReminderEmail(group.email, {
+      records: group.records,
+      daysLeft: group.daysLeft,
+      renewUrl: `${config.server.publicOrigin}/renew/${renewalToken.sign(
+        group.records.map((r) => r.id)
+      )}`,
     });
 
     if (!result.ok) {
-      // The stage is deliberately not recorded: a mail that failed has not
-      // been sent, so tomorrow's run should try this stage again.
+      // The stage is deliberately not recorded — for any of them. A mail that
+      // failed has not been sent, so tomorrow's run should offer this whole
+      // group again.
       fastify.log.error(
         { ...base, action: "failed", error: result.error },
-        `Renewal reminder failed for ${record.subdomain}.${record.domain_name}`
+        `Renewal reminder failed for ${fqdns.join(" ")}`
       );
       continue;
     }
 
+    // Every record the mail listed, in one statement. Marking only some of
+    // them would send the rest the same mail again tomorrow night. The
+    // placeholders are counted from the group, never from anything a caller
+    // supplied, and the ids still go in as parameters.
+    const ids = group.records.map((r) => r.id);
     await fastify.mysql.execute(
-      "UPDATE subdomains SET renewal_notice_stage = ? WHERE id = ?",
-      [stage, record.id]
+      `UPDATE subdomains SET renewal_notice_stage = ? WHERE id IN (${ids.map(() => "?").join(", ")})`,
+      [group.stage, ...ids]
     );
-    sent++;
-    fastify.log.info({ ...base, action: "sent" }, `Renewal reminder sent for ${record.subdomain}.${record.domain_name}`);
+    sent += ids.length;
+    messages++;
+    fastify.log.info({ ...base, action: "sent" }, `Renewal reminder sent for ${fqdns.join(" ")}`);
   }
 
-  return { considered: rows.length, sent };
+  return { considered: rows.length, sent, messages };
 }
 
 /**
@@ -161,7 +209,8 @@ async function runExpiryJob(fastify) {
 
   fastify.log.info(
     { evt: "expiry_run", ...reminders, ...expired },
-    `Expiry pass: ${reminders.sent}/${reminders.considered} reminded, ${expired.removed}/${expired.due} removed`
+    `Expiry pass: ${reminders.sent}/${reminders.considered} reminded in ${reminders.messages} ` +
+      `message(s), ${expired.removed}/${expired.due} removed`
   );
 }
 

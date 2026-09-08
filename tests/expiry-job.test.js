@@ -89,6 +89,7 @@ const dueRow = (overrides = {}) => ({
   id: 5,
   subdomain: "demo",
   domain_name: "sitey.my",
+  user_id: 1,
   email: "owner@example.com",
   expires_at: inDays(14),
   renewal_notice_stage: null,
@@ -228,5 +229,151 @@ describe("once deletion is switched on", () => {
     const result = await removeExpired(app);
 
     expect(result).toEqual({ due: 2, removed: 1 });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// One person, several subdomains.
+//
+// The backfill gave all 44 existing records the same due date, and one owner
+// holds 11 of them. A mail per record meant 11 mails on the same night and 33
+// over the three reminders — at which point the button people press is
+// "unsubscribe", and then the mail that matters later never arrives either.
+// ---------------------------------------------------------------------------
+describe("when one person has several coming due", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    process.env.RENEWAL_REMINDERS_ENABLED = "true";
+  });
+
+  const three = () => [
+    dueRow({ id: 1, subdomain: "one" }),
+    dueRow({ id: 2, subdomain: "two" }),
+    dueRow({ id: 3, subdomain: "three" }),
+  ];
+
+  it("writes once, not once per subdomain", async () => {
+    const { sendRenewalReminders } = loadJob();
+    const app = fakeFastify({ due: three() });
+
+    await sendRenewalReminders(app);
+
+    expect(sendRenewalReminderEmail).toHaveBeenCalledOnce();
+    const [to, info] = sendRenewalReminderEmail.mock.calls[0];
+    expect(to).toBe("owner@example.com");
+    expect(info.records.map((r) => `${r.subdomain}.${r.domain}`)).toEqual([
+      "one.sitey.my",
+      "two.sitey.my",
+      "three.sitey.my",
+    ]);
+  });
+
+  it("puts all three behind the one button", async () => {
+    const { sendRenewalReminders } = loadJob();
+    const renewalToken = require2("../services/renewal-token.js");
+    const app = fakeFastify({ due: three() });
+
+    await sendRenewalReminders(app);
+
+    const [, info] = sendRenewalReminderEmail.mock.calls[0];
+    const token = info.renewUrl.split("/renew/")[1];
+    expect(renewalToken.verify(token)).toEqual({ valid: true, subdomainIds: [1, 2, 3] });
+  });
+
+  it("records the stage on all three, so tomorrow night is quiet", async () => {
+    // One mail and one record marked means the other two come round again the
+    // next night, and the night after that.
+    const { sendRenewalReminders } = loadJob();
+    const app = fakeFastify({ due: three() });
+
+    await sendRenewalReminders(app);
+
+    const marked = app.writes.filter((w) => /renewal_notice_stage = \?/.test(w.sql));
+    const ids = marked.flatMap((w) => w.params.slice(1));
+    expect(ids.sort()).toEqual([1, 2, 3]);
+    for (const write of marked) expect(write.params[0]).toBe(14);
+  });
+
+  it("marks nothing when the one mail failed", async () => {
+    sendRenewalReminderEmail.mockResolvedValueOnce({ ok: false, error: "quota exceeded" });
+    const { sendRenewalReminders } = loadJob();
+    const app = fakeFastify({ due: three() });
+
+    await sendRenewalReminders(app);
+
+    expect(app.writes.find((w) => /renewal_notice_stage = \?/.test(w.sql))).toBeUndefined();
+  });
+
+  it("keeps two owners apart", async () => {
+    const { sendRenewalReminders } = loadJob();
+    const app = fakeFastify({
+      due: [
+        dueRow({ id: 1, subdomain: "one" }),
+        dueRow({ id: 2, subdomain: "two" }),
+        dueRow({ id: 3, subdomain: "other", user_id: 2, email: "someone@example.com" }),
+      ],
+    });
+
+    await sendRenewalReminders(app);
+
+    expect(sendRenewalReminderEmail).toHaveBeenCalledTimes(2);
+    expect(sendRenewalReminderEmail.mock.calls.map((c) => c[0]).sort()).toEqual([
+      "owner@example.com",
+      "someone@example.com",
+    ]);
+  });
+
+  it("splits one owner's records when they are not at the same stage", async () => {
+    // Grouping is by owner *and* stage: two records with different dates are
+    // at different points in the countdown, and one mail cannot say both
+    // "in 14 days" and "today" — nor record two stages against one send.
+    const { sendRenewalReminders } = loadJob();
+    const app = fakeFastify({
+      due: [
+        dueRow({ id: 1, subdomain: "later", expires_at: inDays(14) }),
+        dueRow({ id: 2, subdomain: "sooner", expires_at: inDays(2) }),
+      ],
+    });
+
+    await sendRenewalReminders(app);
+
+    expect(sendRenewalReminderEmail).toHaveBeenCalledTimes(2);
+    const stages = app.writes
+      .filter((w) => /renewal_notice_stage = \?/.test(w.sql))
+      .map((w) => w.params)
+      .sort((a, b) => a[0] - b[0]);
+    expect(stages).toEqual([[3, 2], [14, 1]]);
+  });
+
+  it("leaves out the ones whose stage has already gone", async () => {
+    const { sendRenewalReminders } = loadJob();
+    const app = fakeFastify({
+      due: [
+        dueRow({ id: 1, subdomain: "fresh" }),
+        dueRow({ id: 2, subdomain: "told", renewal_notice_stage: 14 }),
+      ],
+    });
+
+    await sendRenewalReminders(app);
+
+    expect(sendRenewalReminderEmail).toHaveBeenCalledOnce();
+    const [, info] = sendRenewalReminderEmail.mock.calls[0];
+    expect(info.records.map((r) => r.subdomain)).toEqual(["fresh"]);
+  });
+
+  it("never writes to an agent-owned record — there is no address on it", async () => {
+    // The join to users is the mechanism: an agent record carries no user_id,
+    // so it cannot appear in this query at all. Pin the join.
+    const { sendRenewalReminders } = loadJob();
+    const seen = [];
+    const app = fakeFastify({ due: [] });
+    app.mysql.query = async (sql) => {
+      seen.push(sql);
+      return [[]];
+    };
+
+    await sendRenewalReminders(app);
+
+    expect(seen[0]).toMatch(/JOIN users u ON s\.user_id = u\.id/);
   });
 });
