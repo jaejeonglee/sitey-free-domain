@@ -8,6 +8,9 @@
 | ~~`dns-controller.service`~~ | ⛔ **쓰지 않는다.** 이 서버는 **PM2** 로 운영한다(2026-09-07 Jay 결정). 참고용으로만 남긴다 — 1절 |
 | `caddy-canonical.snippet` | `sitey.one`·`www.*` → `sitey.my` 301 리다이렉트 |
 | `migrate-vercel-txt.js` | 덮어쓰기로 사라진 TXT 값을 DB 기준으로 복구 + `--prune-orphans` 로 주인 없는 줄 정리 (둘 다 dry-run 기본) |
+| `migrations/001-unreachable-notice.sql` | `subdomains.unreachable_notified_at` 추가 — 4절 |
+| `migrations/002-subdomain-expiry.sql` | `expires_at`·`renewal_notice_stage` 추가 + **시행일 기준 백필** — 4절 |
+| `cleanup-unreachable.js` | 지금 죽어 있는 것들의 **일회성** 정리 (dry-run 기본) — 5절 |
 
 > ✅ **PSL 등재 선행조건은 없어졌다** (2026-09-07 재조사).
 > 이전 판은 TXT 이름을 서브도메인별로 나누려 했고, 그러면 PSL 등재 전까지 검증이 전원 불가해졌다.
@@ -253,3 +256,195 @@ grep '"evt":"reconcile"' /root/.pm2/logs/server-out.log | jq -c 'select(.issue|s
 ```
 
 ---
+
+---
+
+## 4. 도달성 정책 변경 + 주기적 갱신 (2026-09-08)
+
+> 🔴 **여기서 바뀐 것 한 줄** — **도달성으로는 이제 아무것도 지우지 않는다.**
+> 지우는 길은 **갱신 미이행 하나뿐**이다.
+
+### 왜
+
+기존 정책은 **연속 2회 실패 시 삭제**였고 검사는 하루 한 번 돈다. 즉 **48시간 다운 = 도메인 소멸**.
+2026-09-08 아침 Jay 본인 서브도메인 3개가 이렇게 사라졌고, 익명 레코드는 메일 주소가 없어 **아무 통보 없이** 사라진다.
+
+게다가 판정이 틀렸다. CNAME 을 `dns.resolve(타깃)` 으로만 봤는데, **Vercel 에서 배포를 지워도 CDN 호스트명은 DNS 에 남는다.**
+실측(2026-09-08): 발급 44개 중 **실제로 뜨는 것은 19개**인데 검사는 거의 전부를 「정상」으로 봤다.
+
+### 판정표 (`services/reachability.js`)
+
+| 응답 | 판정 |
+|---|---|
+| 2xx · 3xx · **401** · **403** · **404** | **살아있음** |
+| 그 밖의 응답 (500 포함) | 살아있음 — 앱이 있고 죽은 것이다 |
+| **502 · 503 · 504** | **죽음** — 뒤에 아무것도 없는 게이트웨이 |
+| 연결 실패 (DNS 실패·TCP 거부·타임아웃) | **죽음** |
+
+- **404 를 살아있음으로 친 것은 Jay 결정**이다. 루트만 404 인 정상 사이트가 흔하고, 틀렸을 때의 비용이 「멀쩡한 사이트 주인에게 죽었다고 알리는 것」이다.
+- ⚠️ **그 결과 하나**: Vercel 에서 배포를 지운 도메인은 Vercel 이 404 를 돌려주므로 **살아있음으로 잡힌다.**
+  아무것도 안 지우니 피해는 없지만, 5절 정리 목록에도 **안 올라온다.**
+- 검사는 **A·CNAME 모두 실제 HTTP(S) 요청**이고, `Host`·SNI 에 **그 서브도메인 이름**을 넣는다(CDN 은 그 이름으로 라우팅한다).
+
+### 죽어 있으면 무슨 일이 일어나나
+
+1. `warning_count` 에 **연속 실패 «일수»** 가 쌓인다 (하루 1회 검사)
+2. `UNREACHABLE_NOTICE_DAYS`(기본 **14**)를 넘으면 **소유자에게 안내 메일 1통.** 「N일째 안 열립니다」
+3. **한 번 보내면 다시 열릴 때까지 재발송하지 않는다** (`unreachable_notified_at`)
+4. **삭제는 없다.** 없다
+
+로그로 확인:
+
+```bash
+grep '"evt":"validate"' /root/.pm2/logs/server-out.log | jq -c 'select(.result=="fail")'
+# check(https/http) · status · detail · failure(며칠째) · action 이 한 줄에 들어 있다
+```
+
+### 갱신 주기
+
+| 소유 | 수명 | 갱신 방법 | 알림 |
+|---|---|---|---|
+| `owner_type='user'` (39개) | **3개월** | 메일 안의 버튼 (`GET /renew/:token`) | **14일 전 · 3일 전 · 당일** |
+| `owner_type='agent'` (5개) | **1개월** | `POST /api/v1/subdomains/:sub/:domain/renew` · MCP `renew_subdomain` | 없음 — 조회 응답의 `expires_at` |
+
+- 갱신은 **오늘부터** 다시 센다(더해지지 않는다). 미리 눌러도 기간이 쌓이지 않는다.
+- 갱신 링크 토큰은 **서브도메인 id 하나만** 담고, **JWT 와 다른 키**로 서명하며 **30일** 뒤 만료된다.
+  그 토큰으로 할 수 있는 일은 **그 서브도메인의 기간 연장 하나뿐**이다.
+- 「당일」 메일은 자정 실행에 나가고 **삭제는 그 다음 자정**에 일어난다(`expires_at < NOW()`). 하루의 여유가 여기서 생긴다.
+
+### 🔴 마이그레이션 — 앱이 자동 실행하지 않는다. 손으로 두 줄
+
+```bash
+cd /root/dns-controller && git pull
+
+# 백업부터. 스키마 변경이라 존 파일 백업과 달리 되돌리기가 비싸다
+mysqldump -u <user> -p <db> subdomains > /root/subdomains.bak.$(date +%F).sql
+
+mysql -u <user> -p <db> < deploy/migrations/001-unreachable-notice.sql
+mysql -u <user> -p <db> < deploy/migrations/002-subdomain-expiry.sql
+```
+
+**되돌리기**
+
+```bash
+mysql -u <user> -p <db> -e "
+  ALTER TABLE subdomains DROP COLUMN unreachable_notified_at;
+  ALTER TABLE subdomains DROP COLUMN renewal_notice_stage, DROP COLUMN expires_at;"
+```
+⚠️ 되돌릴 때는 **코드도 같이 되돌린다**(`git revert`). 앱이 이 컬럼들을 읽는다.
+
+**002 는 백필이 핵심이다** — 기존 44개를 **`created_at` 이 아니라 «실행한 날»** 기준으로 채운다.
+생성일 기준이면 2025-11 부터의 것들이 **켜는 날 한꺼번에 만료**된다. `tests/expiry.test.js` 가 이 SQL 을 읽어서
+`created_at` 을 참조하지 않는지 검사한다.
+
+확인:
+
+```sql
+SELECT owner_type, COUNT(*), MIN(expires_at), MAX(expires_at) FROM subdomains GROUP BY owner_type;
+SELECT COUNT(*) FROM subdomains WHERE expires_at IS NULL;   -- 0 이어야 한다
+```
+
+### 🔴 플래그 — 셋 다 기본 «꺼짐». 이 순서로 켠다
+
+메일이 실제로 도착하는지 **우리는 아직 모른다.** 도착 확인 전에 삭제를 켜면
+**아무 연락 없이 주소를 잃는 일**이 다시 생긴다 — 이 변경 전체가 그걸 막으려고 있는 것이다.
+
+| 플래그 | 기본 | 켜면 |
+|---|---|---|
+| `UNREACHABLE_NOTICE_ENABLED` | `false` | 14일째 죽어 있는 것의 소유자에게 안내 메일 |
+| `RENEWAL_REMINDERS_ENABLED` | `false` | 만료 14일·3일·당일 전 갱신 메일 |
+| `EXPIRY_DELETION_ENABLED` | `false` | **만료된 것 실제 삭제** ← 마지막에 켠다 |
+
+꺼져 있는 동안에도 **잡은 매일 돌고, 무엇을 했을 «뻔»했는지 로그에 남는다**(`action:"withheld"`).
+
+```bash
+# 무엇이 나갈 뻔했는지 미리 본다 (플래그 켜기 전)
+grep -E '"evt":"(renewal_reminder|expire)"' /root/.pm2/logs/server-out.log | jq -c
+```
+
+**켜는 법** — 서버의 환경변수 파일(앱이 dotenv 로 읽는 그것)에 아래 한 줄을 넣고 재시작한다.
+**한 번에 하나씩.**
+
+```
+RENEWAL_REMINDERS_ENABLED=true
+```
+```bash
+NODE_ENV=production pm2 restart server --update-env
+```
+
+메일이 실제로 도착했는지 **받은 편지함에서** 확인한다. 로그만 보고 끝내지 않는다.
+
+```bash
+grep '"evt":"email"' /root/.pm2/logs/server-out.log | jq -c
+#   -> {"evt":"email","kind":"renewal_reminder","fqdn":"...","ok":true,...}
+#   ok:false 면 error 필드에 Gmail 이 준 이유가 들어 있다
+```
+
+도착을 확인한 **뒤에야** 삭제를 켠다 — 같은 파일에 아래 한 줄을 더하고 다시 재시작.
+
+```
+EXPIRY_DELETION_ENABLED=true
+```
+
+기타 환경변수 (전부 기본값 그대로 두면 된다)
+
+| 이름 | 기본 | 뜻 |
+|---|---|---|
+| `UNREACHABLE_NOTICE_DAYS` | `14` | 며칠 죽어 있으면 알리나 |
+| `VALIDATION_HTTP_TIMEOUT_MS` | `5000` | 검사 요청 타임아웃. **`VALIDATION_TCP_TIMEOUT_MS` 를 대체한다** (옛 이름은 이제 무시됨) |
+| `PUBLIC_ORIGIN` | `https://sitey.my` | 메일 속 갱신 링크가 가리킬 주소 |
+| `EXPIRY_INTERVAL_MS` | `86400000` | 만료 잡 주기 |
+
+### 배포
+
+```bash
+export PATH=/root/.nvm/versions/node/v24.11.0/bin:$PATH
+cd /root/dns-controller && git pull
+NODE_ENV=production pm2 restart server --update-env
+```
+
+DNS·존 파일은 **건드리지 않는다.** 되돌리기는 `git revert` + 위 DROP COLUMN.
+
+---
+
+## 5. 지금 죽어 있는 것들의 일회성 정리 — `cleanup-unreachable.js`
+
+4절의 상시 규칙은 **아무것도 지우지 않는다.** 그 규칙이 물려받은 **밀린 빚**이 이 스크립트다 —
+몇 달 동안 잘못된 판정 때문에 쌓인, 지금 죽어 있는 20여 개.
+
+⚠️ **자비스가 dry-run 출력을 보고 판단한 뒤에 돌린다. 그냥 실행하지 않는다.**
+
+```bash
+export PATH=/root/.nvm/versions/node/v24.11.0/bin:$PATH
+cd /root/dns-controller
+
+# 1) 지금 죽어 있는 것 목록만 (아무것도 쓰지 않는다). 44개 전부 HTTP 로 찍어보므로 1~2분 걸린다
+node deploy/cleanup-unreachable.js
+
+# 2) 누구에게 메일이 갈지 (아직 안 보낸다)
+node deploy/cleanup-unreachable.js --notify
+
+# 3) 실제 발송 + 보낸 날짜 기록
+node deploy/cleanup-unreachable.js --notify --apply
+
+# 4) 14일 뒤 — 무엇이 지워질지 (아직 안 지운다)
+node deploy/cleanup-unreachable.js --purge
+
+# 5) 목록이 납득되면 삭제
+node deploy/cleanup-unreachable.js --purge --apply
+```
+
+안전장치
+
+- **모든 모드가 dry-run 기본.** `--apply` 없이는 아무것도 쓰지 않는다
+- `--purge` 는 **안내를 받은 지 14일 지난 것만** 지운다. **안내를 안 받은 것은 영원히 안 지운다**
+- `--purge` 는 **다시 찍어본다.** 그 사이 살아난 것은 목록에서 빠진다
+- 메일은 **한 사람에게 한 번**만 — 이미 `unreachable_notified_at` 이 있으면 건너뛴다
+- 판정은 4절 판정표와 **같은 코드**를 쓴다. 여기만 다른 기준을 쓰지 않는다
+
+📌 **3·5단계 전에 존 파일 백업**을 뜬다. 삭제는 존 파일을 고친다.
+
+```bash
+cp /etc/bind/db.sitey.my  /etc/bind/db.sitey.my.bak.$(date +%F)
+cp /etc/bind/db.sitey.one /etc/bind/db.sitey.one.bak.$(date +%F)
+```
