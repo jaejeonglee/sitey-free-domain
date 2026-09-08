@@ -99,10 +99,10 @@ describe("email transport", () => {
 
   it("writes down the message id, and the recipient only as a hash", async () => {
     await emailMod.sendRenewalReminderEmail("owner@example.com", {
-      subdomain: "demo",
-      domain: "sitey.my",
+      records: [
+        { subdomain: "demo", domain: "sitey.my", expiresAt: new Date("2026-10-01T00:00:00Z") },
+      ],
       daysLeft: 3,
-      expiresAt: new Date("2026-10-01T00:00:00Z"),
       renewUrl: "https://sitey.my/renew/tok",
     });
 

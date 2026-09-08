@@ -1,6 +1,7 @@
 const crypto = require("crypto");
 const { google } = require("googleapis");
 const config = require("../configs/index");
+const { renewalReminder, unreachableNotice } = require("./message-layout");
 
 let gmailClient;
 
@@ -199,93 +200,50 @@ async function send({ kind, to, subject, html, fqdn }) {
   }
 }
 
-const FOOTER = `
-      <p style="margin-top: 24px; font-size: 0.9rem; color: #4b5563;">
-        This is an automated message from Sitey (sitey.my).
-      </p>`;
-
 /**
  * "Your address has not been answering." Not "we took it away".
  *
- * Nothing has been removed when this goes out and nothing will be on account
- * of it — the mail exists so that somebody who did not know their site was
- * down finds out. The tone follows from that.
+ * The words are in services/message-layout.js with the other two messages;
+ * this is the send.
  */
 async function sendUnreachableNoticeEmail(to, subdomainInfo) {
-  const { subdomain, domain, recordType, recordValue, days } = subdomainInfo;
-  const fullDomain = `${subdomain}.${domain}`;
+  const { subject, html } = unreachableNotice(subdomainInfo);
 
   return send({
     kind: "unreachable_notice",
     to,
-    fqdn: fullDomain,
-    subject: `[Sitey] ${fullDomain} hasn't been loading`,
-    html: `
-    <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1d2330;">
-      <h2 style="color: #1c2d4a;">${fullDomain} hasn't opened for ${days} days</h2>
-      <p>We check each subdomain once a day. <strong>${fullDomain}</strong> has not
-         answered for ${days} days in a row, so we thought you would want to know.</p>
-      <table style="border-collapse: collapse; margin: 16px 0;">
-        <tr><td style="padding: 4px 12px; font-weight: bold;">Subdomain</td><td style="padding: 4px 12px;">${fullDomain}</td></tr>
-        <tr><td style="padding: 4px 12px; font-weight: bold;">Record type</td><td style="padding: 4px 12px;">${recordType}</td></tr>
-        <tr><td style="padding: 4px 12px; font-weight: bold;">Points at</td><td style="padding: 4px 12px;">${recordValue}</td></tr>
-      </table>
-      <p><strong>Your subdomain is still yours.</strong> Nothing has been removed and
-         nothing will be removed because of this. If the target moved, you can point
-         it somewhere else at <a href="https://sitey.my/dashboard">sitey.my</a>; if it
-         is meant to be down, you can ignore this.</p>
-      <p>We will not send this again unless the site comes back and goes dark once more.</p>${FOOTER}
-    </div>
-  `,
+    fqdn: `${subdomainInfo.subdomain}.${subdomainInfo.domain}`,
+    subject,
+    html,
   });
 }
 
 /**
- * "Your subdomain is up for renewal — one click keeps it."
+ * "Your subdomains are up for renewal - one click keeps them."
  *
- * Three of these go out per period, at 14 days, 3 days and on the day. The
- * link is a one-purpose signed token (services/renewal-token.js) so the button
- * works without a sign-in, which is the whole point: a renewal that takes a
- * login is a renewal most people will not do.
+ * One mail per person per reminder, covering every subdomain of theirs at that
+ * point in the countdown — see services/expiry-job.js for why they are grouped
+ * and services/message-layout.js for what it says. The link is a one-purpose
+ * signed token (services/renewal-token.js) so the button works without a
+ * sign-in, which is the whole point: a renewal that takes a login is a renewal
+ * most people will not do.
+ *
+ * `fqdn` on the log line is every name the mail listed, space separated, so a
+ * delivery can still be traced back to the records it was about.
+ *
+ * @param {string} to
+ * @param {{records: Array<{subdomain: string, domain: string, expiresAt: *}>,
+ *          daysLeft: number, renewUrl: string}} info
  */
 async function sendRenewalReminderEmail(to, info) {
-  const { subdomain, domain, daysLeft, expiresAt, renewUrl } = info;
-  const fullDomain = `${subdomain}.${domain}`;
-  const when =
-    daysLeft <= 0
-      ? "today"
-      : daysLeft === 1
-        ? "tomorrow"
-        : `in ${daysLeft} days`;
+  const { subject, html } = renewalReminder(info);
 
   return send({
     kind: "renewal_reminder",
     to,
-    fqdn: fullDomain,
-    subject:
-      daysLeft <= 0
-        ? `[Sitey] ${fullDomain} expires today`
-        : `[Sitey] ${fullDomain} expires ${when}`,
-    html: `
-    <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1d2330;">
-      <h2 style="color: #1c2d4a;">${fullDomain} expires ${when}</h2>
-      <p>Subdomains on Sitey are renewed every few months so that names nobody is
-         using go back into the pool. Yours is due on
-         <strong>${new Date(expiresAt).toUTCString()}</strong>.</p>
-      <p style="margin: 28px 0;">
-        <a href="${renewUrl}"
-           style="background: #1c2d4a; color: #ffffff; padding: 12px 24px;
-                  border-radius: 6px; text-decoration: none; font-weight: bold;">
-          Keep ${fullDomain}
-        </a>
-      </p>
-      <p>That is the whole thing — one click, no sign-in, and the clock resets.
-         If the link does not work, open it directly:<br>
-         <span style="color: #4b5563; word-break: break-all;">${renewUrl}</span></p>
-      <p>If you no longer need this subdomain, ignore this message and it will be
-         released when it expires.</p>${FOOTER}
-    </div>
-  `,
+    fqdn: info.records.map((r) => `${r.subdomain}.${r.domain}`).join(" "),
+    subject,
+    html,
   });
 }
 
