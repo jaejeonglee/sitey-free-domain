@@ -35,6 +35,7 @@ CREATE TABLE IF NOT EXISTS subdomains (
   warning_count INT DEFAULT 0,
   last_checked_at TIMESTAMP NULL,
   last_warning_at TIMESTAMP NULL,
+  unreachable_notified_at TIMESTAMP NULL,
   owner_type ENUM('user','agent') DEFAULT 'user',
   owner_ip VARCHAR(45) DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
@@ -66,3 +67,4 @@ CREATE TABLE IF NOT EXISTS api_keys (
 -- Migration for existing databases:
 -- ALTER TABLE subdomains ADD COLUMN owner_type ENUM('user','agent') DEFAULT 'user';
 -- ALTER TABLE subdomains ADD COLUMN owner_ip VARCHAR(45) DEFAULT NULL;
+-- deploy/migrations/001-unreachable-notice.sql  (unreachable_notified_at)

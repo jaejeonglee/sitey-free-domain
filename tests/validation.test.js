@@ -1,73 +1,54 @@
-import { describe, it, expect, vi } from "vitest";
-import {
-  probeRecord,
-  validateARecord,
-  validateCnameRecord,
-  validateRecord,
-} from "../services/validation.js";
+import { describe, it, expect } from "vitest";
+import { createRequire } from "module";
 
-// Mock net module for TCP tests
-vi.mock("net", () => {
-  const Socket = vi.fn();
-  Socket.prototype.setTimeout = vi.fn();
-  Socket.prototype.once = vi.fn();
-  Socket.prototype.connect = vi.fn();
-  Socket.prototype.destroy = vi.fn();
-  return { Socket };
-});
+const require2 = createRequire(import.meta.url);
 
-describe("validateCnameRecord", () => {
-  it("should return true for resolvable domain", async () => {
-    const result = await validateCnameRecord("google.com");
-    expect(result).toBe(true);
+const { probeRecord, validateRecord } = require2("../services/validation.js");
+
+// ---------------------------------------------------------------------------
+// probeRecord asks one question of both record types now — "does this open" —
+// where it used to run a TCP connect for A and a DNS lookup for CNAME. The
+// lookup was the damaging half: it passes forever for a deleted deployment,
+// because the CDN hostname the CNAME points at stays in DNS. The table itself
+// lives in services/reachability.js and is pinned in tests/reachability.test.js.
+//
+// Nothing here reaches the network: .invalid is guaranteed not to resolve and
+// loopback refuses immediately.
+// ---------------------------------------------------------------------------
+
+describe("probeRecord", () => {
+  it("says which check ran and what it saw when nothing answers", async () => {
+    // .invalid never resolves (RFC 2606) — no DNS traffic leaves the machine.
+    const probe = await probeRecord("CNAME", "gone.invalid");
+
+    expect(probe.ok).toBe(false);
+    expect(probe.status).toBe(null);
+    expect(probe.detail).toMatch(/failed:/);
   });
 
-  it("should return false for non-existent domain", async () => {
-    const result = await validateCnameRecord(
-      "this-domain-does-not-exist-xyz123.com"
-    );
-    expect(result).toBe(false);
+  it("makes a request for A records too, not just a TCP connect", async () => {
+    // Nothing listens on either web port of this address, so the verdict is
+    // the same shape as the CNAME case: an HTTP attempt that got no answer.
+    const probe = await probeRecord("A", "127.0.0.1");
+
+    expect(["http", "https"]).toContain(probe.check);
+    expect(probe.detail).toMatch(/https|http/);
   });
 
-  it("should return false for empty string", async () => {
-    const result = await validateCnameRecord("");
-    expect(result).toBe(false);
+  it("skips record types it has no way to open", async () => {
+    const probe = await probeRecord("MX", "mail.example.com");
+
+    expect(probe).toMatchObject({ ok: true, check: "none", status: null });
   });
 });
 
 describe("validateRecord", () => {
-  it("should delegate A records to validateARecord", async () => {
-    // This will use mocked net module, so result depends on mock behavior
-    const result = await validateRecord("A", "127.0.0.1");
-    expect(typeof result).toBe("boolean");
+  it("reduces the probe to the yes/no the create path needs", async () => {
+    expect(await validateRecord("CNAME", "gone.invalid")).toBe(false);
+    expect(await validateRecord("MX", "mail.example.com")).toBe(true);
   });
 
-  it("should delegate CNAME records to validateCnameRecord", async () => {
-    const result = await validateRecord("CNAME", "google.com");
-    expect(result).toBe(true);
-  });
-
-  it("should return true for unsupported record types", async () => {
-    const result = await validateRecord("MX", "mail.example.com");
-    expect(result).toBe(true);
-  });
-});
-
-describe("probeRecord", () => {
-  it("says which check ran and what it saw on success", async () => {
-    const probe = await probeRecord("CNAME", "google.com");
-    expect(probe).toMatchObject({ ok: true, check: "dns" });
-    expect(probe.detail).toMatch(/resolved to \d+ address/);
-  });
-
-  it("says why the check failed", async () => {
-    // The reason a record is about to be deleted has to survive into the log.
-    const probe = await probeRecord(
-      "CNAME",
-      "this-domain-does-not-exist-xyz123.com"
-    );
-    expect(probe.ok).toBe(false);
-    expect(probe.check).toBe("dns");
-    expect(probe.detail).toMatch(/resolve failed/);
+  it("rejects an empty value", async () => {
+    expect(await validateRecord("CNAME", "")).toBe(false);
   });
 });

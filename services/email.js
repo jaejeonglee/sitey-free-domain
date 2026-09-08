@@ -1,7 +1,31 @@
+const crypto = require("crypto");
 const { google } = require("googleapis");
 const config = require("../configs/index");
 
 let gmailClient;
+
+let logger = { info: () => {}, warn: () => {}, error: () => {} };
+
+function setLogger(l) {
+  logger = l;
+}
+
+// Purpose-separated key, same construction as services/access-log.js: a
+// recipient in the log is personal data, and a hash from here cannot be lined
+// up against a hash made anywhere else.
+const RECIPIENT_HASH_KEY = crypto
+  .createHmac("sha256", config.log.hashSecret)
+  .update("sitey:email:recipient:v1")
+  .digest();
+
+function hashRecipient(address) {
+  if (!address) return null;
+  return crypto
+    .createHmac("sha256", RECIPIENT_HASH_KEY)
+    .update(String(address).trim().toLowerCase())
+    .digest("base64url")
+    .slice(0, 16);
+}
 
 function ensureGmailConfig() {
   const emailConfig = config.email || {};
@@ -62,39 +86,87 @@ function buildRawMessage({ from, to, subject, html }) {
     .replace(/=+$/, "");
 }
 
-async function sendValidationWarningEmail(to, subdomainInfo) {
-  const gmail = getGmailClient();
-  const { user } = ensureGmailConfig();
-  const from = ensureFromAddress(user);
+/**
+ * Send one message and write down what happened to it.
+ *
+ * Every send used to be fire-and-forget: whether any of these mails were ever
+ * delivered was unknowable, which is the reason the notice below is off by
+ * default until one has been watched arriving. The line names the record, not
+ * the person — an address is personal data, and the fqdn is enough to find the
+ * owner in the database when a delivery has to be chased.
+ *
+ * Never throws: a mail that cannot be sent is not a reason to abandon the job
+ * that was sending it. The caller reads `ok`.
+ *
+ * @returns {Promise<{ok: boolean, error?: string}>}
+ */
+async function send({ kind, to, subject, html, fqdn }) {
+  const line = { evt: "email", kind, fqdn, to: hashRecipient(to) };
+  try {
+    const gmail = getGmailClient();
+    const { user } = ensureGmailConfig();
+    const from = ensureFromAddress(user);
+    const raw = buildRawMessage({ from, to, subject, html });
 
-  const { subdomain, domain, recordType, recordValue } = subdomainInfo;
+    const response = await gmail.users.messages.send({
+      userId: "me",
+      requestBody: { raw },
+    });
+
+    logger.info({ ...line, ok: true, id: response?.data?.id ?? null }, `Sent ${kind} for ${fqdn}`);
+    return { ok: true };
+  } catch (error) {
+    // Gmail puts the useful part in the response body, not in error.message.
+    const reason =
+      error?.response?.data?.error?.message || error?.code || error?.message || "unknown";
+    logger.error({ ...line, ok: false, error: String(reason) }, `Failed to send ${kind} for ${fqdn}`);
+    return { ok: false, error: String(reason) };
+  }
+}
+
+const FOOTER = `
+      <p style="margin-top: 24px; font-size: 0.9rem; color: #4b5563;">
+        This is an automated message from Sitey (sitey.my).
+      </p>`;
+
+/**
+ * "Your address has not been answering." Not "we took it away".
+ *
+ * Nothing has been removed when this goes out and nothing will be on account
+ * of it — the mail exists so that somebody who did not know their site was
+ * down finds out. The tone follows from that.
+ */
+async function sendUnreachableNoticeEmail(to, subdomainInfo) {
+  const { subdomain, domain, recordType, recordValue, days } = subdomainInfo;
   const fullDomain = `${subdomain}.${domain}`;
 
-  const subject = `[Sitey] Your subdomain ${fullDomain} has been removed`;
-  const html = `
+  return send({
+    kind: "unreachable_notice",
+    to,
+    fqdn: fullDomain,
+    subject: `[Sitey] ${fullDomain} hasn't been loading`,
+    html: `
     <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1d2330;">
-      <h2 style="color: #1c2d4a;">DNS Record Removed</h2>
-      <p>Your subdomain <strong>${fullDomain}</strong> has been removed because the target is no longer reachable.</p>
+      <h2 style="color: #1c2d4a;">${fullDomain} hasn't opened for ${days} days</h2>
+      <p>We check each subdomain once a day. <strong>${fullDomain}</strong> has not
+         answered for ${days} days in a row, so we thought you would want to know.</p>
       <table style="border-collapse: collapse; margin: 16px 0;">
         <tr><td style="padding: 4px 12px; font-weight: bold;">Subdomain</td><td style="padding: 4px 12px;">${fullDomain}</td></tr>
-        <tr><td style="padding: 4px 12px; font-weight: bold;">Record Type</td><td style="padding: 4px 12px;">${recordType}</td></tr>
-        <tr><td style="padding: 4px 12px; font-weight: bold;">Target</td><td style="padding: 4px 12px;">${recordValue}</td></tr>
+        <tr><td style="padding: 4px 12px; font-weight: bold;">Record type</td><td style="padding: 4px 12px;">${recordType}</td></tr>
+        <tr><td style="padding: 4px 12px; font-weight: bold;">Points at</td><td style="padding: 4px 12px;">${recordValue}</td></tr>
       </table>
-      <p>The target failed validation checks on two consecutive days. If you believe this was an error, you can re-register the subdomain.</p>
-      <p style="margin-top: 24px; font-size: 0.9rem; color: #4b5563;">
-        This is an automated message from Sitey DNS Controller.
-      </p>
+      <p><strong>Your subdomain is still yours.</strong> Nothing has been removed and
+         nothing will be removed because of this. If the target moved, you can point
+         it somewhere else at <a href="https://sitey.my/dashboard">sitey.my</a>; if it
+         is meant to be down, you can ignore this.</p>
+      <p>We will not send this again unless the site comes back and goes dark once more.</p>${FOOTER}
     </div>
-  `;
-
-  const raw = buildRawMessage({ from, to, subject, html });
-
-  await gmail.users.messages.send({
-    userId: "me",
-    requestBody: { raw },
+  `,
   });
 }
 
 module.exports = {
-  sendValidationWarningEmail,
+  setLogger,
+  hashRecipient,
+  sendUnreachableNoticeEmail,
 };

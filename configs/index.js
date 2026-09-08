@@ -31,6 +31,18 @@ function parseIntEnv(envKey, defaultVal) {
   return parsed;
 }
 
+/**
+ * A flag that has to be switched on deliberately.
+ *
+ * Everything that sends mail or removes a record defaults to off, so a deploy
+ * never starts one of them by arriving. deploy/README.md §4 lists them.
+ */
+function parseBoolEnv(envKey, defaultVal) {
+  const raw = process.env[envKey];
+  if (raw === undefined || raw === "") return defaultVal;
+  return String(raw).trim().toLowerCase() === "true";
+}
+
 const missing = required.filter((key) => !process.env[key]);
 if (missing.length > 0) {
   throw new Error(
@@ -73,9 +85,15 @@ module.exports = {
         .trim()
         .toLowerCase() === "true",
     intervalMs: parseIntEnv("VALIDATION_INTERVAL_MS", 24 * 60 * 60 * 1000),
-    tcpTimeoutMs: parseIntEnv("VALIDATION_TCP_TIMEOUT_MS", 3000),
+    // Replaces VALIDATION_TCP_TIMEOUT_MS: the check is an HTTP(S) request now,
+    // which has a TLS handshake and a response to wait for, not just a connect.
+    httpTimeoutMs: parseIntEnv("VALIDATION_HTTP_TIMEOUT_MS", 5000),
     concurrency: parseIntEnv("VALIDATION_CONCURRENCY", 5),
     batchSize: parseIntEnv("VALIDATION_BATCH_SIZE", 50),
+    // How long a record may stay dark before its owner is told. Nothing is
+    // removed at this point or any other — see services/validation.js.
+    unreachableNoticeDays: parseIntEnv("UNREACHABLE_NOTICE_DAYS", 14),
+    unreachableNoticeEnabled: parseBoolEnv("UNREACHABLE_NOTICE_ENABLED", false),
   },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN,

@@ -5,6 +5,7 @@ const config = require("./configs/index");
 const apiRoutes = require("./routes/index");
 const bindService = require("./services/bind");
 const alertService = require("./services/alert");
+const emailService = require("./services/email");
 const accessLog = require("./services/access-log");
 
 function buildApp(options = {}) {
@@ -82,6 +83,9 @@ function buildApp(options = {}) {
   // --- 5. Inject logger into services ---
   bindService.setLogger(fastify.log);
   alertService.setLogger(fastify.log);
+  // Whether these mails arrive has never been recorded anywhere; every send
+  // now leaves a line. See services/email.js.
+  emailService.setLogger(fastify.log);
 
   return fastify;
 }
