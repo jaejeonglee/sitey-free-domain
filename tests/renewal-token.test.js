@@ -14,14 +14,28 @@ const config = require2("../configs/index.js");
 // ---------------------------------------------------------------------------
 
 describe("what a renewal token can be used for", () => {
-  it("carries one subdomain id and nothing else", () => {
+  it("carries a list of subdomain ids and nothing else", () => {
     // No field for an action, a scope or a user, so there is nothing to widen.
-    const payload = Buffer.from(sign(42).split(".")[0], "base64url").toString("utf8");
+    // The list grew because one mail now covers everything one person holds;
+    // what the token *does* did not.
+    const payload = Buffer.from(sign([42, 43]).split(".")[0], "base64url").toString("utf8");
     const parts = payload.split(".");
 
     expect(parts).toHaveLength(2);
-    expect(Number(parts[0])).toBe(42);
+    expect(parts[0]).toBe("42,43");
     expect(Number(parts[1])).toBeGreaterThan(Date.now()); // the other half is its own expiry
+  });
+
+  it("refuses to sign anything that is not a subdomain id", () => {
+    // Fail-close: a token nobody can act on is better than one that names a
+    // row chosen by accident.
+    for (const junk of [[], [0], [-1], ["3; DROP"], [1.5], null]) {
+      expect(() => sign(junk), JSON.stringify(junk)).toThrow();
+    }
+  });
+
+  it("renews only the ids it names, however many that is", () => {
+    expect(verify(sign([7, 8, 9]))).toEqual({ valid: true, subdomainIds: [7, 8, 9] });
   });
 
   it("is not a session — @fastify/jwt will not take it", async () => {
@@ -62,7 +76,7 @@ describe("what a renewal token can be used for", () => {
     const issuedAt = Date.now();
     const token = sign(42, issuedAt);
 
-    expect(verify(token, issuedAt + TTL_MS - 1000)).toEqual({ valid: true, subdomainId: 42 });
+    expect(verify(token, issuedAt + TTL_MS - 1000)).toEqual({ valid: true, subdomainIds: [42] });
     expect(verify(token, issuedAt + TTL_MS + 1000)).toEqual({ valid: false, reason: "expired" });
   });
 
@@ -73,6 +87,6 @@ describe("what a renewal token can be used for", () => {
   });
 
   it("accepts the one it issued", () => {
-    expect(verify(sign(7))).toEqual({ valid: true, subdomainId: 7 });
+    expect(verify(sign(7))).toEqual({ valid: true, subdomainIds: [7] });
   });
 });
