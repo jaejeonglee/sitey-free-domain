@@ -6,6 +6,7 @@ const config = require("../configs/index");
 const bindService = require("../services/bind");
 const { validateRecord } = require("../services/validation");
 const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
+const { renewSubdomain } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
@@ -235,8 +236,8 @@ function createMcpServer(fastify) {
       const isReachable = await validateRecord(recordType, recordValue);
       if (!isReachable) {
         const msg = recordType === "A"
-          ? `Target IP ${recordValue} is not reachable on port 80 or 443.`
-          : `Target domain ${recordValue} does not resolve to any address.`;
+          ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
+          : `Nothing answered an HTTP request at ${recordValue}.`;
         return mcpErrorObj({ error: msg, code: "VALIDATION_UNREACHABLE" });
       }
 
@@ -257,6 +258,10 @@ function createMcpServer(fastify) {
           fullSubdomain: newRecord.name,
           type: newRecord.type,
           value: recordValue,
+          // Nothing writes to an agent, so the date it has to act on comes
+          // back with every read. renew_subdomain resets it.
+          expires_at: newRecord.expiresAt,
+          renew_with: "renew_subdomain",
         });
       } catch (error) {
         if (error.statusCode === 409) {
@@ -281,17 +286,75 @@ function createMcpServer(fastify) {
       let rows;
       if (auth.mode === "apikey") {
         [rows] = await fastify.mysql.execute(
-          "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, s.created_at FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id WHERE s.user_id = ? ORDER BY s.created_at DESC",
+          "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, s.created_at, s.expires_at FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id WHERE s.user_id = ? ORDER BY s.created_at DESC",
           [auth.userId]
         );
       } else {
         [rows] = await fastify.mysql.execute(
-          "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, s.created_at FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id WHERE s.owner_ip = ? AND s.owner_type = 'agent' ORDER BY s.created_at DESC",
+          "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, s.created_at, s.expires_at FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id WHERE s.owner_ip = ? AND s.owner_type = 'agent' ORDER BY s.created_at DESC",
           [auth.ip]
         );
       }
 
-      return mcpSuccess({ subdomains: rows });
+      return mcpSuccess({
+        subdomains: rows,
+        hint: "expires_at is when each record is released. Call renew_subdomain before then to reset it.",
+      });
+    }
+  );
+
+  // --- Tool: renew_subdomain ---
+  server.tool(
+    "renew_subdomain",
+    "Extend a subdomain you own before it expires. Subdomains are lent for a period, not given: agent-created records last one month and user records three. Nothing emails an agent, so read expires_at from list_subdomains and call this before that date. One call resets the clock from today.",
+    {
+      subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
+      domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
+    },
+    async ({ subdomain: rawSubdomain, domain: rawDomain }, extra) => {
+      const subdomain = (rawSubdomain || "").trim().toLowerCase();
+      const domainName = (rawDomain || "").trim().toLowerCase();
+
+      const auth = extra._meta?.auth;
+      if (!auth) return mcpError("Internal error: auth context missing.");
+      if (auth.mode === "invalid_key") return mcpError("Invalid API key.");
+
+      const managedDomains = await getManagedDomains(fastify);
+      const domainEntry = managedDomains.find((d) => d.normalized === domainName);
+      if (!domainEntry) return mcpError("Domain is not managed by this service.");
+
+      let record;
+      if (auth.mode === "apikey") {
+        const [rows] = await fastify.mysql.execute(
+          "SELECT id FROM subdomains WHERE subdomain = ? AND domain_id = ? AND user_id = ?",
+          [subdomain, domainEntry.id, auth.userId]
+        );
+        record = rows[0];
+      } else {
+        const [rows] = await fastify.mysql.execute(
+          "SELECT id FROM subdomains WHERE subdomain = ? AND domain_id = ? AND owner_ip = ? AND owner_type = 'agent'",
+          [subdomain, domainEntry.id, auth.ip]
+        );
+        record = rows[0];
+      }
+
+      if (!record) {
+        return mcpError("Subdomain not found or you don't have permission.");
+      }
+
+      try {
+        const renewal = await renewSubdomain(fastify, record.id);
+        if (!renewal.renewed) return mcpError("Subdomain not found.");
+
+        return mcpSuccess({
+          success: true,
+          fullSubdomain: `${subdomain}.${domainEntry.domain}`,
+          expires_at: renewal.expiresAt,
+        });
+      } catch (error) {
+        fastify.log.error(error, "MCP renew_subdomain failed");
+        return mcpError("Server error during renewal.");
+      }
     }
   );
 
@@ -346,8 +409,8 @@ function createMcpServer(fastify) {
       const isReachable = await validateRecord(recordType, recordValue);
       if (!isReachable) {
         const msg = recordType === "A"
-          ? `Target IP ${recordValue} is not reachable on port 80 or 443.`
-          : `Target domain ${recordValue} does not resolve to any address.`;
+          ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
+          : `Nothing answered an HTTP request at ${recordValue}.`;
         return mcpErrorObj({ error: msg, code: "VALIDATION_UNREACHABLE" });
       }
 

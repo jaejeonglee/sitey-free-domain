@@ -118,7 +118,7 @@ async function domainRoutes(fastify, options) {
 
       try {
         const [rows] = await fastify.mysql.execute(
-          "SELECT s.id, s.subdomain, m.domain_name, s.record_value, s.record_type, t.host_prefix, t.txt_value " +
+          "SELECT s.id, s.subdomain, m.domain_name, s.record_value, s.record_type, s.expires_at, t.host_prefix, t.txt_value " +
             "FROM subdomains s " +
             "JOIN managed_domains m ON s.domain_id = m.id " +
             "LEFT JOIN subdomain_txt_records t ON s.id = t.subdomain_id " +
@@ -196,8 +196,8 @@ async function domainRoutes(fastify, options) {
       if (!isReachable) {
         const msg =
           recordType === "A"
-            ? `Target IP ${recordValue} is not reachable on port 80 or 443.`
-            : `Target domain ${recordValue} does not resolve to any address.`;
+            ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
+            : `Nothing answered an HTTP request at ${recordValue}.`;
         request.outcome = "VALIDATION_UNREACHABLE";
         return reply
           .code(400)
@@ -293,8 +293,8 @@ async function domainRoutes(fastify, options) {
         if (!isReachable) {
           const msg =
             recordType === "A"
-              ? `Target IP ${recordValue} is not reachable on port 80 or 443.`
-              : `Target domain ${recordValue} does not resolve to any address.`;
+              ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
+              : `Nothing answered an HTTP request at ${recordValue}.`;
           return reply
             .code(400)
             .send({ error: msg, code: "VALIDATION_UNREACHABLE" });

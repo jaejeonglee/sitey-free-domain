@@ -3,6 +3,7 @@ const config = require("../configs/index");
 const bindService = require("../services/bind");
 const { validateRecord } = require("../services/validation");
 const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
+const { renewSubdomain } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
@@ -192,8 +193,8 @@ async function apiV1Routes(fastify, options) {
     const isReachable = await validateRecord(recordType, recordValue);
     if (!isReachable) {
       const msg = recordType === "A"
-        ? `Target IP ${recordValue} is not reachable on port 80 or 443.`
-        : `Target domain ${recordValue} does not resolve to any address.`;
+        ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
+        : `Nothing answered an HTTP request at ${recordValue}.`;
       apiError(400, msg, "VALIDATION_UNREACHABLE");
     }
 
@@ -214,6 +215,9 @@ async function apiV1Routes(fastify, options) {
         fqdn: newRecord.name,
         type: recordType,
         value: recordValue,
+        // An agent has no mailbox to be reminded at, so the date it has to act
+        // on travels in every response it reads.
+        expires_at: newRecord.expiresAt,
       });
     } catch (error) {
       if (error.statusCode === 409) {
@@ -232,14 +236,16 @@ async function apiV1Routes(fastify, options) {
     let rows;
     if (auth.mode === "apikey") {
       [rows] = await fastify.mysql.execute(
-        "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, s.created_at " +
+        "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, " +
+        "s.created_at, s.expires_at " +
         "FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id " +
         "WHERE s.user_id = ? ORDER BY s.created_at DESC",
         [auth.userId]
       );
     } else {
       [rows] = await fastify.mysql.execute(
-        "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, s.created_at " +
+        "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, " +
+        "s.created_at, s.expires_at " +
         "FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id " +
         "WHERE s.owner_ip = ? AND s.owner_type = 'agent' ORDER BY s.created_at DESC",
         [auth.ip]
@@ -279,8 +285,8 @@ async function apiV1Routes(fastify, options) {
     const isReachable = await validateRecord(recordType, recordValue);
     if (!isReachable) {
       const msg = recordType === "A"
-        ? `Target IP ${recordValue} is not reachable on port 80 or 443.`
-        : `Target domain ${recordValue} does not resolve to any address.`;
+        ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
+        : `Nothing answered an HTTP request at ${recordValue}.`;
       apiError(400, msg, "VALIDATION_UNREACHABLE");
     }
 
@@ -318,6 +324,29 @@ async function apiV1Routes(fastify, options) {
     });
 
     return ok({ fqdn: `${subdomain}.${domainEntry.domain}`, deleted: true });
+  });
+
+  // -------------------------------------------------------
+  // POST /subdomains/:subdomain/:domain/renew — extend the lease
+  // -------------------------------------------------------
+  // The agent's equivalent of the button in the renewal mail. No mailbox is
+  // attached to an agent-created record, so nothing reminds it — the date
+  // comes back from every read, and one call resets the clock.
+  fastify.post("/subdomains/:subdomain/:domain/renew", async (request, reply) => {
+    const auth = request.apiAuth;
+    const subdomain = (request.params.subdomain || "").trim().toLowerCase();
+    const domainEntry = await resolveDomain(fastify, request.params.domain);
+
+    const record = await findOwnedRecord(fastify, auth, subdomain, domainEntry);
+    const renewal = await renewSubdomain(fastify, record.id);
+    if (!renewal.renewed) {
+      apiError(404, "Subdomain not found.", "SUBDOMAIN_NOT_FOUND");
+    }
+
+    return ok({
+      fqdn: `${subdomain}.${domainEntry.domain}`,
+      expires_at: renewal.expiresAt,
+    });
   });
 
   // -------------------------------------------------------

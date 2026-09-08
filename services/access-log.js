@@ -48,6 +48,7 @@ const STEPS = new Map(
     // a step is what gets it logged at all — and whether renewal links are
     // being clicked is the measure of whether renewal works.
     "GET /renew/:token": "renew",
+    "POST /api/v1/subdomains/:subdomain/:domain/renew": "renew",
   })
 );
 

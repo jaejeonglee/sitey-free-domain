@@ -52,10 +52,10 @@ async function createSubdomain(fastify, params) {
     // A name is lent for a period and has to be renewed; how long depends on
     // who the owner is (services/expiry.js). Set at insert rather than left to
     // a default so the row is never briefly immortal.
+    const expiresAt = expiryAfter(new Date(), ownerType);
     await connection.execute(
       "INSERT INTO subdomains (user_id, domain_id, subdomain, record_value, record_type, owner_type, owner_ip, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [userId, domainId, subdomain, recordValue, recordType, ownerType, ownerIp,
-       expiryAfter(new Date(), ownerType)]
+      [userId, domainId, subdomain, recordValue, recordType, ownerType, ownerIp, expiresAt]
     );
 
     // Flag before the call, not after: the most common failures are inside
@@ -72,7 +72,9 @@ async function createSubdomain(fastify, params) {
 
     await connection.commit();
     fastify.log.info(`Subdomain created: ${newRecord.name}`);
-    return newRecord;
+    // The caller hands the date straight back to an agent, which has no other
+    // way of learning when it has to renew.
+    return { ...newRecord, expiresAt };
   } catch (error) {
     try {
       await connection.rollback();

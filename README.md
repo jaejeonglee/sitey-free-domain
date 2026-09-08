@@ -7,8 +7,18 @@ Free subdomain service for developers. Get a subdomain in seconds — no credit 
 - **Instant DNS** — A, CNAME, and TXT records, live in seconds
 - **Google sign-in** — No passwords to manage
 - **REST API** — Programmatic access via /api/v1/
-- **Auto-cleanup** — Unreachable subdomains are removed after two warnings
+- **Renewals** — Subdomains are lent for a period and kept with one click
 - **Free** — No cost, no catch
+
+### How long a subdomain lasts
+
+| Owner | Period | Reminders |
+|---|---|---|
+| Signed-in user | 3 months | 14 days, 3 days and the day it expires |
+| API key / agent | 1 month | none — `expires_at` comes back with every read |
+
+Renewing resets the clock from today. A subdomain that stops loading is **not**
+removed: we write to tell you it has gone dark, and that is all.
 
 ## Quick Start
 
@@ -43,6 +53,7 @@ Get an API key: sign in at sitey.my → Dashboard → API Keys.
 | GET | /subdomains | List your subdomains |
 | PATCH | /subdomains/:sub/:domain | Update record value |
 | DELETE | /subdomains/:sub/:domain | Delete subdomain |
+| POST | /subdomains/:sub/:domain/renew | Extend before `expires_at` |
 | POST | /subdomains/:sub/:domain/txt | Create/update TXT record |
 | DELETE | /subdomains/:sub/:domain/txt/:prefix | Delete TXT record |
 
