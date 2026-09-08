@@ -92,6 +92,55 @@ function shouldSendReminder(stage, alreadySentStage) {
   return stage < alreadySentStage;
 }
 
+/**
+ * Extend one subdomain by its owner's period.
+ *
+ * The single place a record's expiry moves. Every entry point — the link in
+ * the mail, the REST call, the MCP tool — lands here, so there is one answer
+ * to "what does renewing do" and one place the notice stage is cleared.
+ *
+ * @returns {{renewed: boolean, expiresAt?: Date, ownerType?: string}}
+ *   `renewed: false` means no such row; the caller decides what to say about
+ *   that, and says the same thing whether the row is missing or was never
+ *   theirs.
+ */
+async function renewSubdomain(fastify, subdomainId, now = new Date()) {
+  const [rows] = await fastify.mysql.execute(
+    "SELECT s.id, s.subdomain, s.owner_type, m.domain_name FROM subdomains s " +
+      "JOIN managed_domains m ON s.domain_id = m.id WHERE s.id = ?",
+    [subdomainId]
+  );
+  const record = rows[0];
+  if (!record) return { renewed: false };
+
+  const expiresAt = expiryAfter(now, record.owner_type);
+  // renewal_notice_stage back to NULL: the next period starts with none of its
+  // three reminders sent.
+  await fastify.mysql.execute(
+    "UPDATE subdomains SET expires_at = ?, renewal_notice_stage = NULL WHERE id = ?",
+    [expiresAt, record.id]
+  );
+
+  fastify.log.info(
+    {
+      evt: "renew",
+      subdomain: record.subdomain,
+      domain: record.domain_name,
+      owner: record.owner_type,
+      expires_at: expiresAt.toISOString(),
+    },
+    `Renewed ${record.subdomain}.${record.domain_name} until ${expiresAt.toISOString()}`
+  );
+
+  return {
+    renewed: true,
+    expiresAt,
+    ownerType: record.owner_type,
+    subdomain: record.subdomain,
+    domain: record.domain_name,
+  };
+}
+
 module.exports = {
   USER_MONTHS,
   AGENT_MONTHS,
@@ -102,4 +151,5 @@ module.exports = {
   daysUntil,
   reminderStageFor,
   shouldSendReminder,
+  renewSubdomain,
 };

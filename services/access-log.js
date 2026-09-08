@@ -44,6 +44,10 @@ const STEPS = new Map(
     "PATCH /api/v1/subdomains/:subdomain/:domain": "update",
     "POST /api/subdomains/:subdomain/txt": "connect",
     "POST /api/v1/subdomains/:subdomain/:domain/txt": "connect",
+    // Not part of the signup funnel, but it is the one page outside /api, so
+    // a step is what gets it logged at all — and whether renewal links are
+    // being clicked is the measure of whether renewal works.
+    "GET /renew/:token": "renew",
   })
 );
 

@@ -165,8 +165,58 @@ async function sendUnreachableNoticeEmail(to, subdomainInfo) {
   });
 }
 
+/**
+ * "Your subdomain is up for renewal — one click keeps it."
+ *
+ * Three of these go out per period, at 14 days, 3 days and on the day. The
+ * link is a one-purpose signed token (services/renewal-token.js) so the button
+ * works without a sign-in, which is the whole point: a renewal that takes a
+ * login is a renewal most people will not do.
+ */
+async function sendRenewalReminderEmail(to, info) {
+  const { subdomain, domain, daysLeft, expiresAt, renewUrl } = info;
+  const fullDomain = `${subdomain}.${domain}`;
+  const when =
+    daysLeft <= 0
+      ? "today"
+      : daysLeft === 1
+        ? "tomorrow"
+        : `in ${daysLeft} days`;
+
+  return send({
+    kind: "renewal_reminder",
+    to,
+    fqdn: fullDomain,
+    subject:
+      daysLeft <= 0
+        ? `[Sitey] ${fullDomain} expires today`
+        : `[Sitey] ${fullDomain} expires ${when}`,
+    html: `
+    <div style="font-family: Arial, sans-serif; line-height: 1.5; color: #1d2330;">
+      <h2 style="color: #1c2d4a;">${fullDomain} expires ${when}</h2>
+      <p>Subdomains on Sitey are renewed every few months so that names nobody is
+         using go back into the pool. Yours is due on
+         <strong>${new Date(expiresAt).toUTCString()}</strong>.</p>
+      <p style="margin: 28px 0;">
+        <a href="${renewUrl}"
+           style="background: #1c2d4a; color: #ffffff; padding: 12px 24px;
+                  border-radius: 6px; text-decoration: none; font-weight: bold;">
+          Keep ${fullDomain}
+        </a>
+      </p>
+      <p>That is the whole thing — one click, no sign-in, and the clock resets.
+         If the link does not work, open it directly:<br>
+         <span style="color: #4b5563; word-break: break-all;">${renewUrl}</span></p>
+      <p>If you no longer need this subdomain, ignore this message and it will be
+         released when it expires.</p>${FOOTER}
+    </div>
+  `,
+  });
+}
+
 module.exports = {
   setLogger,
   hashRecipient,
   sendUnreachableNoticeEmail,
+  sendRenewalReminderEmail,
 };

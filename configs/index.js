@@ -95,6 +95,14 @@ module.exports = {
     unreachableNoticeDays: parseIntEnv("UNREACHABLE_NOTICE_DAYS", 14),
     unreachableNoticeEnabled: parseBoolEnv("UNREACHABLE_NOTICE_ENABLED", false),
   },
+  expiry: {
+    intervalMs: parseIntEnv("EXPIRY_INTERVAL_MS", 24 * 60 * 60 * 1000),
+    // Both off by default, and switched on in this order: whether these mails
+    // are delivered has never been recorded, so nothing may be removed until a
+    // reminder has been watched arriving. deploy/README.md §4.
+    remindersEnabled: parseBoolEnv("RENEWAL_REMINDERS_ENABLED", false),
+    deletionEnabled: parseBoolEnv("EXPIRY_DELETION_ENABLED", false),
+  },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
     alertChatId: process.env.TELEGRAM_ALERT_CHAT_ID,
@@ -137,6 +145,10 @@ module.exports = {
   server: {
     port: process.env.PORT || 3000,
     host: "0.0.0.0",
+    // Where a link in an email has to point. The app is behind Caddy and only
+    // ever sees loopback, so it cannot work this out from a request — and the
+    // Host header is the caller's to set. Canonical domain, decided 2026-09-07.
+    publicOrigin: (process.env.PUBLIC_ORIGIN || "https://sitey.my").replace(/\/+$/, ""),
     // Which peers may set X-Forwarded-For. Caddy terminates HTTPS on this same
     // host and proxies over loopback, so loopback is the only honest source.
     // `trustProxy: true` trusted every hop, which let any caller pick their own

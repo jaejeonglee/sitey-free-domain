@@ -33,6 +33,7 @@ function buildApp(options = {}) {
   fastify.register(require("./plugins/db"));
   fastify.register(require("./plugins/auth"));
   fastify.register(require("./plugins/validation-scheduler"));
+  fastify.register(require("./plugins/expiry-scheduler"));
   fastify.register(require("./plugins/reconciler"));
   fastify.register(require("@fastify/rate-limit"), {
     global: true,
@@ -48,6 +49,9 @@ function buildApp(options = {}) {
   // Page routes must win over the static wildcard so each path gets its own
   // canonical / og tags. Explicit routes outrank "/*" in the router.
   fastify.register(require("./routes/pages"));
+  // Also ahead of the static wildcard, and not under /api: this is the link in
+  // the renewal mail and a person opens it in a browser.
+  fastify.register(require("./routes/renewal"));
   fastify.register(require("@fastify/static"), {
     root: path.join(__dirname, "public"),
     prefix: "/",
