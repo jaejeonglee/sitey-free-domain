@@ -69,21 +69,31 @@ function escapeAttr(value) {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * Replacement text is always produced by a function. Blog titles and
+ * descriptions come from markdown front matter, and "$&", "$`" or "$'" in a
+ * string replacement are patterns, not literals: a post titled "Save $&" would
+ * splice the matched tag back into its own content attribute.
+ */
+function replaceWith(html, pattern, value) {
+  return html.replace(pattern, () => value);
+}
+
 /** Replace a <meta> tag's content, matching across line breaks. */
 function setMeta(html, attr, name, value) {
   const pattern = new RegExp(`<meta\\s+${attr}="${name}"[\\s\\S]*?/>`, "i");
-  return html.replace(pattern, `<meta ${attr}="${name}" content="${escapeAttr(value)}" />`);
+  return replaceWith(html, pattern, `<meta ${attr}="${name}" content="${escapeAttr(value)}" />`);
 }
 
 function renderPage(template, { canonicalPath, title, description, noindex }) {
   const canonicalUrl = `${CANONICAL_ORIGIN}${canonicalPath}`;
 
-  let html = template
-    .replace(
-      /<link rel="canonical" href="[^"]*"\s*\/>/i,
-      `<link rel="canonical" href="${escapeAttr(canonicalUrl)}" />`
-    )
-    .replace(/<title>[\s\S]*?<\/title>/i, `<title>${escapeAttr(title)}</title>`);
+  let html = replaceWith(
+    template,
+    /<link rel="canonical" href="[^"]*"\s*\/>/i,
+    `<link rel="canonical" href="${escapeAttr(canonicalUrl)}" />`
+  );
+  html = replaceWith(html, /<title>[\s\S]*?<\/title>/i, `<title>${escapeAttr(title)}</title>`);
 
   html = setMeta(html, "name", "description", description);
   html = setMeta(html, "property", "og:url", canonicalUrl);
@@ -164,3 +174,4 @@ async function pageRoutes(fastify, options) {
 module.exports = fp(pageRoutes, { name: "pages" });
 module.exports.CANONICAL_ORIGIN = CANONICAL_ORIGIN;
 module.exports.PAGES = PAGES;
+module.exports.renderPage = renderPage;

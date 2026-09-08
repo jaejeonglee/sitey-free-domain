@@ -5,6 +5,7 @@ const require2 = createRequire(import.meta.url);
 
 const Fastify = require2("fastify");
 const pageRoutes = require2("../routes/pages.js");
+const { renderPage } = pageRoutes;
 
 const ORIGIN = "https://sitey.my";
 
@@ -134,6 +135,27 @@ describe("per-path canonical and Open Graph tags", () => {
       const res = await app.inject({ method: "GET", url: "/api/nope" });
       expect(res.statusCode).toBe(404);
       expect(res.json()).toEqual({ error: "Not Found" });
+    });
+  });
+  // "$&", "$`" and "$'" are replacement patterns for String.replace. Titles and
+  // descriptions come from markdown we do not control the punctuation of, so
+  // every insertion goes through a replacer function.
+  describe("substitution tokens in page text", () => {
+    const SHELL = [
+      '<link rel="canonical" href="https://sitey.my/" />',
+      "<title>Sitey</title>",
+      '<meta name="description" content="placeholder" />',
+    ].join("\n");
+
+    it("inserts $ patterns literally", () => {
+      const html = renderPage(SHELL, {
+        canonicalPath: "/blog/x",
+        title: "Save $& and $` and $'",
+        description: "costs $' nothing",
+      });
+
+      expect(titleOf(html)).toBe("Save $&amp; and $` and $'");
+      expect(metaOf(html, "name", "description")).toBe("costs $' nothing");
     });
   });
 });
