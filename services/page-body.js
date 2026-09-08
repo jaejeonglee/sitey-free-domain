@@ -21,6 +21,21 @@ function t(key) {
   return STRINGS[key] ?? key;
 }
 
+function escapeHtml(value) {
+  return String(value)
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
+}
+
+function formatDate(dateStr) {
+  if (!dateStr) return "";
+  const d = new Date(dateStr);
+  return Number.isNaN(d.getTime()) ? "" : d.toISOString().slice(0, 10);
+}
+
 /**
  * Replacement text is passed through a function so that "$&", "$`" and friends
  * in a post title or body are inserted literally instead of being read as
@@ -86,6 +101,49 @@ function docsBody(docsTemplate) {
   return fillPlaceholder(docsTemplate, "div", "docs-content", docsQuickStart());
 }
 
+// Mirrors renderList() in public/modules/blog.js.
+function blogListBody(blogTemplate, posts) {
+  const inner =
+    posts.length === 0
+      ? `<p>${t("blog.empty")}</p>`
+      : `
+      <header class="blog-list-header">
+        <h1>${t("blog.list.title")}</h1>
+        <p>${t("blog.list.subtitle")}</p>
+      </header>
+      <ul class="blog-list">
+${posts
+  .map(
+    (post) => `        <li class="blog-list-item">
+          <a href="/blog/${encodeURIComponent(post.slug)}" class="blog-list-link">
+            <h2>${escapeHtml(post.title)}</h2>
+            ${post.description ? `<p class="blog-list-desc">${escapeHtml(post.description)}</p>` : ""}
+            ${post.date ? `<time class="blog-list-date">${formatDate(post.date)}</time>` : ""}
+          </a>
+        </li>`
+  )
+  .join("\n")}
+      </ul>
+    `;
+
+  return fillPlaceholder(blogTemplate, "article", "blog-content", inner);
+}
+
+// Mirrors renderPost() in public/modules/blog.js. post.html is already HTML
+// produced by marked from our own markdown, so it goes in unescaped.
+function blogPostBody(blogTemplate, post) {
+  const inner = `
+      <header class="blog-header">
+        <a href="/blog" class="blog-back">← ${t("blog.back")}</a>
+        <h1>${escapeHtml(post.title)}</h1>
+        ${post.date ? `<time class="blog-meta">${formatDate(post.date)}</time>` : ""}
+      </header>
+      <div class="blog-body">${post.html}</div>
+    `;
+
+  return fillPlaceholder(blogTemplate, "article", "blog-content", inner);
+}
+
 /** Put a rendered body inside the empty <main id="app-root"> of the shell. */
 function injectAppRoot(html, body) {
   return replaceOnce(
@@ -99,5 +157,7 @@ function injectAppRoot(html, body) {
 module.exports = {
   extractTemplate,
   docsBody,
+  blogListBody,
+  blogPostBody,
   injectAppRoot,
 };

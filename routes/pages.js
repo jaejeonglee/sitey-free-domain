@@ -13,8 +13,14 @@
 const fs = require("fs").promises;
 const path = require("path");
 const fp = require("fastify-plugin");
-const { loadPost } = require("../services/blog");
-const { extractTemplate, docsBody, injectAppRoot } = require("../services/page-body");
+const { loadPost, listPosts } = require("../services/blog");
+const {
+  extractTemplate,
+  docsBody,
+  blogListBody,
+  blogPostBody,
+  injectAppRoot,
+} = require("../services/page-body");
 
 // One canonical origin for the whole site. robots.txt and sitemap.xml carry the
 // same value — change all three together.
@@ -51,6 +57,7 @@ const PAGES = {
     canonicalPath: "/docs", // same page under two paths
     template: "template-docs",
   },
+  // /blog and /blog/:slug build their body per request from content/blog.
   "/blog": {
     title: `Blog — ${SITE_TITLE_SUFFIX}`,
     description: "Notes on running a free subdomain service: DNS, deploys and developer tooling.",
@@ -139,6 +146,8 @@ async function pageRoutes(fastify, options) {
     "template-docs": docsBody(extractTemplate(template, "template-docs")),
     "template-help": extractTemplate(template, "template-help"),
   };
+  const blogTemplate = extractTemplate(template, "template-blog");
+
   function send(reply, page, statusCode = 200) {
     const body = page.body ?? (page.template ? staticBodies[page.template] : "");
     return reply
@@ -164,6 +173,7 @@ async function pageRoutes(fastify, options) {
   fastify.decorate("sendPageNotFound", sendNotFound);
 
   for (const [routePath, page] of Object.entries(PAGES)) {
+    if (routePath === "/blog") continue; // registered below: its body is dynamic
     fastify.get(routePath, async (request, reply) =>
       send(reply, { ...page, canonicalPath: page.canonicalPath || routePath })
     );
@@ -173,6 +183,20 @@ async function pageRoutes(fastify, options) {
   fastify.get("/index.html", async (request, reply) =>
     send(reply, { ...PAGES["/"], canonicalPath: "/" })
   );
+
+  // The index is what a crawler follows to reach the posts, so the links have
+  // to be in the HTML. A failure here degrades to the shell the client can
+  // still fill in — the page is not worth a 500 — but it is logged, not hidden.
+  fastify.get("/blog", async (request, reply) => {
+    let body = "";
+    try {
+      body = blogListBody(blogTemplate, await listPosts());
+    } catch (error) {
+      fastify.log.error(error, "Failed to render the blog index body");
+    }
+
+    return send(reply, { ...PAGES["/blog"], canonicalPath: "/blog", body });
+  });
 
   fastify.get("/blog/:slug", async (request, reply) => {
     const { slug } = request.params;
@@ -190,6 +214,7 @@ async function pageRoutes(fastify, options) {
       canonicalPath: `/blog/${post.slug}`,
       title: `${post.title} — ${SITE_TITLE_SUFFIX}`,
       description: post.description || DEFAULT_DESCRIPTION,
+      body: blogPostBody(blogTemplate, post),
     });
   });
 }

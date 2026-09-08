@@ -163,11 +163,29 @@ describe("per-path canonical and Open Graph tags", () => {
       ["/docs", "Get your domain up and running in 3 steps."],
       ["/guide", "1. Check availability"],
       ["/help", "Help & Support"],
+      ["/blog", "AI 에이전트가 서브도메인을 만들 수 있게 되었어요 (MCP 지원)"],
+      ["/blog/mcp-support", "MCP가 뭔가요?"],
     ])("%s carries %j without JavaScript", async (url, text) => {
       const res = await app.inject({ method: "GET", url });
 
       expect(res.statusCode).toBe(200);
       expect(appRootOf(res.body)).toContain(text);
+    });
+
+    it("links every post from the blog index", async () => {
+      const res = await app.inject({ method: "GET", url: "/blog" });
+
+      expect(appRootOf(res.body)).toContain('href="/blog/mcp-support"');
+      expect(appRootOf(res.body)).toContain('href="/blog/google-login-update"');
+    });
+
+    // A post page carrying only its own title is half the point of this change.
+    it("carries the post body, not just its title", async () => {
+      const res = await app.inject({ method: "GET", url: "/blog/mcp-support" });
+      const body = appRootOf(res.body);
+
+      expect(body).toContain("Model Context Protocol");
+      expect(body.length).toBeGreaterThan(1000);
     });
 
     // Auth-only pages hold nothing a crawler should have, and an indexed empty
