@@ -173,9 +173,18 @@ async function handleValidationResult(fastify, record, isValid, probe = null) {
   );
 
   const threshold = config.validation.unreachableNoticeDays;
-  if (failedDays < threshold || record.unreachable_notified_at) {
+  // An agent-created record has nobody behind it to write to. Saying so once a
+  // night for months is noise, so it stops here with the reason on the line;
+  // its renewal is what eventually settles it.
+  const nobodyToTell = !record.user_id;
+  if (failedDays < threshold || record.unreachable_notified_at || nobodyToTell) {
     fastify.log.warn(
-      { ...base, result: "fail", failure: failedDays, action: "none" },
+      {
+        ...base,
+        result: "fail",
+        failure: failedDays,
+        action: nobodyToTell && failedDays >= threshold ? "no_address" : "none",
+      },
       `Validation failed (day ${failedDays}): ${record.subdomain}.${record.domain_name} → ${record.record_value}`
     );
     return;

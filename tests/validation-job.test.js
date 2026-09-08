@@ -225,6 +225,18 @@ describe("telling the owner instead of taking the name", () => {
     expect(sendUnreachableNoticeEmail).not.toHaveBeenCalled();
   });
 
+  it("says once that an agent record has nobody to write to", async () => {
+    // Repeating that every night for months is noise. Its renewal settles it.
+    const app = fakeFastify([
+      record({ warning_count: 40, user_id: null, owner_type: "agent" }),
+    ]);
+
+    await runPeriodicValidation(app);
+
+    expect(sendUnreachableNoticeEmail).not.toHaveBeenCalled();
+    expect(validateLines(app).pop()).toMatchObject({ action: "no_address" });
+  });
+
   it("writes the mail down but holds it while the flag is off", async () => {
     // Default is off until a test message has been seen to arrive.
     const app = fakeFastify([record({ warning_count: 13 })]);
