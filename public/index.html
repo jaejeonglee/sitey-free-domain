@@ -96,11 +96,30 @@
         <li><a role="menuitem" href="/docs" data-link data-i18n="start.docs">Documents</a></li>
         <li><a role="menuitem" href="/help" data-link data-i18n="start.help">Help</a></li>
         <li class="start-sep" role="separator"></li>
-        <li class="start-coffee hidden" id="start-coffee">
-          <a role="menuitem" href="#" target="_blank" rel="noopener noreferrer"
-             data-i18n="start.coffee">Buy me a coffee</a>
+        <!-- Buy Me a Coffee, their own widget, their own markup.
+             Deliberately of another decade: a rounded yellow pill in a
+             handwriting face inside a 98 window. That contrast is the joke the
+             whole skin is built on (Jay), so it is not restyled.
+
+             It sits inline rather than being injected on first open: the
+             widget draws itself relative to its own script tag, and appending
+             it later leaves an empty row. -->
+        <li class="start-coffee" id="start-coffee">
+          <script
+            type="text/javascript"
+            src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js"
+            data-name="bmc-button"
+            data-slug="helpmeup"
+            data-color="#FFDD00"
+            data-emoji="☕"
+            data-font="Cookie"
+            data-text="Buy me a coffee"
+            data-outline-color="#000000"
+            data-font-color="#000000"
+            data-coffee-color="#ffffff"
+          ></script>
         </li>
-        <li class="start-sep start-coffee-sep hidden" role="separator"></li>
+        <li class="start-sep" role="separator"></li>
         <li><a role="menuitem" href="/login" data-link data-i18n="start.login">Log in</a></li>
       </ul>
     </div>

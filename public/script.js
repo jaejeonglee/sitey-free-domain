@@ -3,7 +3,6 @@ import { loadInitialTheme } from './modules/theme.js';
 import { getSavedLang, loadLang } from './modules/i18n.js';
 import { fetchCurrentUser } from './modules/api.js';
 import { startClock, startMenu } from './modules/taskbar.js';
-import { BUY_ME_A_COFFEE_URL } from './modules/constants.js';
 
 document.addEventListener("DOMContentLoaded", async () => {
   // Load saved language + check auth status
@@ -29,5 +28,5 @@ document.addEventListener("DOMContentLoaded", async () => {
   loadInitialTheme();
 
   startClock();
-  startMenu(BUY_ME_A_COFFEE_URL);
+  startMenu();
 });

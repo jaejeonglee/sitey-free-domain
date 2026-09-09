@@ -32,23 +32,11 @@ export function setWindowTitle(title) {
  * Closes on Escape, on a click anywhere outside, and on choosing an item — a
  * menu that stays open after you pick something is what people mean when they
  * say a page feels broken.
- *
- * The coffee row is drawn only when an address is configured. A menu row that
- * goes nowhere is worse than one that is not there.
  */
-export function startMenu(coffeeUrl) {
+export function startMenu() {
   const button = document.getElementById("start-button");
   const menu = document.getElementById("start-menu");
   if (!button || !menu) return;
-
-  const coffee = document.getElementById("start-coffee");
-  if (coffee && coffeeUrl) {
-    const link = coffee.querySelector("a");
-    if (link) link.href = coffeeUrl;
-    coffee.classList.remove("hidden");
-    const sep = menu.querySelector(".start-coffee-sep");
-    if (sep) sep.classList.remove("hidden");
-  }
 
   const setOpen = (open) => {
     menu.classList.toggle("hidden", !open);
@@ -74,6 +62,10 @@ export function startMenu(coffeeUrl) {
     }
   });
 
-  // Picking anything closes the menu, including the router links.
-  menu.addEventListener("click", () => setOpen(false));
+  // Picking anything closes the menu — except a click on the coffee button,
+  // which opens its own window and should not also collapse the menu behind it.
+  menu.addEventListener("click", (event) => {
+    if (event.target.closest(".start-coffee")) return;
+    setOpen(false);
+  });
 }

@@ -26,7 +26,3 @@ export const RECORD_TYPE_UI = {
     tooltipLabel: "Learn about CNAME records",
   },
 };
-
-// 시작 메뉴의 「커피 사주기」. 주소를 모르면 그 줄을 아예 안 그린다 —
-// 죽은 링크를 내보내느니 항목이 없는 편이 낫다. 주소가 생기면 여기만 채운다.
-export const BUY_ME_A_COFFEE_URL = "https://buymeacoffee.com/helpmeup";
