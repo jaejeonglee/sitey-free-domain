@@ -994,7 +994,6 @@ body.dark-theme .toast.info::before { color: var(--title2); }
   letter-spacing: 0.02em;
   white-space: nowrap;
 }
-.start-rail b { font-weight: 400; }
 
 .start-items {
   flex: 1;
