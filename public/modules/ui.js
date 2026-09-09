@@ -191,8 +191,10 @@ export function renderNavbar(currentPath) {
           <option value="ko">KR</option>
         </select>
         <button type="button" id="theme-toggle-btn" class="nav-auth-btn" aria-label="Toggle theme">
-          <span id="theme-icon-sun" class="theme-icon" style="display: none;">&#x1F31D;</span>
-          <span id="theme-icon-moon" class="theme-icon" style="display: none;">&#x1F31A;</span>
+          <!-- U+FE0E asks for the text glyph: a colour emoji is the one thing
+               on screen that could not have been drawn in 1998. -->
+          <span id="theme-icon-sun" class="theme-icon" style="display: none;">&#x263C;&#xFE0E;</span>
+          <span id="theme-icon-moon" class="theme-icon" style="display: none;">&#x263E;&#xFE0E;</span>
         </button>
         ${authLink}
       </div>

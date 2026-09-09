@@ -295,6 +295,7 @@ h1, h2, h3 { font-weight: 700; line-height: 1.3; }
 }
 
 .nav-select { padding: 3px 4px; appearance: none; }
+.theme-icon { font-size: 12px; line-height: 1; }
 
 .nav-right .nav-auth-btn:active,
 .nav-toggle:active { padding: 5px 6px 3px 8px; }
@@ -322,8 +323,10 @@ h1, h2, h3 { font-weight: 700; line-height: 1.3; }
    menu title looked. */
 .nav-center a.active { background: var(--sel); color: var(--sel-ink); }
 
-/* One hamburger, for widths where five menu titles stop fitting. */
-.nav-toggle { display: none; order: 3; }
+/* One hamburger, for widths where five menu titles stop fitting. It shares
+   the title-bar button rule above, which sets a row flex — the three bars
+   have to stack. */
+.nav-toggle { display: none; order: 3; flex-direction: column; }
 .nav-toggle span {
   display: block; width: 11px; height: 2px; background: var(--ink); margin: 1px 0;
 }
@@ -593,7 +596,21 @@ body.dark-theme .danger-button:disabled {
   overflow-wrap: anywhere;
 }
 
-.dashboard-item-chevron { flex: none; font-size: 10px; }
+/* The span is empty in the markup — the arrow is drawn here. 98 used a
+   solid triangle, not a rotating chevron, and it did not animate. */
+.dashboard-item-chevron {
+  flex: none;
+  width: 0;
+  height: 0;
+  border-left: 4px solid transparent;
+  border-right: 4px solid transparent;
+  border-top: 5px solid var(--ink);
+}
+
+.dashboard-item.expanded .dashboard-item-chevron {
+  border-top: none;
+  border-bottom: 5px solid var(--ink);
+}
 
 .dashboard-item-detail {
   background: var(--face);
