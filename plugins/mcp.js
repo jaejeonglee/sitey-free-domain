@@ -10,13 +10,14 @@ const { renewSubdomain } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
+const { checkSubdomainQuota } = require("../services/quota");
+const accessLog = require("../services/access-log");
 const { validateHostPrefix, validateTxtValue } = require("../utils/validators");
 
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const IPV4_REGEX = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
 const HOSTNAME_REGEX = /^(?=.{1,253}$)(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z0-9-]{2,63}\.?$/i;
 
-const IP_SUBDOMAIN_LIMIT = 3;
 const ANON_CREATE_RATE_WINDOW_MS = 60 * 1000;
 const ANON_CREATE_RATE_MAX = 3;
 
@@ -218,18 +219,32 @@ function createMcpServer(fastify) {
       if (!validation.valid) return mcpError(validation.message);
       const recordValue = validation.value;
 
-      // IP limit for anonymous mode
-      if (auth.mode === "ip") {
-        if (!checkAnonCreateRate()) {
-          return mcpError("Too many anonymous create requests. Please wait a moment.");
-        }
-        const [countRows] = await fastify.mysql.execute(
-          "SELECT COUNT(*) AS cnt FROM subdomains WHERE owner_ip = ? AND owner_type = 'agent'",
-          [auth.ip]
-        );
-        if (countRows[0].cnt >= IP_SUBDOMAIN_LIMIT) {
-          return mcpError(`Anonymous agents can create up to ${IP_SUBDOMAIN_LIMIT} subdomains per IP. Sign up at sitey.one and generate an API key for unlimited access.`);
-        }
+      if (auth.mode === "ip" && !checkAnonCreateRate()) {
+        return mcpError("Too many anonymous create requests. Please wait a moment.");
+      }
+
+      // How many this caller already holds. An agent is counted and refused on
+      // exactly the same number as a person — see services/quota.js — and an
+      // account is refused only once SUBDOMAIN_LIMIT_ENFORCED is on.
+      //
+      // Nothing here ever asks for payment. 402 is an HTTP status and a
+      // JSON-RPC tool result has nowhere to put one, so the payment path lives
+      // on the REST endpoint that has a status line to carry it.
+      const quota = await checkSubdomainQuota(fastify, {
+        userId: auth.mode === "apikey" ? auth.userId : null,
+        ip: auth.mode === "ip" ? auth.ip : null,
+        subject: accessLog.subjectOf({ apiAuth: auth }),
+      });
+      if (quota.blocked) {
+        return mcpErrorObj({
+          error:
+            quota.scope === "account"
+              ? `You are holding ${quota.held} subdomains and the limit for this account is ${quota.limit}. Delete one before creating another.`
+              : `Anonymous callers may hold ${quota.limit} subdomains per address and you are holding ${quota.held}. An API key holds them under an account, on the same limit.`,
+          code: "LIMIT_REACHED",
+          held: quota.held,
+          limit: quota.limit,
+        });
       }
 
       // Reachability validation

@@ -1,9 +1,11 @@
 // routes/domain.js
+const accessLog = require("../services/access-log");
 const bindService = require("../services/bind");
 const { validateRecord } = require("../services/validation");
 const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
+const { checkSubdomainQuota } = require("../services/quota");
 const { isValidSubdomain, validateRecordValue, validateTxtValue } = require("../utils/validators");
 
 function normalizeRecordType(recordType = "A") {
@@ -190,6 +192,26 @@ async function domainRoutes(fastify, options) {
         return reply.code(400).send({ error: validation.message });
       }
       const recordValue = validation.value;
+
+      // How many this account already holds. Nothing is refused here unless
+      // SUBDOMAIN_LIMIT_ENFORCED is switched on — see services/quota.js.
+      //
+      // No payment is ever asked for on this path, even when the payment
+      // route is on: paying that way means holding a wallet, and asking a
+      // person in a browser to go and get one is asking them to leave. The
+      // door for money that a person can walk through is a different one.
+      const quota = await checkSubdomainQuota(fastify, {
+        userId,
+        ip: request.ip,
+        subject: accessLog.subjectOf(request),
+      });
+      if (quota.blocked) {
+        request.outcome = "LIMIT_REACHED";
+        return reply.code(403).send({
+          error: `You are holding ${quota.held} subdomains and the limit for this account is ${quota.limit}. Remove one before creating another.`,
+          code: "LIMIT_REACHED",
+        });
+      }
 
       // Active validation: check if target is reachable
       const isReachable = await validateRecord(recordType, recordValue);

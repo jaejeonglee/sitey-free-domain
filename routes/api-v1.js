@@ -1,5 +1,6 @@
 // routes/api-v1.js — REST API /api/v1/ (external, API key + anonymous IP auth)
 const config = require("../configs/index");
+const accessLog = require("../services/access-log");
 const bindService = require("../services/bind");
 const { validateRecord } = require("../services/validation");
 const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
@@ -7,14 +8,13 @@ const { renewSubdomain } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
+const { checkSubdomainQuota } = require("../services/quota");
 const {
   isValidSubdomain,
   validateHostPrefix,
   validateRecordValue,
   validateTxtValue,
 } = require("../utils/validators");
-
-const IP_SUBDOMAIN_LIMIT = 3;
 
 /**
  * Client IP used as the anonymous ownership key.
@@ -50,6 +50,21 @@ async function resolveAuth(fastify, request) {
     return { mode: "invalid_key" };
   }
   return { mode: "ip", ip: getClientIp(request) };
+}
+
+/**
+ * What to say to a caller who is at their limit.
+ *
+ * It states both numbers, because an agent deciding whether to retry needs to
+ * know whether one deletion would be enough. It no longer offers an API key as
+ * the way round: a key is an account and an account has the same limit, which
+ * is the whole point of counting by how many rather than by who.
+ */
+function limitMessage(quota) {
+  if (quota.scope === "account") {
+    return `You are holding ${quota.held} subdomains and the limit for this account is ${quota.limit}. Remove one before creating another.`;
+  }
+  return `Anonymous callers may hold ${quota.limit} subdomains per address and you are holding ${quota.held}. Sign in at sitey.my to hold them under an account.`;
 }
 
 /**
@@ -178,15 +193,16 @@ async function apiV1Routes(fastify, options) {
     }
     const recordValue = validation.value;
 
-    // IP limit for anonymous mode
-    if (auth.mode === "ip") {
-      const [countRows] = await fastify.mysql.execute(
-        "SELECT COUNT(*) AS cnt FROM subdomains WHERE owner_ip = ? AND owner_type = 'agent'",
-        [auth.ip]
-      );
-      if (countRows[0].cnt >= IP_SUBDOMAIN_LIMIT) {
-        apiError(403, `Anonymous limit reached (${IP_SUBDOMAIN_LIMIT} subdomains per IP). Get an API key at sitey.one for unlimited access.`, "LIMIT_REACHED");
-      }
+    // How many this caller already holds. An account is refused only once
+    // SUBDOMAIN_LIMIT_ENFORCED is switched on; the anonymous ceiling is an
+    // abuse guard and has always been enforced. services/quota.js.
+    const quota = await checkSubdomainQuota(fastify, {
+      userId: auth.mode === "apikey" ? auth.userId : null,
+      ip: auth.mode === "ip" ? auth.ip : null,
+      subject: accessLog.subjectOf(request),
+    });
+    if (quota.blocked) {
+      apiError(403, limitMessage(quota), "LIMIT_REACHED");
     }
 
     // Reachability validation
