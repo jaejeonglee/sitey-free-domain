@@ -199,7 +199,52 @@ export function renderNavbar(currentPath) {
         ${authLink}
       </div>
     </nav>
+
+    <!-- Internet Explorer's furniture. Jay: «윈도우 os 위에 인터넷 창이
+         띄워진 느낌이 아니라 어색해» — a title bar and a menu make a window,
+         but what makes it an *internet* window is the address bar. And for a
+         service whose product is addresses, showing one is not decoration. -->
+    <div class="ie-tools" role="toolbar" aria-label="${t("ie.toolbar")}">
+      <button type="button" class="ie-btn" data-go="back">
+        <span aria-hidden="true">&#x25C0;</span> ${t("ie.back")}
+      </button>
+      <button type="button" class="ie-btn" data-go="forward">
+        <span aria-hidden="true">&#x25B6;</span> ${t("ie.forward")}
+      </button>
+      <span class="ie-divider" aria-hidden="true"></span>
+      <button type="button" class="ie-btn" data-go="reload">
+        <span aria-hidden="true">&#x21BB;</span> ${t("ie.reload")}
+      </button>
+      <button type="button" class="ie-btn" data-go="home">
+        <span aria-hidden="true">&#x2302;</span> ${t("ie.home")}
+      </button>
+    </div>
+
+    <div class="ie-address">
+      <label for="ie-url">${t("ie.address")}</label>
+      <input id="ie-url" type="text" readonly value="https://sitey.my${currentPath === "/" ? "/" : currentPath}" />
+    </div>
   `;
+
+  // Back and forward are the browser's own history — the buttons say what
+  // they do and then do exactly that, rather than imitating it.
+  container.querySelectorAll("[data-go]").forEach((btn) => {
+    btn.addEventListener("click", () => {
+      const where = btn.dataset.go;
+      if (where === "back") history.back();
+      else if (where === "forward") history.forward();
+      else if (where === "reload") window.location.reload();
+      // A full load rather than the client router: router.js imports this
+      // file, so importing it back would be a cycle — and a Home button that
+      // actually reloads is the more faithful one anyway.
+      else if (where === "home") window.location.assign("/");
+    });
+  });
+
+  // Selecting the whole address on focus is what a browser does, and it is
+  // the one gesture people try on an address bar.
+  const urlField = container.querySelector("#ie-url");
+  if (urlField) urlField.addEventListener("focus", () => urlField.select());
 
   // Logout
   const logoutBtn = container.querySelector("#nav-logout-btn");

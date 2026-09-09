@@ -957,6 +957,88 @@ body.dark-theme .toast.info::before { color: var(--title2); }
 
 .taskbar-tasks { flex: 1; display: flex; gap: 4px; min-width: 0; }
 
+/* ── 인터넷 창의 도구모음과 주소창 ─────────────────────────
+   제목줄과 메뉴는 «창»을 만들지만, 그 창을 «인터넷 창»으로 읽히게 하는
+   것은 주소창이다. 주소를 나눠주는 서비스라 더 그렇다. */
+.ie-tools {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  padding: 3px 5px;
+  border-top: 1px solid var(--white);
+  border-bottom: 1px solid var(--shadow);
+  overflow-x: auto;
+}
+.ie-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: none;
+  background: var(--face);
+  color: var(--ink);
+  border: none;
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+  /* The skin gives every button a raised bevel. A toolbar button is the one
+     place that is wrong: it lies flat until the pointer is over it. */
+  box-shadow: none;
+}
+/* 98 의 도구모음 단추는 평소엔 평평하고 마우스를 올려야 튀어나온다. */
+.ie-btn:hover {
+  box-shadow:
+    inset -1px -1px var(--dark), inset 1px 1px var(--white),
+    inset -2px -2px var(--shadow), inset 2px 2px var(--light);
+}
+.ie-btn:active {
+  box-shadow:
+    inset -1px -1px var(--white), inset 1px 1px var(--shadow),
+    inset -2px -2px var(--light), inset 2px 2px var(--dark);
+  padding: 4px 7px 2px 9px;
+}
+.ie-btn span { font-size: 10px; line-height: 1; }
+.ie-divider {
+  flex: none;
+  width: 0;
+  height: 16px;
+  margin: 0 4px;
+  border-left: 1px solid var(--shadow);
+  border-right: 1px solid var(--white);
+}
+
+.ie-address {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 3px 6px 5px;
+  border-bottom: 1px solid var(--shadow);
+}
+.ie-address label {
+  flex: none;
+  font-size: 11px;
+}
+.ie-address input {
+  flex: 1;
+  min-width: 0;
+  font: inherit;
+  font-size: 11.5px;
+  background: var(--field);
+  color: var(--field-ink);
+  border: none;
+  padding: 3px 6px;
+  box-shadow:
+    inset -1px -1px var(--white), inset 1px 1px var(--shadow),
+    inset -2px -2px var(--light), inset 2px 2px var(--dark);
+}
+
+@media (max-width: 520px) {
+  .ie-btn { padding: 3px 6px; font-size: 10.5px; }
+  .ie-btn:active { padding: 4px 5px 2px 7px; }
+  .ie-address label { display: none; }
+}
+
 /* ── 바탕화면 아이콘 ─────────────────────────────────────────
    대시보드의 도메인들을 아이콘으로 본다. 그림 파일은 쓰지 않는다 —
    오늘 이미지를 1MB 에서 8KB 로 줄인 참이라 아이콘마다 파일을 두면
