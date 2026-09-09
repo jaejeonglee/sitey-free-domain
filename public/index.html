@@ -69,15 +69,40 @@
 
     <div id="toast-container" class="toast-container"></div>
 
-    <!-- Desktop furniture. aria-hidden because none of it does anything:
-         the Start button opens no menu and the clock is the reader's own. -->
-    <div class="taskbar" aria-hidden="true">
-      <div class="taskbar-start">
-        <span class="taskbar-flag"><i></i><i></i><i></i><i></i></span>
+    <!-- Desktop furniture. The Start button opens a real menu, so it is a
+         button and not aria-hidden; the task label and clock still say nothing
+         a screen reader needs, and stay hidden from it. -->
+    <div class="taskbar">
+      <button
+        type="button"
+        class="taskbar-start"
+        id="start-button"
+        aria-expanded="false"
+        aria-controls="start-menu"
+      >
+        <span class="taskbar-flag" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
         <span data-i18n="taskbar.start">Start</span>
-      </div>
-      <div class="taskbar-tasks"><span id="taskbar-window">sitey.my</span></div>
-      <div class="taskbar-tray" id="taskbar-clock">--:--</div>
+      </button>
+      <div class="taskbar-tasks" aria-hidden="true"><span id="taskbar-window">sitey.my</span></div>
+      <div class="taskbar-tray" id="taskbar-clock" aria-hidden="true">--:--</div>
+    </div>
+
+    <!-- Start menu. Hidden until the button is pressed. The left rail is the
+         98 detail people recognise before they read anything. -->
+    <div class="start-menu hidden" id="start-menu" role="menu" aria-labelledby="start-button">
+      <div class="start-rail" aria-hidden="true"><span>sitey<b>98</b></span></div>
+      <ul class="start-items">
+        <li><a role="menuitem" href="/" data-link data-i18n="start.new">New address</a></li>
+        <li><a role="menuitem" href="/docs" data-link data-i18n="start.docs">Documents</a></li>
+        <li><a role="menuitem" href="/help" data-link data-i18n="start.help">Help</a></li>
+        <li class="start-sep" role="separator"></li>
+        <li class="start-coffee hidden" id="start-coffee">
+          <a role="menuitem" href="#" target="_blank" rel="noopener noreferrer"
+             data-i18n="start.coffee">Buy me a coffee</a>
+        </li>
+        <li class="start-sep start-coffee-sep hidden" role="separator"></li>
+        <li><a role="menuitem" href="/login" data-link data-i18n="start.login">Log in</a></li>
+      </ul>
     </div>
 
     <!-- Create Modal -->
