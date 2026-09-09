@@ -92,7 +92,9 @@ async function takePayment(fastify, request, reply, quota) {
   }
 
   const resource = `${config.server.publicOrigin}${request.raw.url}`;
-  const description = `One subdomain beyond the ${quota.limit} this caller may hold.`;
+  const { size, days } = config.quota.bundle;
+  const description =
+    `${size} more subdomains for ${days} days, on top of the ${quota.limit} this caller may hold.`;
   const proof = request.headers["x-payment"];
 
   if (!proof) {
@@ -103,7 +105,7 @@ async function takePayment(fastify, request, reply, quota) {
     return false;
   }
 
-  const settlement = await x402.settle(proof, x402.requirementsFor({ resource, description }));
+  const settlement = await x402.settle(proof, { resource, description });
   if (!settlement.ok) {
     // Answered 402 again rather than 403: the caller may pay properly and
     // repeat, and the body says both what was wrong and what is being asked

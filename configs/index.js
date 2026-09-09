@@ -50,6 +50,26 @@ if (missing.length > 0) {
   );
 }
 
+// Which chain a token is on unless the token says otherwise.
+const x402Network = (process.env.X402_NETWORK || "base").trim();
+
+/**
+ * One token we are willing to be paid in, read from `X402_<SYMBOL>_*`.
+ *
+ * No default address, deliberately: an unset address is how a token stays
+ * listed here without being offered to anybody (services/x402.js drops it and
+ * says so once). Decimals default to six, which is what USDC and USDT have on
+ * the chains this would run on, and can be set for one that does not.
+ */
+function asset(symbol) {
+  return {
+    symbol,
+    address: (process.env[`X402_${symbol}_ADDRESS`] || "").trim(),
+    network: (process.env[`X402_${symbol}_NETWORK`] || x402Network).trim(),
+    decimals: parseIntEnv(`X402_${symbol}_DECIMALS`, 6),
+  };
+}
+
 module.exports = {
   db: {
     host: process.env.DB_HOST || "localhost",
@@ -176,10 +196,19 @@ module.exports = {
     enabled: parseBoolEnv("X402_ENABLED", false),
     // The wallet that receives payment. No default, because it does not exist.
     payTo: (process.env.X402_PAY_TO || "").trim(),
-    // Which chain, and which token on it. The token is an address rather than
-    // a name: a name is a different contract on every chain.
-    network: (process.env.X402_NETWORK || "base").trim(),
-    asset: (process.env.X402_ASSET || "").trim(),
+    // The chain an asset is on unless it says otherwise.
+    network: x402Network,
+    // What we are willing to be paid in. Two are listed because Jay named two;
+    // 🔴 neither is switched on, and USDT in particular is unconfirmed — which
+    // token a facilitator will actually settle differs by facilitator and by
+    // chain, and nobody has checked ours. That is why an address is required
+    // and has no default: an asset with no address is not offered at all, so
+    // this list can name a token we hope to take without claiming we take it.
+    //
+    // The address is the identity, not the symbol: the same name is a
+    // different contract on every chain. `decimals` is how many the token's
+    // own smallest unit has, which is what the price has to be converted into.
+    assets: [asset("USDC"), asset("USDT")],
     // Who is asked whether a proof is good, and who moves the money. Checking
     // a signature against a chain needs a node and a crypto library; this is
     // the address of the thing that has both.
