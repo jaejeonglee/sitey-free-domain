@@ -7,6 +7,9 @@ CREATE TABLE IF NOT EXISTS users (
   google_id VARCHAR(255) NOT NULL UNIQUE,
   name VARCHAR(255),
   picture TEXT,
+  -- NULL means "use SUBDOMAIN_LIMIT_DEFAULT". A number here is an exception
+  -- granted to one account; never a name in the source. deploy/migrations/003.
+  subdomain_limit INT NULL DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
 );
 
@@ -72,3 +75,4 @@ CREATE TABLE IF NOT EXISTS api_keys (
 -- ALTER TABLE subdomains ADD COLUMN owner_ip VARCHAR(45) DEFAULT NULL;
 -- deploy/migrations/001-unreachable-notice.sql  (unreachable_notified_at)
 -- deploy/migrations/002-subdomain-expiry.sql     (expires_at, renewal_notice_stage)
+-- deploy/migrations/003-subdomain-limit.sql      (users.subdomain_limit)

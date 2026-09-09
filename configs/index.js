@@ -121,6 +121,26 @@ module.exports = {
     remindersEnabled: parseBoolEnv("RENEWAL_REMINDERS_ENABLED", false),
     deletionEnabled: parseBoolEnv("EXPIRY_DELETION_ENABLED", false),
   },
+  // How many subdomains one subject may hold, and whether that number is
+  // enforced or only counted.
+  //
+  // The axis is "how many", not "person or agent": somebody holding eleven
+  // names for a company and an agent doing the same job are the same customer,
+  // and two different allowances could be walked around by claiming to be the
+  // other one. services/quota.js.
+  quota: {
+    // What an account gets when `users.subdomain_limit` says nothing. Measured
+    // 2026-09-09: of the 14 accounts holding anything, three hold more than
+    // three, and two of those are exceptions we mean to grant.
+    subdomainLimit: parseIntEnv("SUBDOMAIN_LIMIT_DEFAULT", 3),
+    // 🔴 Off means observe. A request over the limit is written to the log as
+    // the refusal it would have been, and then allowed through. Nobody has
+    // ever been refused a subdomain for holding too many, and there is no
+    // evidence anybody wants a fourth — that log line is how the question gets
+    // answered, and enforcing before it is answered costs real users for a
+    // demand we cannot show exists. deploy/README.md §7.
+    enforced: parseBoolEnv("SUBDOMAIN_LIMIT_ENFORCED", false),
+  },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
     alertChatId: process.env.TELEGRAM_ALERT_CHAT_ID,
