@@ -7,6 +7,11 @@
   "nav.login": "로그인",
   "nav.logout": "로그아웃",
   "taskbar.start": "시작",
+  "start.new": "새 주소 만들기",
+  "start.docs": "문서",
+  "start.help": "도움말",
+  "start.coffee": "커피 한 잔 사주기",
+  "start.login": "로그인",
 
   "hero.title": "나만의 도메인을 무료로 등록하세요!",
   "hero.subtitle.prefix": "",
@@ -15,7 +20,7 @@
   "hero.badge": "운영 중인 도메인:",
   "home.group.legend": "새 주소",
   "home.name_label": "이름",
-  "home.agent_line": "코드로도 만들 수 있습니다 — <a href=\"/docs\">문서</a>를 보세요.",
+  "home.agent_line": "본인의 agent도 함께 사용하실 수 있습니다 — <a href=\"/docs\">문서</a>를 보세요.",
   "home.status.free": "기본 3개까지 무료",
   "home.status.renew": "3개월마다 갱신",
 

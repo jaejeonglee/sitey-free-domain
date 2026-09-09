@@ -7,6 +7,11 @@
   "nav.login": "Log in",
   "nav.logout": "Log out",
   "taskbar.start": "Start",
+  "start.new": "New address",
+  "start.docs": "Documents",
+  "start.help": "Help",
+  "start.coffee": "Buy me a coffee",
+  "start.login": "Log in",
 
   "hero.title": "Get your free domain",
   "hero.subtitle.prefix": "with",
@@ -15,7 +20,7 @@
   "hero.badge": "Active domains:",
   "home.group.legend": "New domain",
   "home.name_label": "Name",
-  "home.agent_line": "You can create one from code too — see the <a href=\"/docs\">docs</a>.",
+  "home.agent_line": "Your own agent can use it too — see the <a href=\"/docs\">docs</a>.",
   "home.status.free": "3 free by default",
   "home.status.renew": "Renewed every 3 months",
 
