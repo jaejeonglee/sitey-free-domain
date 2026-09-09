@@ -163,6 +163,56 @@ export function initializeDashboardPage() {
     }
   }
 
+
+  /**
+   * The same domains, drawn as desktop icons.
+   *
+   * One click selects, two opens the site — the gesture people already know
+   * from the thing this page is dressed as. The cards below keep every
+   * control; this is the view, not a replacement for them.
+   */
+  function renderIcons(items) {
+    const shelf = document.getElementById("dashboard-icons");
+    if (!shelf) return;
+    shelf.innerHTML = "";
+
+    for (const item of items) {
+      const fqdn = `${item.subdomain}.${item.domain_name}`;
+
+      const cell = document.createElement("a");
+      cell.className = "desk-icon";
+      cell.setAttribute("role", "listitem");
+      cell.href = `https://${fqdn}`;
+      cell.target = "_blank";
+      cell.rel = "noopener noreferrer";
+      cell.title = fqdn;
+
+      const glyph = document.createElement("span");
+      glyph.className = "desk-icon-glyph";
+      glyph.setAttribute("aria-hidden", "true");
+
+      const label = document.createElement("span");
+      label.className = "desk-icon-label";
+      label.textContent = item.subdomain;
+
+      cell.append(glyph, label);
+
+      // Single click selects rather than navigates: on a desktop one click
+      // has never opened anything, and following the link here would take
+      // people off the page they came to manage.
+      cell.addEventListener("click", (event) => {
+        if (event.detail === 1) {
+          event.preventDefault();
+          shelf.querySelectorAll(".desk-icon.selected")
+            .forEach((n) => n.classList.remove("selected"));
+          cell.classList.add("selected");
+        }
+      });
+
+      shelf.appendChild(cell);
+    }
+  }
+
   async function fetchSubdomains() {
     showLoader();
     dashboardList.innerHTML = `<p>${t("dashboard.loading")}</p>`;
@@ -173,6 +223,7 @@ export function initializeDashboardPage() {
 
       const items = Array.isArray(data) ? data : [];
       dashboardList.innerHTML = "";
+      renderIcons(items);
 
       if (!items.length) {
         dashboardList.innerHTML =

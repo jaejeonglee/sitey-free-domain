@@ -957,6 +957,77 @@ body.dark-theme .toast.info::before { color: var(--title2); }
 
 .taskbar-tasks { flex: 1; display: flex; gap: 4px; min-width: 0; }
 
+/* ── 바탕화면 아이콘 ─────────────────────────────────────────
+   대시보드의 도메인들을 아이콘으로 본다. 그림 파일은 쓰지 않는다 —
+   오늘 이미지를 1MB 에서 8KB 로 줄인 참이라 아이콘마다 파일을 두면
+   그걸 되돌리게 된다. 지구본은 CSS 로 그린다. */
+.desk-icons {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0 0 16px;
+  padding: 8px;
+  min-height: 0;
+  box-shadow:
+    inset -1px -1px var(--white), inset 1px 1px var(--shadow),
+    inset -2px -2px var(--light), inset 2px 2px var(--dark);
+  background: var(--field);
+}
+.desk-icons:empty { display: none; }
+
+.desk-icon {
+  width: 76px;
+  padding: 6px 2px 5px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 5px;
+  text-decoration: none;
+  color: var(--field-ink);
+  cursor: default;
+}
+.desk-icon-glyph {
+  width: 30px;
+  height: 30px;
+  flex: none;
+  border-radius: 50%;
+  background: var(--title2);
+  box-shadow: inset -2px -3px rgba(0, 0, 0, 0.35), inset 2px 2px rgba(255, 255, 255, 0.5);
+  position: relative;
+}
+/* 지구본의 경선 두 줄. 이것만 있어도 «주소»로 읽힌다. */
+.desk-icon-glyph::before,
+.desk-icon-glyph::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+}
+.desk-icon-glyph::after {
+  inset: 0 8px;
+}
+.desk-icon-label {
+  font-size: 11px;
+  line-height: 1.3;
+  text-align: center;
+  word-break: break-all;
+  padding: 1px 3px;
+}
+/* 98 의 선택 표시는 파란 띠와 점선 테두리다. */
+.desk-icon.selected .desk-icon-label,
+.desk-icon:focus-visible .desk-icon-label {
+  background: var(--sel);
+  color: var(--sel-ink);
+  outline: 1px dotted var(--sel-ink);
+  outline-offset: -1px;
+}
+.desk-icon:focus { outline: none; }
+
+@media (max-width: 520px) {
+  .desk-icon { width: 68px; }
+}
+
 /* ── 시작 메뉴 ───────────────────────────────────────────────
    왼쪽 세로 띠가 98 을 «읽기 전에» 알아보게 하는 부분이라 뺄 수 없다.
    작업표시줄(높이 30) 바로 위에 붙는다. */
