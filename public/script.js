@@ -2,6 +2,7 @@ import { router, navigateTo } from './modules/router.js';
 import { loadInitialTheme } from './modules/theme.js';
 import { getSavedLang, loadLang } from './modules/i18n.js';
 import { fetchCurrentUser } from './modules/api.js';
+import { startClock } from './modules/taskbar.js';
 
 document.addEventListener("DOMContentLoaded", async () => {
   // Load saved language + check auth status
@@ -25,4 +26,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Load initial theme
   loadInitialTheme();
+
+  startClock();
 });

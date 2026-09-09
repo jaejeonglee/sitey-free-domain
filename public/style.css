@@ -920,6 +920,10 @@ body.dark-theme .toast.info::before { color: var(--title2); }
 }
 
 .taskbar-flag i { width: 7px; height: 7px; display: block; }
+.taskbar-flag i:nth-child(1) { background: #ff0000; }
+.taskbar-flag i:nth-child(2) { background: #00a400; }
+.taskbar-flag i:nth-child(3) { background: #0000ff; }
+.taskbar-flag i:nth-child(4) { background: #ffc000; }
 
 .taskbar-tasks { flex: 1; display: flex; gap: 4px; min-width: 0; }
 

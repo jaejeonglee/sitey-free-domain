@@ -69,6 +69,17 @@
 
     <div id="toast-container" class="toast-container"></div>
 
+    <!-- Desktop furniture. aria-hidden because none of it does anything:
+         the Start button opens no menu and the clock is the reader's own. -->
+    <div class="taskbar" aria-hidden="true">
+      <div class="taskbar-start">
+        <span class="taskbar-flag"><i></i><i></i><i></i><i></i></span>
+        <span data-i18n="taskbar.start">Start</span>
+      </div>
+      <div class="taskbar-tasks"><span id="taskbar-window">sitey.my</span></div>
+      <div class="taskbar-tray" id="taskbar-clock">--:--</div>
+    </div>
+
     <!-- Create Modal -->
     <div
       id="create-modal"

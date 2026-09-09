@@ -1,6 +1,7 @@
 import { getCurrentUser, logoutAndRedirect } from "./api.js";
 import { toggleTheme, applyTheme } from "./theme.js";
 import { t } from "./i18n.js";
+import { setWindowTitle } from "./taskbar.js";
 
 /* ============================================
    Toast Notifications
@@ -149,6 +150,21 @@ export function renderNavbar(currentPath) {
     navLinks.push({ path: "/dashboard", label: t("nav.dashboard") });
   }
 
+  // The title bar says which window you are in, and the task button below
+  // repeats it. /login and /dashboard are not menu titles but are still
+  // pages, so they get their labels from the same strings.
+  const titles = {
+    ...Object.fromEntries(navLinks.map(({ path, label }) => [path, label])),
+    "/guide": t("nav.docs"),
+    "/login": t("nav.login"),
+    "/signup": t("nav.login"),
+    "/dashboard": t("nav.dashboard"),
+  };
+  const pageLabel =
+    titles[currentPath] || (currentPath.startsWith("/blog") ? t("nav.blog") : "");
+  const windowTitle = pageLabel ? `sitey.my — ${pageLabel}` : "sitey.my";
+  setWindowTitle(windowTitle);
+
   const authLink = user
     ? `<button type="button" id="nav-logout-btn" class="nav-auth-btn">${t("nav.logout")}</button>`
     : `<a href="/login" class="nav-auth-btn ${currentPath === "/login" ? "active" : ""}">${t("nav.login")}</a>`;
@@ -158,7 +174,7 @@ export function renderNavbar(currentPath) {
       <div class="nav-left">
         <a href="/" class="nav-logo" aria-label="Sitey Home">
           <img src="/logo-64.png" alt="sitey.my logo" width="28" height="28" decoding="async" />
-          <span class="nav-brand">SITEY</span>
+          <span class="nav-brand">${windowTitle}</span>
         </a>
       </div>
       <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle menu" aria-expanded="false">
