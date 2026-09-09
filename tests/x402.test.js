@@ -38,13 +38,17 @@ const DOMAIN = "example.com";
 const USER_ID = 7;
 const API_KEY = "styo_0123456789abcdef0123456789abcdef";
 const WALLET = "0x00000000000000000000000000000000000000a1";
-const TOKEN = "0x00000000000000000000000000000000000000b2";
+const USDC = "0x00000000000000000000000000000000000000b2";
+const USDT = "0x00000000000000000000000000000000000000c3";
 const FACILITATOR = "https://facilitator.example";
+const BUNDLE_MICROS = 1000000;
 
 const savedEnv = {};
 const ENV = [
-  "SUBDOMAIN_LIMIT_ENFORCED", "X402_ENABLED", "X402_PAY_TO", "X402_ASSET",
-  "X402_FACILITATOR_URL", "SUBDOMAIN_SLOT_PRICE_MICROS",
+  "SUBDOMAIN_LIMIT_ENFORCED", "X402_ENABLED", "X402_PAY_TO",
+  "X402_USDC_ADDRESS", "X402_USDT_ADDRESS", "X402_USDT_NETWORK",
+  "X402_USDT_DECIMALS", "X402_FACILITATOR_URL",
+  "SUBDOMAIN_BUNDLE_PRICE_MICROS", "SUBDOMAIN_BUNDLE_SIZE",
 ];
 for (const key of ENV) savedEnv[key] = process.env[key];
 const savedFetch = globalThis.fetch;
@@ -59,12 +63,18 @@ function loadRoutes() {
   return require2("../routes/api-v1.js");
 }
 
-/** the switches in the state a server would be in once payment is wired up */
+/**
+ * The switches in the state a server would be in once payment is wired up.
+ *
+ * One token, because that is the state we could actually reach today: USDC has
+ * an address to point at and USDT has not been confirmed with any facilitator.
+ * The tests that need both say so.
+ */
 function switchEverythingOn() {
   process.env.SUBDOMAIN_LIMIT_ENFORCED = "true";
   process.env.X402_ENABLED = "true";
   process.env.X402_PAY_TO = WALLET;
-  process.env.X402_ASSET = TOKEN;
+  process.env.X402_USDC_ADDRESS = USDC;
   process.env.X402_FACILITATOR_URL = FACILITATOR;
 }
 
@@ -114,7 +124,12 @@ function create(app, headers = {}) {
   });
 }
 
-const PROOF = Buffer.from(JSON.stringify({ scheme: "exact", payload: {} })).toString("base64");
+/** an X-PAYMENT header. `asset` is what the payer says they paid in. */
+function proofFor(extra = {}) {
+  return Buffer.from(JSON.stringify({ scheme: "exact", payload: {}, ...extra })).toString("base64");
+}
+
+const PROOF = proofFor();
 
 /** a facilitator that answers whatever these say, and records what it was asked */
 function fakeFacilitator({ verify, settle }) {
@@ -177,17 +192,33 @@ describe("switched on with no wallet to be paid into", () => {
     const state = x402.status();
     expect(state.enabled).toBe(false);
     expect(state.reason).toContain("X402_PAY_TO");
-    expect(state.reason).toContain("X402_ASSET");
+    expect(state.reason).toContain("X402_USDC_ADDRESS");
     expect(state.reason).toContain("X402_FACILITATOR_URL");
 
     const said = lines.find((l) => l && l.evt === "x402" && l.action === "disabled");
     expect(said).toBeTruthy();
-    expect(said.missing).toEqual(["X402_PAY_TO", "X402_ASSET", "X402_FACILITATOR_URL"]);
+    // One entry for the tokens, because any one address is enough.
+    expect(said.missing).toEqual([
+      "X402_PAY_TO",
+      "X402_USDC_ADDRESS or X402_USDT_ADDRESS",
+      "X402_FACILITATOR_URL",
+    ]);
 
     // and it refuses rather than quietly letting the request through
     const res = await create(app);
     expect(res.statusCode).toBe(403);
     expect(createSubdomain).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("stays off when every token is listed but none has an address", async () => {
+    switchEverythingOn();
+    delete process.env.X402_USDC_ADDRESS;
+    const { app, x402 } = buildHarness({ held: 5 });
+
+    expect(x402.status()).toMatchObject({ enabled: false });
+    expect(x402.status().reason).toContain("X402_USDC_ADDRESS or X402_USDT_ADDRESS");
+    expect((await create(app)).statusCode).toBe(403);
     await app.close();
   });
 
@@ -218,8 +249,8 @@ describe("switched on and configured", () => {
       scheme: "exact",
       network: "base",
       payTo: WALLET,
-      asset: TOKEN,
-      maxAmountRequired: "1000000",
+      asset: USDC,
+      maxAmountRequired: String(BUNDLE_MICROS),
     });
     expect(body.accepts[0].resource).toContain("/api/v1/subdomains");
     expect(createSubdomain).not.toHaveBeenCalled();
@@ -274,8 +305,9 @@ describe("switched on and configured", () => {
 
     const insert = queries.find((q) => q.sql.startsWith("INSERT INTO credit_entries"));
     expect(insert).toBeTruthy();
-    // (user_id, payer, amount_micros, channel, reference)
-    expect(insert.params).toEqual([USER_ID, WALLET, 1000000, "x402", "0xfeed"]);
+    // (user_id, payer, amount_micros, channel, reference, expires_at)
+    expect(insert.params.slice(0, 5)).toEqual([USER_ID, WALLET, BUNDLE_MICROS, "x402", "0xfeed"]);
+    expect(insert.params[5]).toBeInstanceOf(Date);
     await app.close();
   });
 
@@ -302,11 +334,12 @@ describe("switched on and configured", () => {
 });
 
 describe("the balance behind both doors", () => {
+  // What is sold is a bundle: one payment, five more names, for a year.
   it("lets an account hold what it has paid for, without being asked again", async () => {
     switchEverythingOn();
     globalThis.fetch = vi.fn();
-    // three included, one bought, three held
-    const { app } = buildHarness({ held: 3, creditMicros: 1000000 });
+    // three included, five bought, seven held
+    const { app } = buildHarness({ held: 7, creditMicros: BUNDLE_MICROS });
 
     const res = await create(app);
 
@@ -315,11 +348,125 @@ describe("the balance behind both doors", () => {
     await app.close();
   });
 
-  it("asks again once what was paid for is used up", async () => {
+  it("asks again once the bundle is used up", async () => {
     switchEverythingOn();
-    const { app } = buildHarness({ held: 4, creditMicros: 1000000 });
+    // three included, five bought, all eight held
+    const { app } = buildHarness({ held: 8, creditMicros: BUNDLE_MICROS });
 
     expect((await create(app)).statusCode).toBe(402);
+    await app.close();
+  });
+
+  // Bundles stack rather than extend: pay twice and it is ten more, not five
+  // more for two years.
+  it("counts a second bundle as five more again", async () => {
+    switchEverythingOn();
+    globalThis.fetch = vi.fn();
+    const { app } = buildHarness({ held: 12, creditMicros: BUNDLE_MICROS * 2 });
+
+    expect((await create(app)).statusCode).toBe(201);
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    await app.close();
+  });
+
+  it("stops at thirteen with two bundles, as it stops at eight with one", async () => {
+    switchEverythingOn();
+    const { app } = buildHarness({ held: 13, creditMicros: BUNDLE_MICROS * 2 });
+
+    expect((await create(app)).statusCode).toBe(402);
+    await app.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 🔴 Two tokens were named and only one of them is confirmed. A token with no
+// address configured is not offered at all, and a payment in something that
+// was never offered does not buy anything.
+// ---------------------------------------------------------------------------
+
+describe("what we are willing to be paid in", () => {
+  it("offers every token that has an address", async () => {
+    switchEverythingOn();
+    process.env.X402_USDT_ADDRESS = USDT;
+    const { app } = buildHarness({ held: 5 });
+
+    const body = (await create(app)).json();
+
+    expect(body.accepts).toHaveLength(2);
+    expect(body.accepts.map((a) => a.asset)).toEqual([USDC, USDT]);
+    await app.close();
+  });
+
+  it("does not offer a token whose address is not set, and says so once", async () => {
+    switchEverythingOn();
+    const { app, lines } = buildHarness({ held: 5 });
+
+    const body = (await create(app)).json();
+
+    expect(body.accepts.map((a) => a.asset)).toEqual([USDC]);
+    const said = lines.filter((l) => l && l.evt === "x402" && l.action === "asset_unset");
+    expect(said).toHaveLength(1);
+    expect(said[0].symbol).toBe("USDT");
+    await app.close();
+  });
+
+  it("asks for a token's own smallest unit, not ours", async () => {
+    switchEverythingOn();
+    process.env.X402_USDT_ADDRESS = USDT;
+    process.env.X402_USDT_DECIMALS = "18";
+    process.env.X402_USDT_NETWORK = "ethereum";
+    const { app } = buildHarness({ held: 5 });
+
+    const body = (await create(app)).json();
+
+    const usdt = body.accepts.find((a) => a.asset === USDT);
+    expect(usdt.maxAmountRequired).toBe("1000000000000000000");
+    expect(usdt.network).toBe("ethereum");
+    await app.close();
+  });
+
+  it("does not accept a payment in a token it never asked for", async () => {
+    switchEverythingOn();
+    globalThis.fetch = vi.fn();
+    const { app, queries } = buildHarness({ held: 5 });
+
+    // USDT has no address here, so it was not among the accepts
+    const res = await create(app, { "x-payment": proofFor({ asset: USDT }) });
+
+    expect(res.statusCode).toBe(402);
+    expect(res.json().error).toContain("did not ask for");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
+    expect(queries.some((q) => q.sql.startsWith("INSERT INTO credit_entries"))).toBe(false);
+    await app.close();
+  });
+
+  it("settles against the token the payment names, not the first one offered", async () => {
+    switchEverythingOn();
+    process.env.X402_USDT_ADDRESS = USDT;
+    const calls = fakeFacilitator({
+      verify: { isValid: true },
+      settle: { success: true, transaction: "0xfeed", payer: WALLET },
+    });
+    const { app } = buildHarness({ held: 5 });
+
+    const res = await create(app, { "x-payment": proofFor({ asset: USDT }) });
+
+    expect(res.statusCode).toBe(201);
+    expect(calls[0].body.paymentRequirements.asset).toBe(USDT);
+    await app.close();
+  });
+
+  it("will not guess which of two tokens a silent payment is in", async () => {
+    switchEverythingOn();
+    process.env.X402_USDT_ADDRESS = USDT;
+    globalThis.fetch = vi.fn();
+    const { app } = buildHarness({ held: 5 });
+
+    const res = await create(app, { "x-payment": PROOF });
+
+    expect(res.statusCode).toBe(402);
+    expect(res.json().error).toContain("does not say which");
+    expect(globalThis.fetch).not.toHaveBeenCalled();
     await app.close();
   });
 });
