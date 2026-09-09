@@ -157,7 +157,7 @@ export function renderNavbar(currentPath) {
     <nav class="site-nav" aria-label="Primary">
       <div class="nav-left">
         <a href="/" class="nav-logo" aria-label="Sitey Home">
-          <img src="/sitey_logo.png" alt="sitey.one logo" width="28" height="28" decoding="async" fetchpriority="high" />
+          <img src="/logo-64.png" alt="sitey.one logo" width="28" height="28" decoding="async" />
           <span class="nav-brand">SITEY</span>
         </a>
       </div>
