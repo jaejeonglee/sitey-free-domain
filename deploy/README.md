@@ -10,6 +10,8 @@
 | `migrate-vercel-txt.js` | 덮어쓰기로 사라진 TXT 값을 DB 기준으로 복구 + `--prune-orphans` 로 주인 없는 줄 정리 (둘 다 dry-run 기본) |
 | `migrations/001-unreachable-notice.sql` | `subdomains.unreachable_notified_at` 추가 — 4절 |
 | `migrations/002-subdomain-expiry.sql` | `expires_at`·`renewal_notice_stage` 추가 + **시행일 기준 백필** — 4절 |
+| `migrations/003-subdomain-limit.sql` | `users.subdomain_limit` 추가 (계정별 한도·예외) — 7절 |
+| `migrations/004-credit-ledger.sql` | `credit_entries` 생성 (결제 기록 = 잔액) — 7절 |
 | `cleanup-unreachable.js` | 지금 죽어 있는 것들의 **일회성** 정리 (dry-run 기본) — 5절 |
 | `preview-emails.js` | 나가는 메일·갱신 화면을 **발송 없이** HTML 파일로 렌더 (환경변수 불필요) — 4절 |
 
@@ -549,3 +551,154 @@ Gmail 경로는 지우지 않고 남겨뒀다. **`EMAIL_FROM` 을 따로 지정�
 # 실제 발송은 자비스가 한 통 시험 발송해서 받은 편지함으로 확인한다
 grep '"evt":"email"' /root/.pm2/logs/server-out.log | jq -c 'select(.provider=="resend")'
 ```
+
+---
+
+## 7. 계정별 한도와 «관찰 모드» + 402 결제 경로 (2026-09-09)
+
+> 🔴 **여기서 바뀐 것 한 줄** — **아무도 안 막힌다.** 한도를 «세기만» 한다.
+> 스위치 둘 다 기본 꺼짐이고, 켜기 전까지 동작은 지금과 똑같다.
+
+### 왜 지금 만드나 — 매출이 아니라 «수요 측정»이다
+
+「돈 낼 사람이 있나」에 대한 데이터가 **0** 이다. 한도를 세면 그 데이터가 생긴다.
+
+- **아무도 안 부딪히면** → 팔 것이 없다는 뜻이다. **결제를 안 켠 것이 이득이다**
+- **누가 부딪히면** → **그것이 첫 실제 수요다.** 그때 그 사람에게 맞는 통로를 붙인다
+
+실측(2026-09-09): 보유 계정 14 / 전체 가입 38. 1개 8명 · 2개 1명 · 3개 2명 · 4개 1명 · 8개 1명 · 11개 1명.
+→ **한도 3이면 넘는 계정이 3개뿐이고 그중 둘은 예외 대상이다.** 지금 진짜로 막으면 얻는 것 없이 사용자만 잃는다.
+
+### 무엇이 세어지나
+
+| 주체 | 세는 기준 | 한도 | 강제되나 |
+|---|---|---|---|
+| 로그인 사용자 · API 키 | `subdomains.user_id` | `users.subdomain_limit` → 없으면 `SUBDOMAIN_LIMIT_DEFAULT`(3) | **`SUBDOMAIN_LIMIT_ENFORCED` 가 켜져야 막는다** |
+| 익명 호출(에이전트) | `owner_ip` + `owner_type='agent'` | 같은 기본값 3 | **원래부터 막고 있었고 그대로 막는다** |
+
+- **「사람이냐 에이전트냐」로 가르지 않는다.** 11개를 회사 서비스에 물린 사람과 같은 일을 하는 에이전트는 같은 고객이고,
+  한도를 다르게 두면 **싼 쪽인 척하면 그만**이 된다. API 키가 「무제한」이던 것도 이 변경으로 없어졌다.
+- ⚠️ **익명 IP 한도만 예외적으로 계속 강제한다.** 이건 가격이 아니라 **인증 없는 쓰기 엔드포인트의 자물쇠**다.
+  이걸 관찰로 내리면 측정이 아니라 **자물쇠를 푸는 것**이 된다. 원래 값(3)·원래 동작 그대로다.
+- **이미 가진 것은 절대 안 건드린다.** 한도는 «다음 것»에만 걸린다. 조회·수정·삭제·갱신은 초과 계정도 그대로 된다.
+  (말없이 주소를 잃는 경험은 이미 한 번 일어났다 — 4절)
+
+### 예외는 «코드»가 아니라 «숫자»로 준다
+
+```sql
+UPDATE users SET subdomain_limit = 20 WHERE email = '<주소>';   -- 예외 부여
+UPDATE users SET subdomain_limit = NULL WHERE email = '<주소>'; -- 되돌리기(기본값을 다시 따라간다)
+```
+
+코드에 이름·이메일을 박으면 **되돌리는 데 배포가 필요하고, 이 서비스를 남에게 넘길 수도 없다.**
+
+### 🔴 마이그레이션 — 앱이 자동 실행하지 않는다. 손으로 두 줄
+
+```bash
+cd /root/dns-controller && git pull
+
+mysqldump -u <user> -p <db> users > /root/users.bak.$(date +%F).sql
+
+mysql -u <user> -p <db> < deploy/migrations/003-subdomain-limit.sql
+mysql -u <user> -p <db> < deploy/migrations/004-credit-ledger.sql
+```
+
+**되돌리기**
+
+```bash
+mysql -u <user> -p <db> -e "
+  ALTER TABLE users DROP COLUMN subdomain_limit;
+  DROP TABLE credit_entries;"
+```
+
+- **순서에 안 걸린다.** 코드가 먼저 올라가도 되고 마이그레이션이 먼저여도 된다 —
+  `services/quota.js` 는 컬럼이 없으면 **기본값으로 돌면서 로그에 한 줄** 남기고, `services/credits.js` 는 테이블이 없으면 잔액 0으로 본다.
+  (손으로 도는 마이그레이션이라 **코드가 먼저 도착하는 쪽이 정상 경로**다)
+- ⚠️ `credit_entries` **에 행이 하나라도 있으면 DROP 하지 마라.** 그 행들은 결제 기록이다.
+  (지금은 `X402_ENABLED` 가 꺼져 있어 **한 행도 안 생긴다**)
+
+### 🔴 플래그 — 둘 다 기본 «꺼짐». 그리고 둘 다 켜져야 402 가 나간다
+
+| 플래그 | 기본 | 켜면 |
+|---|---|---|
+| `SUBDOMAIN_LIMIT_ENFORCED` | `false` | **한도를 넘는 «새» 발급을 실제로 거부**(403 `LIMIT_REACHED`) |
+| `X402_ENABLED` | `false` | 거부 대신 **402 + 「얼마를 어디로 내라」**. 결제 증명을 가져오면 통과 |
+
+**AND 관계다.** 관찰 모드에서는 아무도 안 막히니 **돈을 요구할 자리 자체가 없다** —
+`X402_ENABLED` 만 켜면 아무 일도 일어나지 않는다.
+
+**켜는 법** — 환경변수 파일에 한 줄 넣고 재시작. **한 번에 하나씩.**
+
+```
+SUBDOMAIN_LIMIT_ENFORCED=true
+```
+```bash
+NODE_ENV=production pm2 restart server --update-env
+```
+
+**끄는 법** — 그 줄을 지우거나 `false` 로 바꾸고 같은 재시작. **값이 비어 있어도 꺼짐이다.**
+
+⚠️ **웹 대시보드에는 402 가 절대 안 나간다.** 402 로 내려면 지갑이 있어야 하는데
+브라우저 앞의 사람에게 「지갑부터 만드세요」는 곧 이탈이다. 402 는 `POST /api/v1/subdomains` 한 곳뿐이고,
+MCP 에도 없다(JSON-RPC 결과에는 상태코드를 담을 자리가 없다).
+
+### 🔎 관찰 모드 로그를 어떻게 세나 — 이게 이 작업의 산출물이다
+
+한도를 넘었는데 **통과시킨** 요청은 `action:"withheld"` 로 남는다. 누가 몇 번인지 세는 명령:
+
+```bash
+grep '"evt":"quota"' /root/.pm2/logs/server-out.log | jq -r 'select(.action=="withheld") | .sub // .iph' | sort | uniq -c | sort -rn
+```
+
+- 출력이 **비어 있으면 「한도에 부딪히는 사람이 없다」** — 팔 것이 없다는 답이고, 그것도 답이다
+- `sub` 는 `u:<id>`(웹 로그인) 또는 `k:<id>`(API 키). 익명은 `sub` 이 없고 `iph`(IP 해시)로 잡힌다
+- **`services/access-log.js` 의 `sub`·`iph` 와 같은 형식**이라 `evt:"http"` 줄과 같이 셀 수 있다
+
+한 줄을 통째로 보려면:
+
+```bash
+grep '"evt":"quota"' /root/.pm2/logs/server-out.log | jq -c
+#   -> {"evt":"quota","scope":"account","sub":"k:7","iph":"...","held":5,"limit":3,"paid_for":0,"action":"withheld"}
+#   action:"blocked"  = 실제로 거부됨 (스위치가 켜졌거나 익명 IP)
+#   action:"no_column" = 마이그레이션 003 이 아직 안 돌았다는 뜻
+```
+
+⚠️ **한도 안에 있는 요청은 한 줄도 안 남긴다.** 넘은 것만 남는다.
+
+### 결제를 실제로 켜려면 (지금은 못 켠다)
+
+**지갑이 없다.** 아래 셋 중 하나라도 비어 있으면 **기능이 꺼진 채로 있고**, 부팅 로그에 **어느 값이 없는지** 찍힌다.
+조용히 통과시키지 않는다 — 그냥 403 으로 거부한다.
+
+| 이름 | 기본 | 뜻 |
+|---|---|---|
+| `X402_PAY_TO` | **없음** | 받을 지갑 주소. **아직 없다** |
+| `X402_ASSET` | **없음** | 받을 토큰의 컨트랙트 주소(체인마다 다르다) |
+| `X402_FACILITATOR_URL` | **없음** | 증명 검증·정산을 맡길 곳. **서명 검증을 우리가 하지 않는다** |
+| `X402_NETWORK` | `base` | 체인 |
+| `SUBDOMAIN_SLOT_PRICE_MICROS` | `1000000` | 추가 1개 값. 백만분의 1 단위(USDC 소수점 6자리) = **1.00** |
+| `X402_TIMEOUT_MS` | `10000` | facilitator 호출 타임아웃 |
+
+부팅 로그로 확인:
+
+```bash
+grep '"evt":"x402"' /root/.pm2/logs/server-out.log | jq -c
+#   -> {"evt":"x402","enabled":false,"reason":"X402_ENABLED is off"}
+#   켜놓고 지갑이 없으면 action:"disabled" 줄에 missing:[...] 이 같이 나온다
+```
+
+📌 **규격이 아직 움직인다(v2 가 최근이다).** 그래서 프로토콜을 아는 코드는 **`services/x402.js` 한 파일뿐**이다.
+규격이 바뀌면 그 파일만 고친다. 라우트는 「무엇으로 답하나」와 「이 증명이 유효한가」 둘만 묻는다.
+
+⚠️ **세금** — 코인으로 받아도 **사업 소득이다.** 실제 수익이 생기는 시점에 세무사 확인이 필요하다.
+「매출로 안 잡는 구조」를 전제로 설계하지 않았다.
+
+### 배포
+
+```bash
+export PATH=/root/.nvm/versions/node/v24.11.0/bin:$PATH
+cd /root/dns-controller && git pull
+NODE_ENV=production pm2 restart server --update-env
+```
+
+DNS·존 파일·네임서버·Caddy 는 **건드리지 않았다.** 되돌리기는 `git revert` + 위 DROP.
