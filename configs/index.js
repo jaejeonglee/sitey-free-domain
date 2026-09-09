@@ -149,10 +149,13 @@ module.exports = {
   // and two different allowances could be walked around by claiming to be the
   // other one. services/quota.js.
   quota: {
-    // What an account gets when `users.subdomain_limit` says nothing. Measured
-    // 2026-09-09: of the 14 accounts holding anything, three hold more than
-    // three, and two of those are exceptions we mean to grant.
-    subdomainLimit: parseIntEnv("SUBDOMAIN_LIMIT_DEFAULT", 3),
+    // What an account gets when `users.subdomain_limit` says nothing.
+    //
+    // Five, and enforced, from 2026-09-09. Measured that day: of the 14
+    // accounts holding anything, only two hold more than five and both already
+    // carry an exception, so switching enforcement on refuses nobody who is
+    // here today. The next largest holding is three.
+    subdomainLimit: parseIntEnv("SUBDOMAIN_LIMIT_DEFAULT", 5),
     // 🔴 Off means observe. A request over the limit is written to the log as
     // the refusal it would have been, and then allowed through. Nobody has
     // ever been refused a subdomain for holding too many, and there is no

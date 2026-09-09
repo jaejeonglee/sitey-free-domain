@@ -143,8 +143,14 @@ beforeEach(() => {
   createSubdomain.mockClear();
   deleteSubdomain.mockClear();
   delete process.env.SUBDOMAIN_LIMIT_ENFORCED;
-  delete process.env.SUBDOMAIN_LIMIT_DEFAULT;
   delete process.env.X402_ENABLED;
+
+  // These cases are about what happens AT the limit, so they pin it rather
+  // than inherit whatever the product currently ships. The shipped number is
+  // a business decision that moves (3 on the morning of 2026-09-09, 5 by that
+  // evening); the behaviour at the boundary is not, and a test that breaks
+  // when the price list changes is testing the wrong thing.
+  process.env.SUBDOMAIN_LIMIT_DEFAULT = "3";
 });
 
 afterAll(() => {
@@ -399,5 +405,16 @@ describe("the switches ship off", () => {
     expect(config.x402.enabled).toBe(false);
     // and the price of a bundle is what was decided: five names, a year, 1.00
     expect(config.quota.bundle).toMatchObject({ size: 5, priceMicros: 1000000, days: 365 });
+  });
+
+  // The cases above pin the limit themselves so they survive a price change.
+  // Nothing would then notice if the shipped allowance drifted, so this one
+  // holds the number Jay actually chose.
+  it("gives five away for free", () => {
+    delete process.env.SUBDOMAIN_LIMIT_DEFAULT;
+    loadRoutes();
+    const config = require2("../configs/index.js");
+
+    expect(config.quota.subdomainLimit).toBe(5);
   });
 });

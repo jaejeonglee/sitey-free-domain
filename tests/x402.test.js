@@ -146,6 +146,12 @@ beforeEach(() => {
   createSubdomain.mockClear();
   for (const key of ENV) delete process.env[key];
   globalThis.fetch = savedFetch;
+
+  // The arithmetic in these names — eight with one bundle, thirteen with two —
+  // is three free plus five a bundle. Pin the free three so the names stay
+  // true when the shipped allowance moves; what is under test is that a
+  // bundle adds its size and lapses, not what the allowance happens to be.
+  process.env.SUBDOMAIN_LIMIT_DEFAULT = "3";
 });
 
 afterAll(() => {

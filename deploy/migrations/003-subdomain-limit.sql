@@ -11,9 +11,11 @@
 -- records facts in the database and rules in the code.
 --
 -- Measured 2026-09-09: 14 of 38 accounts hold anything at all. One holds 11,
--- one holds 8, one holds 4, and everybody else holds three or fewer. A limit
--- of 3 therefore touches three accounts, two of which are exceptions — which
--- is why nothing is enforced by default. See deploy/README.md §7.
+-- one holds 8, one holds 4, and everybody else holds three or fewer.
+--
+-- The free allowance was raised to 5 and switched on the same evening. At 5
+-- only the 11 and the 8 are over, and both already carry an exception, so
+-- enforcing refuses nobody who is here today. See deploy/README.md §7.
 --
 -- Not run by the application. Apply it by hand:
 --
