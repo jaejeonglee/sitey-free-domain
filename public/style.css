@@ -194,6 +194,19 @@ img { max-width: 100%; }
   margin: 0 auto;
   background: var(--face);
   padding: 3px;
+
+  /* 창이 작업표시줄까지 내려오게 한다. 짧은 페이지에서 창이 위쪽에만
+     떠 있고 아래가 청록 바탕으로 텅 비면 «덜 만든 화면»처럼 보인다.
+     22 + 52 는 body 의 위아래 여백이다. */
+  min-height: calc(100vh - 74px);
+  display: flex;
+  flex-direction: column;
+}
+
+/* 내용이 짧아도 상태바(footer)가 창 바닥에 붙어 있게 한다.
+   98 의 최대화된 창이 그렇게 생겼다. */
+.container > main {
+  flex: 1 0 auto;
 }
 
 main {
