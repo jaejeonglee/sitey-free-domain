@@ -12,6 +12,11 @@
   "hero.search.placeholder": "원하는 도메인을 입력해보세요.",
   "hero.search.button": "검색",
   "hero.badge": "운영 중인 도메인:",
+  "home.group.legend": "새 주소",
+  "home.name_label": "이름",
+  "home.agent_line": "코드로도 만들 수 있습니다 — <a href=\"/docs\">문서</a>를 보세요.",
+  "home.status.free": "기본 3개까지 무료",
+  "home.status.renew": "3개월마다 갱신",
 
   "features.title": "Sitey를 소개합니다",
   "features.speed.title": "몇 초면 끝!",

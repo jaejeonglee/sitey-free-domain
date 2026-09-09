@@ -23,7 +23,7 @@
       content="sitey.my, sitey.one, free subdomain, domain, dns management, free domain, domain checker"
     />
     <meta name="author" content="Sitey" />
-    <meta name="theme-color" content="#1c2d4a" />
+    <meta name="theme-color" content="#008080" />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
@@ -158,34 +158,43 @@
           <span data-i18n="hero.subtitle.prefix">with</span> <span id="domain-list-span" aria-live="polite">Loading...</span>
         </p>
         <form id="subdomain-form" novalidate>
-          <div class="search-box">
-            <input
-              type="text"
-              id="subdomain"
-              data-i18n-placeholder="hero.search.placeholder"
-              placeholder="Enter your desired domain"
-              required
-              pattern="^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
-              autocomplete="off"
-              spellcheck="false"
-              autocapitalize="none"
-            />
-            <button type="submit" id="check-btn" data-i18n="hero.search.button">Check</button>
-          </div>
+          <fieldset class="groupbox">
+            <legend data-i18n="home.group.legend">New domain</legend>
+            <div class="search-box">
+              <label for="subdomain" data-i18n="home.name_label">Name</label>
+              <input
+                type="text"
+                id="subdomain"
+                data-i18n-placeholder="hero.search.placeholder"
+                placeholder="Enter your desired domain"
+                required
+                pattern="^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+                autocomplete="off"
+                spellcheck="false"
+                autocapitalize="none"
+              />
+              <button type="submit" id="check-btn" data-i18n="hero.search.button">Check</button>
+            </div>
+            <div class="results-section">
+              <div
+                id="availability-results"
+                class="hidden"
+                aria-live="polite"
+              ></div>
+            </div>
+          </fieldset>
         </form>
-        <div class="results-section">
-          <div
-            id="availability-results"
-            class="hidden"
-            aria-live="polite"
-          ></div>
-        </div>
-        <div
-          class="domain-badge"
-          aria-live="polite"
-          aria-atomic="true"
-        >
-          <span data-i18n="hero.badge">Active domains:</span> <span id="domain-count-number">--</span>
+        <!-- Agents reach us over MCP, so there is nothing here for them to
+             click - one line to the docs is the whole interface they need. -->
+        <p class="home-agent-line" data-i18n="home.agent_line" data-i18n-html>
+          You can create one from code too &mdash; see the <a href="/docs">docs</a>.
+        </p>
+        <div class="statusbar domain-badge">
+          <span aria-live="polite" aria-atomic="true">
+            <span data-i18n="hero.badge">Active domains:</span> <span id="domain-count-number">--</span>
+          </span>
+          <span data-i18n="home.status.free">3 free by default</span>
+          <span data-i18n="home.status.renew">Renewed every 3 months</span>
         </div>
       </section>
       <section class="features">

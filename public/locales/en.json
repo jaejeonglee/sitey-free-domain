@@ -12,6 +12,11 @@
   "hero.search.placeholder": "Enter your desired domain",
   "hero.search.button": "Check",
   "hero.badge": "Active domains:",
+  "home.group.legend": "New domain",
+  "home.name_label": "Name",
+  "home.agent_line": "You can create one from code too — see the <a href=\"/docs\">docs</a>.",
+  "home.status.free": "3 free by default",
+  "home.status.renew": "Renewed every 3 months",
 
   "features.title": "What We Deliver",
   "features.speed.title": "Speed",
