@@ -12,11 +12,16 @@
 -- of this service writes down what happened rather than only what is true now:
 -- code can be written later, history cannot.
 --
--- `amount_micros` is signed and in millionths of one unit (USDC has six
--- decimals), so no amount here is ever a float. Only positive entries are
--- written today — a payment raises the account's ceiling rather than being
+-- `amount_micros` is signed and in millionths of one unit (USDC and USDT both
+-- have six decimals), so no amount here is ever a float. Only positive entries
+-- are written today — a payment raises the account's ceiling rather than being
 -- drawn down per request — and the column is signed so that metering can be
 -- added later without changing the shape of the table.
+--
+-- What is sold is a bundle: five more subdomains for a year, for 1.00. Both
+-- numbers are settings (SUBDOMAIN_BUNDLE_SIZE, SUBDOMAIN_BUNDLE_DAYS), so the
+-- schema only has to hold the two facts they produce — how much was paid, and
+-- when that stops counting.
 --
 -- UNIQUE (channel, reference) is what stops one settled transaction being
 -- spent twice: the reference is the settlement's own identifier, so a replayed
@@ -42,10 +47,25 @@ CREATE TABLE IF NOT EXISTS credit_entries (
   channel VARCHAR(16) NOT NULL,
   -- The channel's own identifier for this payment (a transaction hash).
   reference VARCHAR(128) NOT NULL,
+  -- When this bundle stops counting. Bundles stack rather than extend: a
+  -- second payment writes a second row with its own date, so the two run side
+  -- by side and neither one moves the other. Nothing is written here that
+  -- would let a payment shorten or lengthen a bundle already on the account.
+  --
+  -- NULL means it never lapses. Nothing the application writes is NULL; it is
+  -- for a grant entered by hand, which is the only row a person would add.
+  --
+  -- 🔴 A bundle ending takes nothing away. The limit is asked about the next
+  -- subdomain and never about the last one (services/quota.js), so an account
+  -- holding eight when its year is up keeps all eight and is refused a ninth.
+  expires_at TIMESTAMP NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   UNIQUE INDEX uniq_channel_reference (channel, reference),
   INDEX idx_user (user_id),
   INDEX idx_payer (payer),
+  -- The balance query is "this account, not yet lapsed", and it runs on the
+  -- create path once an account is over its free allowance.
+  INDEX idx_user_expiry (user_id, expires_at),
   -- SET NULL, not CASCADE as elsewhere in this schema. Deleting an account
   -- must not delete the record that money changed hands: that record is what a
   -- refund, a dispute or a tax return is answered from. The row survives with
@@ -58,9 +78,24 @@ CREATE TABLE IF NOT EXISTS credit_entries (
 --   SHOW INDEX FROM credit_entries WHERE Key_name = 'uniq_channel_reference';
 --   SELECT COUNT(*) FROM credit_entries;   -- expect 0
 
--- What an account has paid for, at any time:
+-- What an account has paid for and has not used up the year of:
 --
---   SELECT user_id, SUM(amount_micros) FROM credit_entries GROUP BY user_id;
+--   SELECT user_id, SUM(amount_micros) FROM credit_entries
+--    WHERE expires_at IS NULL OR expires_at > NOW() GROUP BY user_id;
+
+-- ---------------------------------------------------------------------------
+-- If an earlier copy of this file was already applied somewhere
+-- ---------------------------------------------------------------------------
+-- It has not been on the server — nothing has created this table anywhere, and
+-- with X402_ENABLED off there is no row it could have written. If some other
+-- database has the table without `expires_at`, this is the whole difference:
+--
+--   ALTER TABLE credit_entries
+--     ADD COLUMN expires_at TIMESTAMP NULL AFTER reference,
+--     ADD INDEX idx_user_expiry (user_id, expires_at);
+--
+-- Existing rows would then be NULL, which reads as "never lapses". That is the
+-- right answer for a payment taken before there was a year to run out.
 
 -- ---------------------------------------------------------------------------
 -- Rollback

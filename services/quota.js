@@ -108,6 +108,12 @@ async function checkSubdomainQuota(fastify, { userId = null, ip = null, subject 
   // has paid for more holds more, whichever door the money came through —
   // services/credits.js — and the ledger is not read at all on the ordinary
   // path, which is every request anybody makes today.
+  //
+  // A bundle that has run out of its year simply stops being counted here, and
+  // that is the whole of what expiry does. 🔴 No rule is needed for the end of
+  // a bundle because the rule below is already it: this asks about the *next*
+  // subdomain and never about the last one. An account holding eight when its
+  // bundle lapses keeps all eight and is refused a ninth.
   const paidFor = held >= base ? await credits.slotsFor(fastify, userId) : 0;
   const limit = base + paidFor;
   const exceeded = held >= limit;

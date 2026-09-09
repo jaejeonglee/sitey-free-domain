@@ -140,12 +140,26 @@ module.exports = {
     // answered, and enforcing before it is answered costs real users for a
     // demand we cannot show exists. deploy/README.md §7.
     enforced: parseBoolEnv("SUBDOMAIN_LIMIT_ENFORCED", false),
-    // What one subdomain beyond the limit costs, in millionths of one unit
-    // (USDC has six decimals) — 1.00 by default. It sits here rather than with
-    // the payment route below because it is the price of the thing, not the
-    // price of paying for it one particular way: a card would charge the same
-    // number. services/credits.js.
-    slotPriceMicros: parseIntEnv("SUBDOMAIN_SLOT_PRICE_MICROS", 1000000),
+    // What is sold, and for how long. One payment is one bundle: five more
+    // subdomains for a year, for 1.00. Nothing here is a rate per subdomain —
+    // a bundle is the unit, and a caller who wants ten buys two.
+    //
+    // It sits here rather than with the payment route below because it is the
+    // price of the thing, not the price of paying for it one particular way: a
+    // card would charge the same number. services/credits.js.
+    bundle: {
+      // How many extra subdomains one bundle carries.
+      size: parseIntEnv("SUBDOMAIN_BUNDLE_SIZE", 5),
+      // In millionths of one unit, because USDC and USDT have six decimals —
+      // 1.00 by default. An asset with a different number of decimals is
+      // converted from this at the point of asking (services/x402.js), so this
+      // stays one number whatever is being paid in.
+      priceMicros: parseIntEnv("SUBDOMAIN_BUNDLE_PRICE_MICROS", 1000000),
+      // How long a bundle lasts. Bundles stack rather than extend: buying a
+      // second one adds five more and runs its own year, so a payment can
+      // never shorten or lengthen a bundle that is already running.
+      days: parseIntEnv("SUBDOMAIN_BUNDLE_DAYS", 365),
+    },
   },
   // Paying for a subdomain over HTTP: a caller over their limit is answered
   // 402 with what to pay and where, pays, and repeats the request with the
@@ -155,7 +169,7 @@ module.exports = {
   // 🔴 Off, and switching it on is not enough: there is no wallet to be paid
   // into yet. With any of these empty the route reports itself off and says
   // which one is missing, rather than letting a request through it was
-  // supposed to charge for. What one subdomain costs is `quota.slotPriceMicros`
+  // supposed to charge for. What a bundle costs is `quota.bundle.priceMicros`
   // above — that is the price of the thing, not of paying this way.
   // deploy/README.md §7.
   x402: {
