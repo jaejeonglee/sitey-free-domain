@@ -9,6 +9,9 @@ const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
 const { checkSubdomainQuota } = require("../services/quota");
+const credits = require("../services/credits");
+const x402 = require("../services/x402");
+const alertService = require("../services/alert");
 const {
   isValidSubdomain,
   validateHostPrefix,
@@ -65,6 +68,86 @@ function limitMessage(quota) {
     return `You are holding ${quota.held} subdomains and the limit for this account is ${quota.limit}. Remove one before creating another.`;
   }
   return `Anonymous callers may hold ${quota.limit} subdomains per address and you are holding ${quota.held}. Sign in at sitey.my to hold them under an account.`;
+}
+
+/**
+ * What to answer a caller who is at their limit.
+ *
+ * The two switches are read separately and both have to be on. Observing
+ * cannot ask for money — there is nothing to ask for while nobody is being
+ * refused — so SUBDOMAIN_LIMIT_ENFORCED decides whether anyone is stopped at
+ * all, and X402_ENABLED decides what they are told when they are. With the
+ * payment route off, or on but unable to work, this is the plain refusal the
+ * endpoint has always given: never the subdomain.
+ *
+ * @returns {boolean} true to carry on with the request. False means an answer
+ *   has already been sent and the handler must stop.
+ */
+async function takePayment(fastify, request, reply, quota) {
+  const state = x402.status();
+  if (!state.enabled) {
+    // Not silent: if the route was meant to be on, services/x402.js has
+    // already said in the log which setting is missing.
+    apiError(403, limitMessage(quota), "LIMIT_REACHED");
+  }
+
+  const resource = `${config.server.publicOrigin}${request.raw.url}`;
+  const description = `One subdomain beyond the ${quota.limit} this caller may hold.`;
+  const proof = request.headers["x-payment"];
+
+  if (!proof) {
+    request.outcome = "PAYMENT_REQUIRED";
+    reply.code(402).send(
+      x402.paymentRequiredBody({ resource, description, error: limitMessage(quota) })
+    );
+    return false;
+  }
+
+  const settlement = await x402.settle(proof, x402.requirementsFor({ resource, description }));
+  if (!settlement.ok) {
+    // Answered 402 again rather than 403: the caller may pay properly and
+    // repeat, and the body says both what was wrong and what is being asked
+    // for. A 403 would read as "and do not come back".
+    request.outcome = "PAYMENT_INVALID";
+    reply.code(402).send(
+      x402.paymentRequiredBody({ resource, description, error: settlement.reason })
+    );
+    return false;
+  }
+
+  const recorded = await credits.record(fastify, {
+    userId: request.apiAuth.mode === "apikey" ? request.apiAuth.userId : null,
+    payer: settlement.payer,
+    amountMicros: settlement.amountMicros,
+    channel: "x402",
+    reference: settlement.reference,
+  });
+
+  if (!recorded.recorded) {
+    if (recorded.code === "duplicate") {
+      // The same settlement presented twice. Refusing costs the caller
+      // nothing — they were not charged again — and it is the only thing
+      // standing between one payment and any number of subdomains.
+      request.outcome = "PAYMENT_REPLAYED";
+      reply.code(402).send(
+        x402.paymentRequiredBody({ resource, description, error: recorded.reason })
+      );
+      return false;
+    }
+    // The money has already moved. Refusing now would take payment and give
+    // nothing, which is the worse of the two failures, so the request goes
+    // through and a person is told that a payment landed with nowhere to be
+    // written down.
+    await alertService.critical("PAYMENT_UNRECORDED", {
+      channel: "x402",
+      reference: settlement.reference,
+      amount_micros: settlement.amountMicros,
+      reason: recorded.reason,
+    });
+  }
+
+  reply.header("x-payment-response", settlement.responseHeader);
+  return true;
 }
 
 /**
@@ -201,8 +284,8 @@ async function apiV1Routes(fastify, options) {
       ip: auth.mode === "ip" ? auth.ip : null,
       subject: accessLog.subjectOf(request),
     });
-    if (quota.blocked) {
-      apiError(403, limitMessage(quota), "LIMIT_REACHED");
+    if (quota.blocked && !(await takePayment(fastify, request, reply, quota))) {
+      return reply;
     }
 
     // Reachability validation

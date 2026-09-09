@@ -73,14 +73,21 @@ async function slotsFor(fastify, userId) {
  * caller is told so rather than being given a second subdomain for one
  * payment.
  *
- * @returns {{recorded: boolean, reason?: string}} `reason` is safe to show a
- *   caller: it says what happened, never what is in the table.
+ * @returns {{recorded: boolean, code?: string, reason?: string}}
+ *   `reason` is safe to show a caller: it says what happened, never what is in
+ *   the table. `code` separates the two failures that matter — "duplicate"
+ *   means the caller gets nothing, anything else means the money has already
+ *   moved and somebody has to be told.
  */
 async function record(fastify, { userId = null, payer = null, amountMicros, channel, reference }) {
   if (!reference) {
     // A payment we cannot name cannot be recorded once, which means it cannot
     // be stopped from being used twice. Refuse rather than credit it blind.
-    return { recorded: false, reason: "the payment has no identifier to record it under" };
+    return {
+      recorded: false,
+      code: "unnameable",
+      reason: "the payment has no identifier to record it under",
+    };
   }
 
   try {
@@ -90,11 +97,15 @@ async function record(fastify, { userId = null, payer = null, amountMicros, chan
     );
   } catch (err) {
     if (err?.errno === DUPLICATE) {
-      return { recorded: false, reason: "this payment has already been used" };
+      return { recorded: false, code: "duplicate", reason: "this payment has already been used" };
     }
     if (err?.errno === NO_TABLE) {
       warnMissingTable(fastify);
-      return { recorded: false, reason: "payments cannot be recorded on this server yet" };
+      return {
+        recorded: false,
+        code: "unrecordable",
+        reason: "payments cannot be recorded on this server yet",
+      };
     }
     throw err;
   }

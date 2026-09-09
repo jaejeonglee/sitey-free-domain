@@ -147,6 +147,31 @@ module.exports = {
     // number. services/credits.js.
     slotPriceMicros: parseIntEnv("SUBDOMAIN_SLOT_PRICE_MICROS", 1000000),
   },
+  // Paying for a subdomain over HTTP: a caller over their limit is answered
+  // 402 with what to pay and where, pays, and repeats the request with the
+  // proof in a header. It is the one way an agent can pay at all — a card
+  // needs somebody to press a button in a browser.
+  //
+  // 🔴 Off, and switching it on is not enough: there is no wallet to be paid
+  // into yet. With any of these empty the route reports itself off and says
+  // which one is missing, rather than letting a request through it was
+  // supposed to charge for. What one subdomain costs is `quota.slotPriceMicros`
+  // above — that is the price of the thing, not of paying this way.
+  // deploy/README.md §7.
+  x402: {
+    enabled: parseBoolEnv("X402_ENABLED", false),
+    // The wallet that receives payment. No default, because it does not exist.
+    payTo: (process.env.X402_PAY_TO || "").trim(),
+    // Which chain, and which token on it. The token is an address rather than
+    // a name: a name is a different contract on every chain.
+    network: (process.env.X402_NETWORK || "base").trim(),
+    asset: (process.env.X402_ASSET || "").trim(),
+    // Who is asked whether a proof is good, and who moves the money. Checking
+    // a signature against a chain needs a node and a crypto library; this is
+    // the address of the thing that has both.
+    facilitatorUrl: (process.env.X402_FACILITATOR_URL || "").trim().replace(/\/+$/, ""),
+    timeoutMs: parseIntEnv("X402_TIMEOUT_MS", 10000),
+  },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN,
     alertChatId: process.env.TELEGRAM_ALERT_CHAT_ID,

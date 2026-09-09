@@ -7,6 +7,7 @@ const bindService = require("./services/bind");
 const alertService = require("./services/alert");
 const emailService = require("./services/email");
 const accessLog = require("./services/access-log");
+const x402 = require("./services/x402");
 
 function buildApp(options = {}) {
   const fastify = Fastify({
@@ -90,6 +91,16 @@ function buildApp(options = {}) {
   // Whether these mails arrive has never been recorded anywhere; every send
   // now leaves a line. See services/email.js.
   emailService.setLogger(fastify.log);
+  // Says at boot whether a caller over their limit can be charged, and — if
+  // the route was switched on but cannot work — which setting is missing. A
+  // route that was meant to charge and quietly is not is the failure worth
+  // finding at boot rather than in a month's takings.
+  x402.setLogger(fastify.log);
+  const payment = x402.status();
+  fastify.log.info(
+    { evt: "x402", enabled: payment.enabled, reason: payment.reason || null },
+    payment.enabled ? "Payment route is on" : `Payment route is off: ${payment.reason}`
+  );
 
   return fastify;
 }
