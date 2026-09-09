@@ -25,6 +25,7 @@
 
 const config = require("../configs/index");
 const accessLog = require("./access-log");
+const credits = require("./credits");
 
 /** ER_BAD_FIELD_ERROR — the column named in the query is not there. */
 const UNKNOWN_COLUMN = 1054;
@@ -99,9 +100,16 @@ async function heldBy(fastify, { userId, ip }) {
  */
 async function checkSubdomainQuota(fastify, { userId = null, ip = null, subject = null } = {}) {
   const scope = userId !== null ? "account" : "ip";
-  const limit =
+  const base =
     scope === "account" ? await accountLimit(fastify, userId) : config.quota.subdomainLimit;
   const held = await heldBy(fastify, { userId, ip });
+
+  // Only ask about money when the free allowance has run out. An account that
+  // has paid for more holds more, whichever door the money came through —
+  // services/credits.js — and the ledger is not read at all on the ordinary
+  // path, which is every request anybody makes today.
+  const paidFor = held >= base ? await credits.slotsFor(fastify, userId) : 0;
+  const limit = base + paidFor;
   const exceeded = held >= limit;
 
   // The anonymous ceiling is older than this file and is an abuse guard rather
@@ -121,6 +129,7 @@ async function checkSubdomainQuota(fastify, { userId = null, ip = null, subject 
         iph: accessLog.hashIp(ip),
         held,
         limit,
+        paid_for: paidFor,
         action: blocked ? "blocked" : "withheld",
       },
       blocked

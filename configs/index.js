@@ -140,6 +140,12 @@ module.exports = {
     // answered, and enforcing before it is answered costs real users for a
     // demand we cannot show exists. deploy/README.md §7.
     enforced: parseBoolEnv("SUBDOMAIN_LIMIT_ENFORCED", false),
+    // What one subdomain beyond the limit costs, in millionths of one unit
+    // (USDC has six decimals) — 1.00 by default. It sits here rather than with
+    // the payment route below because it is the price of the thing, not the
+    // price of paying for it one particular way: a card would charge the same
+    // number. services/credits.js.
+    slotPriceMicros: parseIntEnv("SUBDOMAIN_SLOT_PRICE_MICROS", 1000000),
   },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN,

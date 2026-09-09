@@ -70,9 +70,29 @@ CREATE TABLE IF NOT EXISTS api_keys (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
 );
 
+CREATE TABLE IF NOT EXISTS credit_entries (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  -- NULL for a caller with no account: an anonymous payment buys the request
+  -- that carried it, because there is nothing to save a balance against.
+  user_id INT NULL,
+  payer VARCHAR(128) NULL,
+  amount_micros BIGINT NOT NULL,
+  channel VARCHAR(16) NOT NULL,
+  reference VARCHAR(128) NOT NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  -- What stops one settled payment being spent twice.
+  UNIQUE INDEX uniq_channel_reference (channel, reference),
+  INDEX idx_user (user_id),
+  INDEX idx_payer (payer),
+  -- SET NULL, not CASCADE: deleting an account must not delete the record that
+  -- money changed hands. deploy/migrations/004.
+  FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
+);
+
 -- Migration for existing databases:
 -- ALTER TABLE subdomains ADD COLUMN owner_type ENUM('user','agent') DEFAULT 'user';
 -- ALTER TABLE subdomains ADD COLUMN owner_ip VARCHAR(45) DEFAULT NULL;
 -- deploy/migrations/001-unreachable-notice.sql  (unreachable_notified_at)
 -- deploy/migrations/002-subdomain-expiry.sql     (expires_at, renewal_notice_stage)
 -- deploy/migrations/003-subdomain-limit.sql      (users.subdomain_limit)
+-- deploy/migrations/004-credit-ledger.sql        (credit_entries)
