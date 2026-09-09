@@ -54,7 +54,10 @@
   bevel needs a surface that something can be darker than; on #000 the
   bottom-right edges vanish and a pressed button stops being legible.
 */
+/* 고대비 테마에서는 배경 그림을 끈다. 대비를 높이려고 켠 테마에
+   그림을 까는 것은 그 목적과 반대다. */
 body.dark-theme {
+  background-image: none;
   --face: #202020;
   --desk: #000000;
   --ink: #ffffff;
@@ -157,12 +160,31 @@ button:active:not(:disabled),
 html, body { max-width: 100%; overflow-x: hidden; }
 
 body {
-  background: var(--desk);
+  /* 바탕화면 — 그 초록 언덕.
+     Jay 요청. 다만 원본 사진은 마이크로소프트 것이라 쓸 수 없어서 그렸다.
+     그림 파일도 아니다: 오늘 이미지를 1MB 에서 8KB 로 줄인 참이라
+     배경 하나로 그걸 되돌리지 않는다. 전부 그라데이션이다. */
+  background:
+    /* 구름. 층마다 크기를 지정한다 — 안 그러면 그라데이션이 화면 전체를
+       칠해서 아래 층을 덮어버린다. 처음에 그렇게 만들어 하늘이 사라졌다. */
+    radial-gradient(closest-side, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0))
+      16% 15% / 200px 48px no-repeat,
+    radial-gradient(closest-side, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0))
+      70% 9% / 240px 54px no-repeat,
+    /* 언덕 — 아래 28% 만 차지한다 */
+    radial-gradient(ellipse 150% 100% at 50% 100%, #7cbb46 0%, #4b8a28 100%)
+      bottom / 100% 28% no-repeat,
+    /* 하늘 */
+    linear-gradient(180deg, #2a6ab0 0%, #4f92cf 42%, #93c8ea 78%, #c6e2f5 100%);
+  background-attachment: fixed;
+  background-color: var(--desk);
   color: var(--ink);
   font-family: Tahoma, Verdana, Geneva, "MS Sans Serif", sans-serif;
   font-size: 12px;
   line-height: 1.45;
-  padding: 22px 12px 52px;
+  /* 사방에 바탕이 보이도록 여백을 준다. 창이 화면에 딱 붙어 있으면
+     «페이지»로 읽히고, 둘레에 바탕이 보여야 «떠 있는 창»이 된다. */
+  padding: 46px 44px 78px;
   -webkit-font-smoothing: none;
 }
 
@@ -198,7 +220,7 @@ img { max-width: 100%; }
   /* 창이 작업표시줄까지 내려오게 한다. 짧은 페이지에서 창이 위쪽에만
      떠 있고 아래가 청록 바탕으로 텅 비면 «덜 만든 화면»처럼 보인다.
      22 + 52 는 body 의 위아래 여백이다. */
-  min-height: calc(100vh - 74px);
+  min-height: calc(100vh - 136px);
   display: flex;
   flex-direction: column;
 }
@@ -1031,6 +1053,17 @@ body.dark-theme .toast.info::before { color: var(--title2); }
   box-shadow:
     inset -1px -1px var(--white), inset 1px 1px var(--shadow),
     inset -2px -2px var(--light), inset 2px 2px var(--dark);
+}
+
+/* 모바일 사파리는 background-attachment: fixed 를 제대로 못 그린다.
+   작은 화면에서는 붙박이를 풀고 여백도 줄인다 — 폰에서 바탕을 넓게
+   보여줄 자리가 없다. */
+@media (max-width: 520px) {
+  body {
+    background-attachment: scroll;
+    padding: 12px 10px 56px;
+  }
+  .container { min-height: calc(100vh - 74px); }
 }
 
 @media (max-width: 520px) {
