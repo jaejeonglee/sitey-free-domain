@@ -1025,6 +1025,34 @@ body.dark-theme .toast.info::before { color: var(--title2); }
   border-top: 1px solid var(--shadow);
   border-bottom: 1px solid var(--white);
 }
+
+/* 커피 항목만 브랜드 색을 쓴다.
+   공식 위젯(둥근 노란 알약 + Cookie 서체)을 그대로 붙이면 98 창 안에서
+   혼자 딴 시대 물건이 된다. 알아보게 하는 것은 노랑과 잔이므로 그 둘만
+   가져오고 형태는 98 에 맞춘다. 노랑 위 글자는 항상 검정이다 —
+   고대비 테마에서도 이 항목만은 색이 고정이라 그렇다. */
+.start-coffee a {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  margin: 2px 4px;
+  padding: 5px 10px;
+  background: #ffdd00;
+  color: #000000;
+  font-weight: 700;
+}
+.start-coffee a::before {
+  content: "\2615";
+  font-size: 13px;
+  line-height: 1;
+}
+.start-coffee a:hover,
+.start-coffee a:focus {
+  background: #ffe94d;
+  color: #000000;
+  outline: 1px dotted #000000;
+  outline-offset: -3px;
+}
 .start-sep.hidden,
 .start-coffee.hidden { display: none; }
 
