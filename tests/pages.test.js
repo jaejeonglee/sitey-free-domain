@@ -164,7 +164,7 @@ describe("per-path canonical and Open Graph tags", () => {
       ["/guide", "1. Check availability"],
       ["/help", "Help & Support"],
       ["/blog", "AI 에이전트가 서브도메인을 만들 수 있게 되었어요 (MCP 지원)"],
-      ["/blog/mcp-support", "MCP가 뭔가요?"],
+      ["/blog/mcp-support", "MCP가 뭔가요"],
     ])("%s carries %j without JavaScript", async (url, text) => {
       const res = await app.inject({ method: "GET", url });
 

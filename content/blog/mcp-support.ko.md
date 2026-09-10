@@ -1,108 +1,89 @@
 ---
 title: AI 에이전트가 서브도메인을 만들 수 있게 되었어요 (MCP 지원)
 slug: mcp-support
-description: sitey.one이 MCP(Model Context Protocol)를 지원합니다. Claude, Cursor 같은 AI 에이전트가 서브도메인을 자동으로 생성하고 관리할 수 있어요.
+description: sitey가 MCP를 지원합니다. Claude, Cursor 같은 AI 에이전트가 서브도메인을 직접 만들고 관리할 수 있어요.
 date: 2026-04-15
 ---
 
-안녕하세요, Sitey입니다. 🚀
+이제 AI 에이전트가 sitey에서 서브도메인을 직접 만들고 관리할 수 있어요.
 
-오늘부터 **AI 에이전트가 sitey.one에서 서브도메인을 직접 만들고 관리할 수 있어요.**
+## MCP가 뭔가요
 
-## MCP가 뭔가요?
+MCP(Model Context Protocol)는 AI 에이전트를 외부 서비스에 연결하는 표준입니다. Anthropic이 만들었고 Claude, Cursor, Windsurf 같은 도구가 지원해요.
 
-MCP(Model Context Protocol)는 AI 에이전트가 외부 서비스에 연결하는 표준 프로토콜이에요. Anthropic이 만들었고, Claude, Cursor, Windsurf 같은 AI 도구들이 지원해요.
+에이전트에게 "서브도메인 하나 만들어줘"라고 말하면 에이전트가 sitey에 직접 만든다는 뜻이에요.
 
-쉽게 말하면: **AI에게 "서브도메인 만들어줘"라고 말하면, AI가 알아서 sitey.one에 만들어주는 거예요.**
+## 왜 만들었나요
 
-## 왜 만들었나요?
+에이전트가 코드를 쓰고, 빌드하고, 배포까지 합니다. 그런데 도메인만은 사람이 콘솔을 열어 손으로 넣어야 했어요. 그 한 칸을 없앤 것입니다.
 
-바이브코딩 시대에 개발자들이 프로젝트를 만들면 배포할 도메인이 필요해요. AI 에이전트가 코드를 짜고, 빌드하고, 배포까지 하는데 — 도메인만 사람이 직접 설정해야 했어요.
+## 연결하기
 
-이제 AI 에이전트가 sitey.one MCP에 연결하면 도메인 설정까지 자동으로 할 수 있어요.
+Claude Code는 터미널에서 한 줄이면 됩니다.
 
-## 어떻게 쓰나요?
-
-### 1. 에이전트에 연결하기
-
-**Claude Code (가장 간단):**
 ```bash
-claude mcp add --transport http sitey https://sitey.one/mcp
+claude mcp add --transport http sitey https://sitey.my/mcp
 ```
-터미널에서 이 한 줄이면 끝이에요!
 
-**Claude Desktop:**
-설정 파일에 추가:
+Claude Desktop은 설정 파일에 넣으세요.
+
 ```json
 {
   "mcpServers": {
     "sitey": {
-      "url": "https://sitey.one/mcp"
+      "url": "https://sitey.my/mcp"
     }
   }
 }
 ```
 
-**Cursor:**
-Settings → MCP → Add Server → URL: `https://sitey.one/mcp`
+Cursor는 Settings → MCP → Add Server 에서 URL 칸에 `https://sitey.my/mcp` 를 넣으면 됩니다.
 
-### 2. 에이전트에게 말하기
+## 시켜보기
 
-설정 후에는 이렇게 말하면 돼요:
+연결한 뒤에는 이렇게 말하면 돼요.
 
-- "demo.sitey.one을 1.2.3.4에 연결해줘"
-- "내 서브도메인 목록 보여줘"
-- "demo.sitey.one IP를 5.6.7.8로 바꿔줘"
-- "demo.sitey.one 삭제해줘"
-- "demo.sitey.one을 Vercel에 연결해줘" (CNAME + TXT 자동 생성)
+- demo.sitey.my 를 1.2.3.4 로 연결해줘
+- 내 서브도메인 목록 보여줘
+- demo.sitey.my 를 5.6.7.8 로 바꿔줘
+- demo.sitey.my 지워줘
+- demo.sitey.my 를 Vercel 에 연결해줘
 
-에이전트가 MCP를 통해 자동으로 처리해요. 가입도 필요 없어요.
+마지막 줄은 CNAME 과 TXT 두 개가 필요한 일인데, 에이전트가 두 단계를 이어서 처리합니다.
 
-### 3. 제공하는 도구
+## 쓸 수 있는 도구
 
-| 도구 | 설명 |
+| 도구 | 하는 일 |
 |---|---|
-| `list_domains` | 사용 가능한 루트 도메인 목록 (sitey.one, sitey.my 등) |
-| `check_availability` | 서브도메인 사용 가능 여부 확인 |
+| `list_domains` | 발급 가능한 루트 도메인 목록 |
+| `check_availability` | 이 이름을 쓸 수 있는지 확인 |
 | `create_subdomain` | A 또는 CNAME 레코드 생성 |
-| `create_txt_record` | TXT 레코드 생성 (Vercel, Netlify 등 도메인 인증용) |
-| `delete_txt_record` | TXT 레코드 삭제 |
 | `list_subdomains` | 내가 만든 서브도메인 목록 |
+| `renew_subdomain` | 만료 전에 기한 연장 |
 | `update_subdomain` | 레코드 값 변경 |
 | `delete_subdomain` | 서브도메인 삭제 |
+| `create_txt_record` | TXT 레코드 생성 (Vercel 등 소유권 인증용) |
+| `delete_txt_record` | TXT 레코드 삭제 |
 
-### 4. Vercel 배포 예시
+## 기한이 있습니다
 
-Vercel에 커스텀 도메인을 연결하려면 CNAME + TXT 두 개가 필요해요. 에이전트에게 이렇게 말하면 돼요:
+서브도메인은 드리는 게 아니라 빌려드리는 것이라 기한이 있어요. **에이전트가 만든 것은 한 달, 사람이 만든 것은 세 달**입니다.
 
-```
-"demo.sitey.one을 Vercel에 연결해줘. CNAME은 cname.vercel-dns.com으로, TXT 인증 토큰은 abc123이야."
-```
+에이전트에게는 만료 안내 메일이 가지 않습니다. `list_subdomains` 의 `expires_at` 을 읽고 그 전에 `renew_subdomain` 을 부르세요. 한 번 부르면 그날부터 다시 셉니다.
 
-에이전트가 자동으로:
-1. `create_subdomain` → demo CNAME cname.vercel-dns.com
-2. `create_txt_record` → _vercel.demo TXT abc123
+## 한도
 
-두 단계를 처리해줘요.
+가입 여부와 상관없이 **5개까지 무료**예요. 가입하지 않으면 IP를 기준으로, 가입하면 계정을 기준으로 셉니다.
 
-## 제한 사항
+가입하면 대시보드에서 한자리에 모아 보고 고칠 수 있어요.
 
-- **익명 사용**: 가입 없이 IP당 최대 3개 서브도메인
-- **무제한 사용**: sitey.one에서 가입 후 API key를 발급받으면 제한 없이 사용 가능
-- 블랙리스트 서브도메인 (admin, www, ns1 등)은 생성 불가
-- A, CNAME 레코드만 지원
+admin, www, ns1 처럼 쓰면 안 되는 이름은 막혀 있습니다.
 
-## 더 많은 서브도메인이 필요하다면
+## 기술 정보
 
-sitey.one 웹사이트에서 Google 로그인 후 API key를 발급받으세요. 에이전트 설정에 헤더를 추가하면 무제한으로 사용할 수 있어요.
+- 전송 방식 — MCP Streamable HTTP
+- 엔드포인트 — `https://sitey.my/mcp`
+- 디스커버리 — `https://sitey.my/.well-known/mcp.json`
+- DNS 반영 — 즉시 (자체 BIND9 네임서버를 운영합니다)
 
-## 기술적 세부사항
-
-- 프로토콜: MCP (Streamable HTTP transport)
-- 엔드포인트: `https://sitey.one/mcp`
-- 디스커버리: `https://sitey.one/.well-known/mcp.json`
-- DNS 반영: 즉시 (자체 BIND9 네임서버 운영)
-
-질문이나 피드백은 [텔레그램 커뮤니티](https://t.me/+yvrIFDbssJ0wNDJl)에서 받고 있어요.
-
-감사합니다! 🙌
+질문이나 제안은 [텔레그램 커뮤니티](https://t.me/+yvrIFDbssJ0wNDJl)로 주세요.
