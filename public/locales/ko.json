@@ -2,7 +2,6 @@
   "nav.home": "등록",
   "nav.docs": "문서",
   "nav.blog": "공지",
-  "nav.help": "지원",
   "nav.dashboard": "관리",
   "nav.login": "로그인",
   "nav.logout": "로그아웃",
@@ -15,7 +14,6 @@
   "ie.address": "주소",
   "start.new": "새 주소 만들기",
   "start.docs": "문서",
-  "start.help": "도움말",
   "start.login": "로그인",
 
   "hero.title": "나만의 도메인을 무료로 등록하세요!",
@@ -114,13 +112,6 @@
   "docs.limits.agent.desc": "MCP로 만든 것은 한 달이고 메일이 가지 않습니다. <code>list_subdomains</code> 의 <code>expires_at</code> 을 읽고 <code>renew_subdomain</code> 으로 연장하세요.",
   "docs.limits.tip": "갱신은 만료 2주 전부터 할 수 있어요. 한 번 누르면 그날부터 다시 셉니다.",
 
-  "help.title": "도움이 필요하신가요?",
-  "help.subtitle": "설정이나 문제가 있다면 편하게 연락주세요.",
-  "help.contact.title": "문의하기",
-  "help.contact.desc": "궁금한 점이 있으면 <a href=\"https://t.me/+yvrIFDbssJ0wNDJl\" target=\"_blank\" rel=\"noopener noreferrer\">텔레그램</a>으로 알려주세요.",
-  "help.support.title": "응원하기",
-  "help.support.desc": "Sitey는 완전 무료예요. 도움이 됐다면 커피 한 잔으로 응원해주세요.",
-  "help.support.button": "커피 한 잔 사주기",
 
   "modal.create.title": "도메인 만들기",
   "modal.create.subtitle": "만들 도메인:",

@@ -62,11 +62,6 @@ const PAGES = {
     title: `Blog — ${SITE_TITLE_SUFFIX}`,
     description: "Notes on running a free subdomain service: DNS, deploys and developer tooling.",
   },
-  "/help": {
-    title: `Help — ${SITE_TITLE_SUFFIX}`,
-    description: "Answers to common questions about sitey subdomains.",
-    template: "template-help",
-  },
   // No template below this line: sign-in and the dashboard are behind auth.
   "/login": {
     title: `Sign in — ${SITE_TITLE_SUFFIX}`,
@@ -144,7 +139,6 @@ async function pageRoutes(fastify, options) {
   const staticBodies = {
     "template-home": extractTemplate(template, "template-home"),
     "template-docs": docsBody(extractTemplate(template, "template-docs")),
-    "template-help": extractTemplate(template, "template-help"),
   };
   const blogTemplate = extractTemplate(template, "template-blog");
 

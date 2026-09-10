@@ -67,7 +67,6 @@
 .modal-content,
 .toast,
 .callout,
-.support-cta,
 .tooltip-bubble,
 .domain-chip,
 .blog-list-item,
@@ -76,7 +75,6 @@ button,
 .primary-button,
 .danger-button,
 .google-login-button,
-.donate-button,
 .blog-back,
 .nav-select {
   box-shadow:
@@ -115,7 +113,6 @@ button:active:not(:disabled),
 .primary-button:active:not(:disabled),
 .danger-button:active:not(:disabled),
 .google-login-button:active,
-.donate-button:active,
 .taskbar-start:active {
   box-shadow:
     inset -1px -1px var(--white),
@@ -520,7 +517,6 @@ button,
 .primary-button,
 .danger-button,
 .google-login-button,
-.donate-button,
 .blog-back {
   font-family: inherit;
   font-size: 14.5px;
@@ -755,22 +751,7 @@ pre code { box-shadow: none; padding: 0; }
 .error { color: var(--bad); }
 
 /* ============================================
-   14. Content pages (help)
-   ============================================ */
-.content-page { min-width: 0; }
-.content-page h1 { font-size: 15.5px; margin-bottom: 3px; }
-.content-page .page-subtitle { color: var(--dim); margin-bottom: 14px; }
-
-.content-section h2 { font-size: 14.5px; margin: 14px 0 5px; }
-.content-section p { font-size: 15.5px; margin-bottom: 8px; }
-
-.support-cta { background: var(--face); padding: 11px 12px 12px; margin-top: 14px; }
-.support-cta h3 { font-size: 14.5px; margin-bottom: 4px; }
-.support-cta p { margin-bottom: 9px; }
-.support-actions { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
-
-/* ============================================
-   15. Modal — a 98 dialog
+   14. Modal — a 98 dialog
    The <h2> is the dialog's title bar and .modal-close is its [×], so
    the dialog needs no extra markup to look like one.
    ============================================ */
@@ -827,7 +808,7 @@ pre code { box-shadow: none; padding: 0; }
 body.modal-open { overflow: hidden; }
 
 /* ============================================
-   16. Toasts — message boxes stacked in the corner
+   15. Toasts — message boxes stacked in the corner
    ============================================ */
 .toast-container {
   position: fixed;
@@ -853,7 +834,7 @@ body.modal-open { overflow: hidden; }
 .toast.error::before { content: "\00D7"; color: var(--bad); }
 
 /* ============================================
-   17. Loader — the 98 progress bar
+   16. Loader — the 98 progress bar
    ============================================ */
 .loader-overlay {
   position: fixed;
@@ -892,7 +873,7 @@ body.modal-open { overflow: hidden; }
 }
 
 /* ============================================
-   18. Footer — the window's status bar
+   17. Footer — the window's status bar
    ============================================ */
 .site-footer {
   display: flex;
@@ -919,7 +900,7 @@ body.modal-open { overflow: hidden; }
 .footer-divider { display: none; }
 
 /* ============================================
-   19. Taskbar
+   18. Taskbar
    ============================================ */
 .taskbar {
   position: fixed;
@@ -1225,7 +1206,7 @@ body.modal-open { overflow: hidden; }
 }
 
 /* ============================================
-   20. Responsive
+   19. Responsive
    ============================================ */
 @media (max-width: 640px) {
   .docs-layout { grid-template-columns: minmax(0, 1fr); }

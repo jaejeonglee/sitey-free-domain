@@ -59,7 +59,6 @@ describe("per-path canonical and Open Graph tags", () => {
     ["/", `${ORIGIN}/`],
     ["/docs", `${ORIGIN}/docs`],
     ["/blog", `${ORIGIN}/blog`],
-    ["/help", `${ORIGIN}/help`],
     ["/login", `${ORIGIN}/login`],
     ["/dashboard", `${ORIGIN}/dashboard`],
   ])("%s declares itself canonical", async (url, expected) => {
@@ -136,7 +135,10 @@ describe("per-path canonical and Open Graph tags", () => {
 
   // The old handler answered every unknown URL with index.html and a 200.
   describe("soft 404s are gone", () => {
-    it.each(["/no-such-page", "/docs/extra", "/random/deep/path"])(
+    // /help is on the list because it was a real page until it was removed:
+    // the links to it are gone, but somebody's bookmark is not, and the answer
+    // has to be an honest 404 rather than the home page with a 200.
+    it.each(["/no-such-page", "/docs/extra", "/random/deep/path", "/help"])(
       "%s returns 404",
       async (url) => {
         const res = await app.inject({ method: "GET", url });
@@ -162,7 +164,6 @@ describe("per-path canonical and Open Graph tags", () => {
       ["/", "What We Deliver"],
       ["/docs", "Three steps and you're done."],
       ["/guide", "1. Check availability"],
-      ["/help", "Help & Support"],
       ["/blog", "AI 에이전트가 서브도메인을 만들 수 있게 되었어요 (MCP 지원)"],
       ["/blog/mcp-support", "MCP가 뭔가요"],
     ])("%s carries %j without JavaScript", async (url, text) => {

@@ -3,13 +3,9 @@ import { initializeLoginPage } from './auth.js';
 import { initializeDashboardPage } from './dashboard.js';
 import { initializeDocsPage } from './docs.js';
 import { initializeBlogPage } from './blog.js';
-import { renderNavbar, renderFooter, resetMessage } from './ui.js';
+import { renderNavbar, renderFooter } from './ui.js';
 import { applyTranslations, loadLang, getLang } from './i18n.js';
 import { getCurrentUser } from './api.js';
-
-function initializeHelpPage() {
-  resetMessage();
-}
 
 const routes = {
     "/": { templateId: "template-home", init: initializeLandingPage, title: "Sitey - free domain" },
@@ -20,7 +16,6 @@ const routes = {
     "/docs": { templateId: "template-docs", init: initializeDocsPage, title: "Docs - Sitey" },
     "/guide": { templateId: "template-docs", init: initializeDocsPage, title: "Docs - Sitey" },
     "/blog": { templateId: "template-blog", init: initializeBlogPage, title: "Domain Name Ideas - Sitey" },
-    "/help": { templateId: "template-help", init: initializeHelpPage, title: "Help - Sitey" },
 };
 
 export function navigateTo(path) {

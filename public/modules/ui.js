@@ -142,7 +142,6 @@ export function renderNavbar(currentPath) {
     { path: "/", label: t("nav.home") },
     { path: "/docs", label: t("nav.docs") },
     { path: "/blog", label: t("nav.blog") },
-    { path: "/help", label: t("nav.help") },
   ];
 
   if (user) {

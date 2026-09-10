@@ -2,7 +2,6 @@
   "nav.home": "Home",
   "nav.docs": "Docs",
   "nav.blog": "Ideas",
-  "nav.help": "Help",
   "nav.dashboard": "My domains",
   "nav.login": "Log in",
   "nav.logout": "Log out",
@@ -15,7 +14,6 @@
   "ie.address": "Address",
   "start.new": "New address",
   "start.docs": "Documents",
-  "start.help": "Help",
   "start.login": "Log in",
 
   "hero.title": "Get your free domain",
@@ -114,13 +112,6 @@
   "docs.limits.agent.desc": "Anything made over MCP lasts one month, and no email goes out. Read <code>expires_at</code> from <code>list_subdomains</code> and extend it with <code>renew_subdomain</code>.",
   "docs.limits.tip": "You can renew from two weeks before it expires. One press and it counts again from that day.",
 
-  "help.title": "Help & Support",
-  "help.subtitle": "We're here to help with setup, troubleshooting, and feature requests.",
-  "help.contact.title": "Contact",
-  "help.contact.desc": "Need assistance or want to report abuse? Message the team on <a href=\"https://t.me/+yvrIFDbssJ0wNDJl\" target=\"_blank\" rel=\"noopener noreferrer\">Telegram</a> and include the domain you're working with.",
-  "help.support.title": "Support the project",
-  "help.support.desc": "Every domain is free. If this service helps you ship faster, consider buying the developer a warm cup of coffee.",
-  "help.support.button": "Buy me a coffee",
 
   "modal.create.title": "Create domain",
   "modal.create.subtitle": "You are about to create",
