@@ -5,28 +5,147 @@ import { normalizeRecordType, validateRecordValue } from "./util.js";
 import { SUBDOMAIN_REGEX, RECORD_TYPE_UI } from "./constants.js";
 import { t } from "./i18n.js";
 
+// 350ms — 한 글자 칠 때마다 묻지 않을 만큼 길고, 멈췄다는 걸 사람이 느끼기
+// 전에 답이 오는 길이다.
+const SEARCH_DEBOUNCE_MS = 350;
+
 export function initializeLandingPage() {
   resetMessage();
 
   const form = document.getElementById("subdomain-form");
   const subdomainInput = document.getElementById("subdomain");
-  const checkBtn = document.getElementById("check-btn");
+  const domainSelect = document.getElementById("domain-preference");
+  const searchBar = document.getElementById("search-bar");
   const resultsContainer = document.getElementById("availability-results");
 
-  if (!form || !subdomainInput || !checkBtn || !resultsContainer) return;
+  if (!form || !subdomainInput || !domainSelect || !searchBar || !resultsContainer) return;
+
+  /* ============================================
+     The search
+
+     One request answers the whole list: POST /api/check-availability takes a
+     name and returns a row per managed domain. Calling it once per domain
+     would be four round trips for the same answer.
+
+     The select only decides which row goes first, so changing it re-orders
+     what we already have instead of asking again.
+     ============================================ */
+
+  let searchTimer = null;
+  let latestRequest = 0;
+  let lastResults = [];
+
+  const setSearching = (on) => searchBar.classList.toggle("on", on);
+
+  function showHint(text) {
+    clearChildren(resultsContainer);
+    const hint = document.createElement("div");
+    hint.className = "hint";
+    hint.textContent = text;
+    resultsContainer.appendChild(hint);
+  }
+
+  /** The chosen domain first, the rest in the order the server sent them. */
+  function inPreferredOrder(results) {
+    const preferred = domainSelect.value;
+    if (!preferred) return results;
+    return [
+      ...results.filter((r) => r.domain === preferred),
+      ...results.filter((r) => r.domain !== preferred),
+    ];
+  }
+
+  function renderResults(results) {
+    lastResults = results;
+    clearChildren(resultsContainer);
+    const fragment = document.createDocumentFragment();
+    inPreferredOrder(results).forEach((result) => {
+      fragment.appendChild(createAvailabilityRow(result));
+    });
+    resultsContainer.appendChild(fragment);
+  }
+
+  async function runSearch(name) {
+    // Debounced requests can land out of order — a slow answer for "ja" must
+    // not overwrite a fresh one for "jay". Only the newest token may draw.
+    const token = ++latestRequest;
+    setSearching(true);
+
+    try {
+      const data = await apiFetch("/api/check-availability", {
+        method: "POST",
+        body: { subdomain: name },
+      });
+      if (token !== latestRequest) return;
+
+      const results = Array.isArray(data?.results) ? data.results : [];
+      if (!results.length) {
+        showHint(t("validation.no_data"));
+        return;
+      }
+      renderResults(results);
+    } catch (error) {
+      if (token !== latestRequest) return;
+      showHint(error.message);
+    } finally {
+      if (token === latestRequest) setSearching(false);
+    }
+  }
+
+  function scheduleSearch(immediate = false) {
+    clearTimeout(searchTimer);
+    const name = subdomainInput.value.trim().toLowerCase();
+
+    // 비어 있을 때는 아무것도 쓰지 않는다 — 안내는 플레이스홀더가 이미 하고
+    // 있고, 같은 말을 두 군데 두면 화면만 시끄러워진다.
+    if (!name) {
+      latestRequest += 1; // drop anything still in flight
+      lastResults = [];
+      setSearching(false);
+      clearChildren(resultsContainer);
+      return;
+    }
+
+    // 서버와 같은 규칙으로 화면에서 먼저 거른다. 안 될 이름으로 기다리지
+    // 않아도 되고, 거절당할 것이 뻔한 요청을 보내지도 않는다.
+    if (!SUBDOMAIN_REGEX.test(name)) {
+      latestRequest += 1;
+      lastResults = [];
+      setSearching(false);
+      showHint(t("home.hint.bad"));
+      return;
+    }
+
+    if (immediate) {
+      runSearch(name);
+      return;
+    }
+    setSearching(true);
+    searchTimer = setTimeout(() => runSearch(name), SEARCH_DEBOUNCE_MS);
+  }
+
+  subdomainInput.addEventListener("input", () => scheduleSearch());
+  domainSelect.addEventListener("change", () => {
+    if (lastResults.length) renderResults(lastResults);
+  });
+
+  // Enter skips the wait rather than reloading the page.
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    scheduleSearch(true);
+  });
+
+  loadDomainOptions(domainSelect).then(() => {
+    if (lastResults.length) renderResults(lastResults);
+  });
 
   // Pre-fill from ?check= query param (e.g. from blog domain chip click)
   const params = new URLSearchParams(window.location.search);
   const prefill = params.get("check");
   if (prefill && SUBDOMAIN_REGEX.test(prefill)) {
     subdomainInput.value = prefill;
-    setTimeout(() => form.requestSubmit(), 0);
+    scheduleSearch(true);
   }
-
-  subdomainInput.addEventListener("input", () => {
-    clearChildren(resultsContainer);
-    setHidden(resultsContainer, true);
-  });
 
   const createModal = document.getElementById("create-modal");
   const createModalDomain = document.getElementById("create-modal-domain");
@@ -242,27 +361,23 @@ export function initializeLandingPage() {
         const successMessage = `${recordType} record for ${activeCreateContext.subdomain}.${activeCreateContext.domain} created successfully.`;
         showMessage(successMessage, "success");
 
+        // The row you just used stops offering itself. Swapping the button
+        // for the chip is the same shape the row would have had if the
+        // search had run a second later.
         const createdButton = resultsContainer.querySelector(
           `button[data-domain="${activeCreateContext.domain}"][data-subdomain="${activeCreateContext.subdomain}"]`
         );
-        if (createdButton) {
-          delete createdButton.dataset.action;
-          createdButton.removeAttribute("data-target");
-          createdButton.textContent = "Unavailable";
-          createdButton.disabled = true;
-          createdButton.tabIndex = -1;
-          const row = createdButton.closest(".result-row");
-          const status = row?.querySelector(".status");
-          if (row) {
-            row.classList.remove("available");
-            row.classList.add("taken");
-          }
-          if (status) {
-            status.classList.remove("available");
-            status.classList.add("taken");
-            status.textContent = "Taken";
-          }
+        const createdRow = createdButton?.closest(".result-row");
+        if (createdRow) {
+          createdRow.classList.remove("free");
+          createdRow.classList.add("taken");
+          createdButton.replaceWith(takenChip());
         }
+        lastResults = lastResults.map((result) =>
+          result.domain === activeCreateContext.domain
+            ? { ...result, isAvailable: false }
+            : result
+        );
 
         closeCreateModal();
       } catch (error) {
@@ -273,85 +388,94 @@ export function initializeLandingPage() {
       }
     });
   }
-
-  form.addEventListener("submit", async (event) => {
-    event.preventDefault();
-    const inputValue = subdomainInput.value.trim().toLowerCase();
-
-    if (!inputValue) {
-      showMessage(t("validation.enter_domain"), "error");
-      return;
-    }
-
-    if (!SUBDOMAIN_REGEX.test(inputValue)) {
-      showMessage(t("validation.invalid_format"), "error");
-      return;
-    }
-
-    setButtonLoading(checkBtn, "Checking…");
-    showLoader();
-    clearChildren(resultsContainer);
-    setHidden(resultsContainer, true);
-
-    try {
-      const data = await apiFetch("/api/check-availability", {
-        method: "POST",
-        body: { subdomain: inputValue },
-      });
-
-      const results = Array.isArray(data?.results) ? data.results : [];
-
-      if (!results.length) {
-        showMessage(t("validation.no_data"), "info");
-        return;
-      }
-
-      const fragment = document.createDocumentFragment();
-      results.forEach((result) => {
-        fragment.appendChild(createAvailabilityRow(result));
-      });
-
-      resultsContainer.appendChild(fragment);
-      setHidden(resultsContainer, false);
-    } catch (error) {
-      showMessage(error.message, "error");
-    } finally {
-      clearButtonLoading(checkBtn);
-      hideLoader();
-    }
-  });
 }
 
+/** The grey label a row wears when its name is gone, or when we could not tell. */
+function takenChip(key = "availability.taken") {
+  const chip = document.createElement("span");
+  chip.className = "state";
+  chip.textContent = t(key);
+  return chip;
+}
+
+/**
+ * One row: a dot, the address, and one box on the right.
+ *
+ * 오른쪽 끝은 규격이 하나다. 버튼과 딱지의 크기가 다르면 줄마다 오른쪽 끝이
+ * 들쭉날쭉해진다. 같은 min-width 를 주고 «색과 무게»로만 구분한다.
+ *
+ * A domain whose zone we could not read comes back with `error` and no
+ * verdict. It gets its own row rather than being folded into "taken": the
+ * one thing we must not do is tell someone a free name is gone.
+ */
 function createAvailabilityRow(result) {
-    const row = document.createElement('div');
-    row.className = 'result-row';
+  const available = result.isAvailable === true;
+  const unknown = result.isAvailable !== true && result.isAvailable !== false;
+  const fqdn = `${result.subdomain}.${result.domain}`;
 
-    const domainName = document.createElement('span');
-    domainName.className = 'domain-name';
-    domainName.textContent = `${result.subdomain}.${result.domain}`;
-    row.appendChild(domainName);
+  const row = document.createElement("div");
+  row.className = `result-row ${available ? "free" : "taken"}`;
 
-    const status = document.createElement('span');
-    status.className = 'status';
-    row.appendChild(status);
+  const dot = document.createElement("span");
+  dot.className = "dot";
+  dot.setAttribute("aria-hidden", "true");
 
-    const button = document.createElement('button');
-    button.className = 'primary-button small';
-    row.appendChild(button);
+  const domainName = document.createElement("span");
+  domainName.className = "domain-name mono";
+  domainName.textContent = fqdn;
 
-    if (result.isAvailable === true) {
-        status.classList.add('available');
-        status.textContent = t('availability.available');
-        button.textContent = t('availability.create');
-        button.dataset.action = 'open-create';
-        button.dataset.subdomain = result.subdomain;
-        button.dataset.domain = result.domain;
-    } else {
-        status.classList.add('taken');
-        status.textContent = t('availability.taken');
-        button.textContent = t('availability.unavailable');
-        button.disabled = true;
-    }
+  row.append(dot, domainName);
 
+  if (!available) {
+    row.appendChild(takenChip(unknown ? "availability.unknown" : "availability.taken"));
     return row;
+  }
+
+  // 「비어 있음」을 따로 쓰지 않는다. 쉬고 있는 버튼이 「사용 가능」이라고
+  // 이미 말하고 있어서, 옆에 또 쓰면 같은 말이 둘이 된다.
+  const rest = t("availability.available");
+  const hover = t("availability.take");
+
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "take";
+  button.dataset.action = "open-create";
+  button.dataset.subdomain = result.subdomain;
+  button.dataset.domain = result.domain;
+  // 읽어주는 프로그램에는 굴러가는 두 판이 안 보인다. 상태와 행동을 한 줄에.
+  button.setAttribute("aria-label", `${fqdn} ${rest}, ${hover}`);
+
+  const roll = document.createElement("span");
+  roll.className = "roll";
+  roll.dataset.rest = rest;
+  roll.dataset.hover = hover;
+  // 판 두 장은 둘 다 절대 배치라 폭을 만들지 않는다. 상자 폭을 정하는 것은
+  // 이 투명한 진짜 글자이므로 «긴 쪽»을 넣는다 — 짧은 쪽을 넣으면 굴러갈 때
+  // 긴 쪽이 눌린다. 한국어는 「사용 가능」이 길고 영어는 Available 이 길다.
+  roll.textContent = rest.length >= hover.length ? rest : hover;
+
+  button.appendChild(roll);
+  row.appendChild(button);
+  return row;
+}
+
+/**
+ * The roots we hand out, straight from the server — the list is a database
+ * table, not a constant, and a hard-coded copy here would go stale the day a
+ * new one is added.
+ */
+async function loadDomainOptions(select) {
+  try {
+    const data = await apiFetch("/api/managed-domains");
+    const domains = Array.isArray(data?.domains) ? data.domains : [];
+    for (const domain of domains) {
+      const option = document.createElement("option");
+      option.value = domain;
+      option.textContent = domain;
+      select.appendChild(option);
+    }
+  } catch {
+    // 목록을 못 받아도 검색은 된다 — 먼저 볼 도메인을 못 고를 뿐이고,
+    // 그때는 서버가 보낸 순서 그대로 나온다. (:empty 면 CSS 가 감춘다)
+  }
 }

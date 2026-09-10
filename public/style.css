@@ -118,6 +118,10 @@ img { max-width: 100%; }
 
 .hidden { display: none !important; }
 
+.mono {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+}
+
 .error { color: var(--bad); }
 
 /* ============================================
@@ -270,23 +274,57 @@ main {
 
 .field input::placeholder { color: var(--ink-3); font-weight: 400; }
 
-.field button {
+/* 테두리는 .field 가 그린다. 안쪽 컨트롤이 자기 포커스 링을 또 그리면
+   overflow:hidden 에 잘려 세로 띠 하나로 남는다. */
+.field input:focus,
+.field select:focus { box-shadow: none; }
+
+.field select {
   flex: none;
   border: 0;
+  border-radius: 0;
   background: none;
   color: var(--ink-2);
   font: inherit;
   font-size: 15px;
-  font-weight: 500;
-  padding: 0 18px;
+  padding: 0 14px;
   cursor: pointer;
+  outline: 0;
 }
 
-/* The shared button rule paints a hover fill; inside the field that fill is a
-   grey block clipped by the rounded border, so this one stays flat. */
-.field button:hover { background: none; color: var(--ink); }
+/* Until /api/managed-domains answers there is nothing to choose between, and
+   an empty dropdown reads as a control that is broken. */
+.field select:empty { display: none; }
 
-.results { margin-top: 22px; text-align: left; min-width: 0; }
+/* 찾는 중임을 알리는 최소한의 표시. 글자가 아니라 선 하나다 — 결과가 바뀌는
+   자리가 아래라, 위에서 소란을 떨 이유가 없다. */
+.bar {
+  height: 2px;
+  margin-top: 2px;
+  background: var(--rule-2);
+  border-radius: 2px;
+  overflow: hidden;
+}
+
+.bar i {
+  display: block;
+  height: 100%;
+  width: 40%;
+  background: var(--go);
+  transform: translateX(-100%);
+}
+
+.bar.on i { animation: sitey-sweep 0.9s ease-in-out infinite; }
+
+/* 결과가 나타나고 사라져도 아래 설명 세 칸이 튀지 않도록 자리를 잡아둔다. */
+.results {
+  margin-top: 22px;
+  text-align: left;
+  min-width: 0;
+  min-height: 180px;
+}
+
+.hint { padding: 16px 4px; color: var(--ink-3); font-size: 14.5px; }
 
 .result-row {
   display: flex;
@@ -299,6 +337,10 @@ main {
 
 .result-row:last-child { border-bottom: 0; }
 
+.result-row .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
+.result-row.free .dot { background: var(--go); }
+.result-row.taken .dot { background: var(--rule); }
+
 .result-row .domain-name {
   flex: 1;
   min-width: 0;
@@ -309,8 +351,97 @@ main {
 
 .result-row.taken .domain-name { color: var(--ink-3); }
 
-.result-row .status { flex: none; font-size: 13px; color: var(--ink-3); }
-.result-row .status.available { color: var(--go); }
+/* 오른쪽 끝은 규격이 하나다. 버튼과 「사용 중」의 크기가 다르면 줄마다
+   오른쪽 끝이 들쭉날쭉해진다. 같은 상자에 넣고 «색과 무게»로만 구분한다 —
+   누를 수 있는 것은 검고 진하며, 안 되는 것은 연하고 가만히 있다. */
+.result-row .state,
+.result-row .take .roll {
+  min-width: 96px;
+  text-align: center;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: -0.01em;
+  padding: 8px 16px;
+  border-radius: 8px;
+}
+
+.result-row .state { background: var(--rule-2); color: var(--ink-3); }
+
+/* 버튼 얼굴이 굴러간다. 판 두 장이 위아래로 맞물려 돌아가고, 두 판은
+   «서로 다른 말»을 한다 — 여기가 이 움직임의 전부다.
+     쉴 때  검정 「사용 가능」 · 이 줄이 지금 어떤 상태인지
+     호버   초록 「등록하기」  · 누르면 무슨 일이 일어나는지
+   같은 글자를 두 판에 얹으면 굴러가는 게 장식으로 끝난다. 말이 바뀌어야
+   상태에서 행동으로 넘어가는 것이 눈에 보인다.
+   색도 같은 순서다 — 초록은 이 화면에서 「쓸 수 있다」는 뜻이라 쉬는 버튼까지
+   초록이면 뜻이 흐려지고, 손을 얹은 순간이 곧 「등록한다」라 그때 올라오는
+   초록은 뜻과 맞는다. */
+.result-row .take {
+  flex: none;
+  border: 0;
+  background: none;
+  padding: 0;
+  cursor: pointer;
+  font: inherit;
+  border-radius: 8px;
+}
+
+.result-row .take:hover { background: none; }
+.result-row .take:focus-visible { outline: 2px solid var(--go); outline-offset: 2px; }
+
+/* 자르는 일은 button 이 아니라 이 span 이 한다. button 에 overflow:hidden 을
+   걸면 굴러가는 판이 바깥으로 새어 나온다. */
+.result-row .take .roll {
+  position: relative;
+  display: block;
+  overflow: hidden;
+  background: var(--ink);
+  color: transparent;
+}
+
+.result-row .take .roll::before,
+.result-row .take .roll::after {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--paper);
+  transition: transform 0.26s cubic-bezier(0.2, 0.7, 0.3, 1);
+}
+
+/* ::after 가 위에 깔린다 — 쉴 때 보이는 판이다 */
+.result-row .take .roll::after {
+  content: attr(data-rest);
+  background: var(--ink);
+  transform-origin: top;
+  transform: translateY(0) rotateX(0deg);
+}
+
+.result-row .take .roll::before {
+  content: attr(data-hover);
+  background: var(--go);
+  transform-origin: bottom;
+  transform: translateY(-100%) rotateX(90deg);
+}
+
+.result-row .take:hover .roll::after,
+.result-row .take:focus-visible .roll::after {
+  transform: translateY(100%) rotateX(90deg);
+}
+
+.result-row .take:hover .roll::before,
+.result-row .take:focus-visible .roll::before {
+  transform: translateY(0) rotateX(0deg);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .bar.on i { animation: none; transform: none; width: 100%; opacity: 0.5; }
+  .result-row .take .roll::before,
+  .result-row .take .roll::after { transition: none; transform: none; }
+  .result-row .take:hover .roll::after,
+  .result-row .take:focus-visible .roll::after { opacity: 0; }
+}
 
 .points {
   display: grid;
@@ -863,7 +994,7 @@ footer a:hover { color: var(--ink-2); text-decoration: underline; }
 
   .field { flex-wrap: wrap; border-radius: 12px; }
   .field input { flex: 1 1 100%; padding: 14px 16px; font-size: 18px; }
-  .field button { flex: 1 1 100%; justify-content: flex-end; padding: 0 16px 14px; }
+  .field select { padding: 0 16px 12px; }
 
   .points { grid-template-columns: 1fr; gap: 26px; margin-top: 56px; }
 

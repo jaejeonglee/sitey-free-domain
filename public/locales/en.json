@@ -13,7 +13,8 @@
 
   "home.input_label": "Name you want",
   "home.placeholder": "Check a name first — no sign-up needed",
-  "home.check": "Check",
+  "home.select_label": "Domain to check first",
+  "home.hint.bad": "Lowercase letters, numbers, and inner hyphens only.",
   "home.point.fast.title": "Fast",
   "home.point.fast.desc": "Register the address you want, with no paperwork.",
   "home.point.simple.title": "Simple",
@@ -106,12 +107,10 @@
   "modal.create.submit": "Create domain",
 
   "availability.available": "Available",
+  "availability.take": "Get it",
   "availability.taken": "Taken",
-  "availability.create": "Create",
-  "availability.unavailable": "Unavailable",
+  "availability.unknown": "Unknown",
 
-  "validation.enter_domain": "Enter a domain to check.",
-  "validation.invalid_format": "Domain names can contain lowercase letters, numbers, and single hyphens only.",
   "validation.no_data": "No availability data returned.",
 
   "common.loading": "Loading...",

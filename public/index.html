@@ -199,6 +199,10 @@
              the header would say the same thing twice on one screen. -->
         <h1 class="wordmark">sitey<em>.my</em></h1>
 
+        <!-- No Check button: typing is the whole gesture, and the one thing
+             left to press is the button that actually registers a name.
+             The form stays so that Enter searches at once instead of
+             reloading the page. -->
         <form id="subdomain-form" novalidate>
           <div class="field">
             <input
@@ -214,15 +218,16 @@
               spellcheck="false"
               autocapitalize="none"
             />
-            <button type="submit" id="check-btn" data-i18n="home.check">Check</button>
+            <select
+              id="domain-preference"
+              data-i18n-aria="home.select_label"
+              aria-label="Domain to check first"
+            ></select>
           </div>
         </form>
+        <div class="bar" id="search-bar" aria-hidden="true"><i></i></div>
 
-        <div
-          id="availability-results"
-          class="results hidden"
-          aria-live="polite"
-        ></div>
+        <div id="availability-results" class="results" aria-live="polite"></div>
 
         <div class="points">
           <div>
