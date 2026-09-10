@@ -15,6 +15,45 @@ function normalizeRecordType(recordType = "A") {
 /**
  * Domain and subdomain routes
  */
+/**
+ * One card per subdomain, not one per TXT record.
+ *
+ * The join above multiplies a subdomain by however many TXT records hang off
+ * it, and the dashboard draws one card per row it is handed. A domain with
+ * three TXT rows was therefore drawn three times (Jay, 2026-09-10 — the same
+ * name appeared three times in 내 도메인).
+ *
+ * Folding here rather than in SQL is deliberate: TXT values contain commas
+ * (`vc-domain-verify=name,token`), so GROUP_CONCAT would hand the client a
+ * string it cannot split back apart.
+ *
+ * `txt_value` stays a single value because the dashboard has one input for it,
+ * and it is the newest — rows arrive ordered by t.id, so the last one wins.
+ * `txt_values` carries the whole set for anything that needs it; a subdomain
+ * really can hold more than one verification token, and dropping the rest here
+ * would hide that a record exists.
+ */
+function groupBySubdomain(rows) {
+  const bySubdomain = new Map();
+
+  for (const row of rows) {
+    const existing = bySubdomain.get(row.id);
+    if (!existing) {
+      bySubdomain.set(row.id, {
+        ...row,
+        txt_values: row.txt_value ? [row.txt_value] : [],
+      });
+      continue;
+    }
+    if (!row.txt_value || existing.txt_values.includes(row.txt_value)) continue;
+    existing.txt_values.push(row.txt_value);
+    existing.txt_value = row.txt_value;
+    existing.host_prefix = row.host_prefix;
+  }
+
+  return [...bySubdomain.values()];
+}
+
 async function domainRoutes(fastify, options) {
   // GET /api/managed-domains
   fastify.get("/managed-domains", async (request, reply) => {
@@ -125,11 +164,11 @@ async function domainRoutes(fastify, options) {
             "JOIN managed_domains m ON s.domain_id = m.id " +
             "LEFT JOIN subdomain_txt_records t ON s.id = t.subdomain_id " +
             "WHERE s.user_id = ? " +
-            "ORDER BY m.domain_name, s.subdomain",
+            "ORDER BY m.domain_name, s.subdomain, t.id",
           [userId]
         );
 
-        return reply.send(rows);
+        return reply.send(groupBySubdomain(rows));
       } catch (error) {
         fastify.log.error(error, "Failed to fetch user domains");
         return reply.code(500).send({ error: "Error fetching your domains" });
@@ -515,3 +554,5 @@ async function domainRoutes(fastify, options) {
 }
 
 module.exports = domainRoutes;
+// 접기 규칙만 따로 시험할 수 있게 내보낸다 — 라우트 전체를 띄우려면 DB 가 필요하다.
+module.exports.groupBySubdomain = groupBySubdomain;
