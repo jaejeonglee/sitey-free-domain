@@ -6,7 +6,7 @@ const config = require("../configs/index");
 const bindService = require("../services/bind");
 const { validateRecord } = require("../services/validation");
 const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
-const { renewSubdomain } = require("../services/expiry");
+const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
@@ -321,7 +321,7 @@ function createMcpServer(fastify) {
   // --- Tool: renew_subdomain ---
   server.tool(
     "renew_subdomain",
-    "Extend a subdomain you own before it expires. Subdomains are lent for a period, not given: agent-created records last one month and user records three. Nothing emails an agent, so read expires_at from list_subdomains and call this before that date. One call resets the clock from today.",
+    "Extend a subdomain you own before it expires. Subdomains are lent for a period, not given: agent-created records last one month and user records three. Nothing emails an agent, so read expires_at from list_subdomains and call this before that date. One call resets the clock from today. Renewal only opens in the last two weeks before expires_at — an earlier call is refused and tells you the date it opens.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
@@ -359,7 +359,18 @@ function createMcpServer(fastify) {
 
       try {
         const renewal = await renewSubdomain(fastify, record.id);
-        if (!renewal.renewed) return mcpError("Subdomain not found.");
+        if (!renewal.renewed) {
+          if (renewal.reason === "not_found") return mcpError("Subdomain not found.");
+          // Outside the window (services/expiry.js). The date it opens is the
+          // whole of the answer — an agent told only "too early" can do
+          // nothing but poll.
+          return mcpErrorObj({
+            error: renewalNotDueMessage(renewal),
+            code: "RENEWAL_NOT_DUE",
+            expires_at: renewal.expiresAt,
+            renew_from: renewal.opensAt,
+          });
+        }
 
         return mcpSuccess({
           success: true,

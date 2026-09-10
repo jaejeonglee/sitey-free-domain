@@ -92,8 +92,25 @@ const documents = [
       missing: 1,
     }),
   ],
-  ["07-link-expired.html", "A link older than 30 days", layout.renewalLinkPage("expired")],
-  ["08-link-invalid.html", "A link that was not signed by us", layout.renewalLinkPage("invalid")],
+  [
+    "07-renewal-not-due.html",
+    "The page after a second press, when the first one already moved the date",
+    layout.renewalNotDuePage([
+      { fqdn: "jay.sitey.my", expiresAt: day(92), opensAt: day(78) },
+      { fqdn: "trend.sitey.my", expiresAt: day(92), opensAt: day(78) },
+    ]),
+  ],
+  [
+    "08-renewal-done-not-all-due.html",
+    "The page after the button, when one of them was not due yet",
+    layout.renewalResultPage({
+      renewed: [{ fqdn: "jay.sitey.my", expiresAt: day(92) }],
+      missing: 0,
+      notYet: [{ fqdn: "trend.sitey.my", expiresAt: day(60), opensAt: day(46) }],
+    }),
+  ],
+  ["09-link-expired.html", "A link older than 30 days", layout.renewalLinkPage("expired")],
+  ["10-link-invalid.html", "A link that was not signed by us", layout.renewalLinkPage("invalid")],
 ];
 
 fs.mkdirSync(outDir, { recursive: true });

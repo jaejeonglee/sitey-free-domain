@@ -47,10 +47,27 @@ delete require2.cache[require2.resolve("../app.js")];
 const { buildApp } = require2("../app.js");
 const renewalToken = require2("../services/renewal-token.js");
 
-/** one row of the stub database, as a [key, value] pair for `new Map([...])` */
-const row = (id, subdomain) => [
+const DAY_MS = 24 * 60 * 60 * 1000;
+// Plus an hour, so the floor in daysUntil lands on the number this names
+// rather than one below it — the request runs a few milliseconds later.
+const inDays = (n) => new Date(Date.now() + n * DAY_MS + 60 * 60 * 1000);
+
+/**
+ * One row of the stub database, as a [key, value] pair for `new Map([...])`.
+ *
+ * `daysLeft` defaults to three, which is the state a link in the mail is
+ * pressed in: renewal only opens inside the last fortnight (services/expiry.js)
+ * and the mail that carries the link is sent from that same day.
+ */
+const row = (id, subdomain, daysLeft = 3) => [
   id,
-  { id, subdomain, owner_type: "user", domain_name: "sitey.my" },
+  {
+    id,
+    subdomain,
+    owner_type: "user",
+    domain_name: "sitey.my",
+    expires_at: inDays(daysLeft),
+  },
 ];
 
 describe("the renewal page", () => {
@@ -124,6 +141,20 @@ describe("the renewal page", () => {
 
     expect(res.statusCode).toBe(404);
     expect(res.body).toContain("no longer here");
+  });
+
+  it("turns away a second press and says when the button works again", async () => {
+    // The first press moved the date three months out, and the mail is still
+    // in the inbox. Nothing was lost, so this is not an error page — but it
+    // has to say when renewal opens or the reader has no next step.
+    db.rows = new Map([row(42, "demo", 90)]);
+
+    const res = await app.inject({ method: "GET", url: `/renew/${renewalToken.sign(42)}` });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.body).toContain("not due yet");
+    expect(res.body).toContain("renew from");
+    expect(db.writes.filter((w) => /UPDATE/i.test(w.sql))).toHaveLength(0);
   });
 
   it("keeps the page out of search results", async () => {

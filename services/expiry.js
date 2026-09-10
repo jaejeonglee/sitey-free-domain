@@ -21,6 +21,23 @@ const REMINDER_DAYS = [14, 3, 0];
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * How close to expiry a record may be renewed.
+ *
+ * Read off the first reminder rather than written again. The mail that says
+ * "renew now" and the door that opens when you press its button are the same
+ * event, and the direction two separate numbers would drift in is the one that
+ * hurts: a window shorter than the notice means somebody reads the mail we
+ * sent, presses the button we put in it, and is turned away.
+ *
+ * There is a window at all because renewing measures from today rather than
+ * adding to the old date (expiryAfter). A renewal taken on the day a record is
+ * created would be worth nothing to its owner, and would still clear the
+ * notice stage; asking near the deadline is what makes the answer mean the
+ * name is still wanted.
+ */
+const RENEWAL_WINDOW_DAYS = REMINDER_DAYS[0];
+
 function periodMonths(ownerType) {
   return ownerType === "agent" ? AGENT_MONTHS : USER_MONTHS;
 }
@@ -93,25 +110,98 @@ function shouldSendReminder(stage, alreadySentStage) {
 }
 
 /**
+ * Whether this record may be renewed now, and when it could be.
+ *
+ * The only place the rule is written. All three doors — the link in the mail,
+ * the REST call, the MCP tool — come through renewSubdomain to here, so none
+ * of them carries its own copy of the comparison and none of them can be
+ * forgotten when the number moves.
+ *
+ * @param {Date|string|null} expiresAt
+ * @returns {{open: boolean, reason: string|null, daysLeft: number|null, opensAt: Date|null}}
+ *   `reason` is "too_early" or "no_expiry" when shut, and the caller has to be
+ *   able to say *when* — "not yet" on its own leaves nobody anything to do.
+ */
+function renewalWindow(expiresAt, now = new Date()) {
+  if (expiresAt === null || expiresAt === undefined) {
+    // NULL is "never expires" (deploy/migrations/002). There is no date to
+    // move, and renewing would hand the record an expiry it did not have.
+    return { open: false, reason: "no_expiry", daysLeft: null, opensAt: null };
+  }
+
+  const daysLeft = daysUntil(expiresAt, now);
+  const opensAt = new Date(
+    new Date(expiresAt).getTime() - RENEWAL_WINDOW_DAYS * DAY_MS
+  );
+  if (daysLeft > RENEWAL_WINDOW_DAYS) {
+    return { open: false, reason: "too_early", daysLeft, opensAt };
+  }
+  return { open: true, reason: null, daysLeft, opensAt };
+}
+
+/**
+ * What a caller with no screen is told when the window is shut.
+ *
+ * One sentence in one place: the REST endpoint and the MCP tool are answering
+ * the same question and have no reason to word it differently. It names the
+ * date, because an agent that is only told "too early" can do nothing but try
+ * again blindly.
+ */
+function renewalNotDueMessage({ reason, daysLeft, opensAt }) {
+  if (reason === "no_expiry") {
+    return "This subdomain has no expiry date, so there is nothing to renew.";
+  }
+  return (
+    `Too early to renew: ${daysLeft} days left. Renewal opens ` +
+    `${RENEWAL_WINDOW_DAYS} days before expiry, on ${opensAt.toISOString().slice(0, 10)}.`
+  );
+}
+
+/**
  * Extend one subdomain by its owner's period.
  *
  * The single place a record's expiry moves. Every entry point — the link in
  * the mail, the REST call, the MCP tool — lands here, so there is one answer
  * to "what does renewing do" and one place the notice stage is cleared.
  *
- * @returns {{renewed: boolean, expiresAt?: Date, ownerType?: string}}
- *   `renewed: false` means no such row; the caller decides what to say about
- *   that, and says the same thing whether the row is missing or was never
- *   theirs.
+ * @returns {{renewed: boolean, reason?: string, expiresAt?: Date, ownerType?: string}}
+ *   `renewed: false` carries a `reason`: "not_found" for no such row — the
+ *   caller says the same thing whether it is missing or was never theirs — or
+ *   the shut window's reason, which comes with the date it opens.
  */
 async function renewSubdomain(fastify, subdomainId, now = new Date()) {
   const [rows] = await fastify.mysql.execute(
-    "SELECT s.id, s.subdomain, s.owner_type, m.domain_name FROM subdomains s " +
+    "SELECT s.id, s.subdomain, s.owner_type, s.expires_at, m.domain_name FROM subdomains s " +
       "JOIN managed_domains m ON s.domain_id = m.id WHERE s.id = ?",
     [subdomainId]
   );
   const record = rows[0];
-  if (!record) return { renewed: false };
+  if (!record) return { renewed: false, reason: "not_found" };
+
+  const gate = renewalWindow(record.expires_at, now);
+  if (!gate.open) {
+    fastify.log.info(
+      {
+        evt: "renew",
+        action: "not_due",
+        subdomain: record.subdomain,
+        domain: record.domain_name,
+        owner: record.owner_type,
+        days_left: gate.daysLeft,
+      },
+      `Refused: ${record.subdomain}.${record.domain_name} is not due yet`
+    );
+    return {
+      renewed: false,
+      reason: gate.reason,
+      daysLeft: gate.daysLeft,
+      opensAt: gate.opensAt,
+      expiresAt: record.expires_at,
+      ownerType: record.owner_type,
+      subdomain: record.subdomain,
+      domain: record.domain_name,
+    };
+  }
 
   const expiresAt = expiryAfter(now, record.owner_type);
   // renewal_notice_stage back to NULL: the next period starts with none of its
@@ -145,6 +235,9 @@ module.exports = {
   USER_MONTHS,
   AGENT_MONTHS,
   REMINDER_DAYS,
+  RENEWAL_WINDOW_DAYS,
+  renewalWindow,
+  renewalNotDueMessage,
   periodMonths,
   addMonths,
   expiryAfter,

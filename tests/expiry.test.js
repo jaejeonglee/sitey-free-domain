@@ -11,6 +11,10 @@ const {
   daysUntil,
   reminderStageFor,
   shouldSendReminder,
+  renewalWindow,
+  renewalNotDueMessage,
+  RENEWAL_WINDOW_DAYS,
+  REMINDER_DAYS,
 } = require2("../services/expiry.js");
 
 // ---------------------------------------------------------------------------
@@ -133,5 +137,85 @@ describe("counting the days left", () => {
 
   it("goes negative once a record is past due", () => {
     expect(daysUntil("2026-12-08T00:00:00Z", "2026-12-10T00:00:00Z")).toBe(-2);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// When the button works.
+//
+// Renewal measures from today rather than adding to the old date, so without a
+// window a record could be renewed on the day it was made and the act would
+// mean nothing. The window is the first reminder's day: the mail that says
+// "renew now" and the door it leads to have to be the same event, or somebody
+// reads our mail, presses our button and is told no.
+// ---------------------------------------------------------------------------
+
+describe("when renewal opens", () => {
+  const NOW = new Date("2026-09-10T00:00:00Z");
+  const inDays = (n) => new Date(NOW.getTime() + n * 24 * 60 * 60 * 1000);
+
+  it("opens on the day the first reminder is sent, and not before", () => {
+    expect(RENEWAL_WINDOW_DAYS).toBe(REMINDER_DAYS[0]);
+  });
+
+  it("refuses one that still has fifteen days", () => {
+    const gate = renewalWindow(inDays(15), NOW);
+
+    expect(gate.open).toBe(false);
+    expect(gate.reason).toBe("too_early");
+    expect(gate.daysLeft).toBe(15);
+  });
+
+  it("allows one that has fourteen", () => {
+    const gate = renewalWindow(inDays(14), NOW);
+
+    expect(gate.open).toBe(true);
+    expect(gate.daysLeft).toBe(14);
+  });
+
+  it("says the date it opens, not just that it is shut", () => {
+    // "Not yet" on its own leaves an agent nothing to do but poll.
+    const gate = renewalWindow(new Date("2026-12-09T00:00:00Z"), NOW);
+
+    expect(gate.opensAt).toEqual(new Date("2026-11-25T00:00:00Z"));
+    expect(renewalNotDueMessage(gate)).toContain("2026-11-25");
+  });
+
+  it("still renews one that is already past due", () => {
+    // Deletion is a separate switch and is off; a record that ran out last
+    // night is still here and its owner may still keep it.
+    expect(renewalWindow(inDays(-2), NOW).open).toBe(true);
+  });
+
+  it("has nothing to renew when a record never expires", () => {
+    // NULL is "never expires" (migration 002). Renewing would hand it an
+    // expiry date it did not have.
+    const gate = renewalWindow(null, NOW);
+
+    expect(gate.open).toBe(false);
+    expect(gate.reason).toBe("no_expiry");
+    expect(renewalNotDueMessage(gate)).toContain("nothing to renew");
+  });
+});
+
+// The three doors — the link in the mail, the REST call, the MCP tool — all
+// reach the rule through renewSubdomain. If one of them ever counted the days
+// for itself, that copy is the one that would be missed when the number moves.
+describe("the three doors share one gate", () => {
+  const doors = ["routes/renewal.js", "routes/api-v1.js", "plugins/mcp.js"];
+
+  it.each(doors)("%s renews through services/expiry.js", (door) => {
+    const source = fs.readFileSync(path.join(process.cwd(), door), "utf8");
+
+    expect(source).toMatch(/require\("\.\.\/services\/expiry"\)/);
+    expect(source).toContain("renewSubdomain(");
+  });
+
+  it.each(doors)("%s does not count the days itself", (door) => {
+    const source = fs.readFileSync(path.join(process.cwd(), door), "utf8");
+
+    expect(source).not.toContain("renewalWindow(");
+    expect(source).not.toContain("daysUntil(");
+    expect(source).not.toContain("REMINDER_DAYS");
   });
 });

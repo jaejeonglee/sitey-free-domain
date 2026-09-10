@@ -4,7 +4,7 @@ const accessLog = require("../services/access-log");
 const bindService = require("../services/bind");
 const { validateRecord } = require("../services/validation");
 const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
-const { renewSubdomain } = require("../services/expiry");
+const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
@@ -441,7 +441,13 @@ async function apiV1Routes(fastify, options) {
     const record = await findOwnedRecord(fastify, auth, subdomain, domainEntry);
     const renewal = await renewSubdomain(fastify, record.id);
     if (!renewal.renewed) {
-      apiError(404, "Subdomain not found.", "SUBDOMAIN_NOT_FOUND");
+      if (renewal.reason === "not_found") {
+        apiError(404, "Subdomain not found.", "SUBDOMAIN_NOT_FOUND");
+      }
+      // 409 rather than 400: the request is well formed and will work later.
+      // The message names the date, because a caller told only "too early"
+      // can do nothing but retry blindly (services/expiry.js).
+      apiError(409, renewalNotDueMessage(renewal), "RENEWAL_NOT_DUE");
     }
 
     return ok({

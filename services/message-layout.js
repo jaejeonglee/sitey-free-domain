@@ -18,8 +18,14 @@
 //     two ends up as white on white
 //
 // Config is deliberately not required from here: these documents can then be
-// rendered by scripts/preview-emails.js with no environment and no secrets, so
+// rendered by deploy/preview-emails.js with no environment and no secrets, so
 // what will actually be sent can be looked at before it is sent to anyone.
+
+// The only thing required here. services/expiry.js pulls in nothing itself, so
+// these documents still render with no environment and no keys at all — which
+// is what deploy/preview-emails.js depends on. The window length is a fact
+// about the product and has to be told the same way it is enforced.
+const { RENEWAL_WINDOW_DAYS } = require("./expiry");
 
 const FONT = "Arial, Helvetica, sans-serif";
 
@@ -308,7 +314,7 @@ function unreachableNotice({ subdomain, domain, recordType, recordValue, days })
  * deleted themselves after the mail went out — so it is one line under the
  * ones that were renewed.
  */
-function renewalResultPage({ renewed, missing }) {
+function renewalResultPage({ renewed, missing, notYet = [] }) {
   const many = renewed.length > 1;
   const heading = many
     ? `${renewed.length} subdomains are yours for another three months`
@@ -324,6 +330,19 @@ function renewalResultPage({ renewed, missing }) {
     text("Nothing else to do. We will write again before they next come due."),
   ];
 
+  if (notYet.length > 0) {
+    blocks.push(
+      text(
+        `${notYet.length} other ${notYet.length === 1 ? "subdomain" : "subdomains"} in that link ${
+          notYet.length === 1 ? "is" : "are"
+        } not due for another ${RENEWAL_WINDOW_DAYS} days or more, so ${
+          notYet.length === 1 ? "it was" : "they were"
+        } left where ${notYet.length === 1 ? "it is" : "they are"}.`,
+        { muted: true }
+      )
+    );
+  }
+
   if (missing > 0) {
     blocks.push(
       text(
@@ -338,6 +357,45 @@ function renewalResultPage({ renewed, missing }) {
   blocks.push(button("Go to your dashboard", DASHBOARD_URL));
 
   return render({ title: heading, heading, blocks, noindex: true });
+}
+
+/**
+ * The page behind the button when nothing on the link is due yet.
+ *
+ * Almost always a second press: the first one moved every date out past the
+ * window, and the mail is still sitting in the inbox. So it is not an error
+ * page — nothing was lost and nothing needs doing — but it has to answer the
+ * question the reader now has, which is when the button starts working. Each
+ * line carries both dates for that reason.
+ */
+function renewalNotDuePage(notYet) {
+  const many = notYet.length > 1;
+  const heading = many
+    ? `Those ${notYet.length} subdomains are not due yet`
+    : `${notYet[0].fqdn} is not due yet`;
+
+  return render({
+    title: heading,
+    heading,
+    blocks: [
+      text(
+        `Renewal opens ${RENEWAL_WINDOW_DAYS} days before a subdomain falls due. If you have pressed this button already, that is why: it worked, and the date moved.`
+      ),
+      list(
+        notYet.map((record) => ({
+          name: record.fqdn,
+          detail: record.opensAt
+            ? `Yours until ${formatDate(record.expiresAt)} — renew from ${formatDate(record.opensAt)}`
+            : "Does not expire",
+        }))
+      ),
+      text("Nothing to do today. We will write again when the date is close.", {
+        muted: true,
+      }),
+      button("Go to your dashboard", DASHBOARD_URL),
+    ],
+    noindex: true,
+  });
 }
 
 /**
@@ -377,6 +435,7 @@ module.exports = {
   renewalReminder,
   unreachableNotice,
   renewalResultPage,
+  renewalNotDuePage,
   renewalLinkPage,
   // Exported for scripts/preview-emails.js and the tests, not for building
   // documents elsewhere: a fourth message would belong in this file too.

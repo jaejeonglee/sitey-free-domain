@@ -13,7 +13,11 @@
 
 const renewalToken = require("../services/renewal-token");
 const { renewSubdomain } = require("../services/expiry");
-const { renewalResultPage, renewalLinkPage } = require("../services/message-layout");
+const {
+  renewalResultPage,
+  renewalLinkPage,
+  renewalNotDuePage,
+} = require("../services/message-layout");
 
 async function renewalRoutes(fastify, options) {
   fastify.get("/renew/:token", async (request, reply) => {
@@ -38,10 +42,12 @@ async function renewalRoutes(fastify, options) {
     // that stop the other ten from being renewed would cost somebody the
     // addresses they pressed the button to keep, to protect an invariant that
     // does not exist: renewing one record says nothing about any other, and
-    // each new date is measured from today rather than added to the old one,
-    // so a repeat click is harmless. If they *all* fail, that is the existing
-    // "no longer here" page.
+    // each new date is measured from today rather than added to the old one.
+    // A second click renews nothing now — the window shuts behind the first —
+    // and gets the "not due yet" page below. If they are *all* gone, that is
+    // the existing "no longer here" page.
     const renewed = [];
+    const notYet = [];
     for (const subdomainId of result.subdomainIds) {
       const renewal = await renewSubdomain(fastify, subdomainId);
       if (renewal.renewed) {
@@ -49,7 +55,23 @@ async function renewalRoutes(fastify, options) {
           fqdn: `${renewal.subdomain}.${renewal.domain}`,
           expiresAt: renewal.expiresAt,
         });
+      } else if (renewal.reason !== "not_found") {
+        // Outside the window (services/expiry.js). From a link in the mail
+        // that nearly always means the button has already been pressed once —
+        // the first press moved the date past the window — so this is not a
+        // failure and does not colour the page red. It does have to say when
+        // the button works again.
+        notYet.push({
+          fqdn: `${renewal.subdomain}.${renewal.domain}`,
+          expiresAt: renewal.expiresAt,
+          opensAt: renewal.opensAt,
+        });
       }
+    }
+
+    if (renewed.length === 0 && notYet.length > 0) {
+      request.outcome = "RENEW_NOT_DUE";
+      return reply.type("text/html; charset=utf-8").send(renewalNotDuePage(notYet));
     }
 
     if (renewed.length === 0) {
@@ -66,7 +88,8 @@ async function renewalRoutes(fastify, options) {
       .send(
         renewalResultPage({
           renewed,
-          missing: result.subdomainIds.length - renewed.length,
+          missing: result.subdomainIds.length - renewed.length - notYet.length,
+          notYet,
         })
       );
   });

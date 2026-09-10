@@ -18,8 +18,14 @@ const AGENT_IP = "127.0.0.1";
 // half is missing the one-month lifetime becomes a silent expiry.
 // ---------------------------------------------------------------------------
 
-function buildHarness() {
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+function buildHarness({ daysLeft = 3 } = {}) {
   const queries = [];
+  // Plus an hour, so the floor in daysUntil lands on the number this names
+  // rather than one below it — the request runs a few milliseconds after the
+  // date is built.
+  const expiresAt = new Date(Date.now() + daysLeft * DAY_MS + 60 * 60 * 1000);
 
   const execute = vi.fn(async (sql, params = []) => {
     queries.push({ sql, params });
@@ -30,9 +36,17 @@ function buildHarness() {
     if (sql.startsWith("SELECT id, record_type FROM subdomains")) {
       return [[{ id: 42, record_type: "CNAME" }]];
     }
-    // renewSubdomain's own lookup
+    // renewSubdomain's own lookup. The date is inside the renewal window —
+    // an agent reads expires_at from the list response and calls this when it
+    // is close, and only then is it allowed (services/expiry.js).
     if (sql.includes("FROM subdomains s") && sql.includes("WHERE s.id = ?")) {
-      return [[{ id: 42, subdomain: "demo", owner_type: "agent", domain_name: DOMAIN }]];
+      return [[{
+        id: 42,
+        subdomain: "demo",
+        owner_type: "agent",
+        domain_name: DOMAIN,
+        expires_at: expiresAt,
+      }]];
     }
     if (sql.includes("FROM subdomains s JOIN managed_domains")) {
       return [[{
@@ -94,6 +108,22 @@ describe("an agent can renew without a mailbox", () => {
     const write = queries.find((q) => /UPDATE subdomains SET expires_at/.test(q.sql));
     expect(write.params[1]).toBe(42);
     expect(write.sql).toMatch(/renewal_notice_stage = NULL/);
+  });
+
+  it("refuses one that is not due yet, and names the date it can be", async () => {
+    // An agent has no mailbox, so the refusal is the only place it can learn
+    // when to come back. Without the date it can only poll.
+    const { app, queries } = buildHarness({ daysLeft: 15 });
+
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/v1/subdomains/demo/${DOMAIN}/renew`,
+    });
+
+    expect(res.statusCode).toBe(409);
+    expect(res.json().code).toBe("RENEWAL_NOT_DUE");
+    expect(res.json().message).toMatch(/Renewal opens 14 days before expiry, on \d{4}-\d{2}-\d{2}/);
+    expect(queries.filter((q) => /UPDATE subdomains SET expires_at/.test(q.sql))).toHaveLength(0);
   });
 
   it("refuses to renew a record the caller does not own", async () => {
