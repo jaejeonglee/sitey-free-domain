@@ -2,9 +2,44 @@ import { getCurrentUser, apiFetch } from "./api.js";
 import { navigateTo } from "./router.js";
 import { showMessage, setButtonLoading, clearButtonLoading, showLoader, hideLoader, resetMessage } from "./ui.js";
 import { normalizeRecordType, validateRecordValue } from "./util.js";
-import { RECORD_TYPE_UI } from "./constants.js";
+import { RECORD_TYPE_UI, RENEWAL_WINDOW_DAYS } from "./constants.js";
 import { refreshDomainCount } from "./home.js";
 import { t } from "./i18n.js";
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * "2026-12-09 · 90 days left", and whether that is close enough to say loudly.
+ *
+ * Both halves, because neither works alone: a date on its own is a sum the
+ * reader has to do, and "90 days" on its own cannot be put in a calendar.
+ *
+ * A record with no expiry (expires_at NULL — see deploy/migrations/002) says
+ * so rather than showing an empty space, which reads as a value we failed to
+ * load.
+ *
+ * `soon` is the fortnight renewal opens in, so what is highlighted here is
+ * exactly what the button on the site would accept today.
+ */
+function expiryLine(expiresAt) {
+  if (!expiresAt) {
+    return { text: t("dashboard.expires_never"), soon: false };
+  }
+
+  const due = new Date(expiresAt);
+  const daysLeft = Math.floor((due.getTime() - Date.now()) / DAY_MS);
+
+  let left;
+  if (daysLeft < 0) left = t("dashboard.expired");
+  else if (daysLeft === 0) left = t("dashboard.expires_today");
+  else if (daysLeft === 1) left = t("dashboard.expires_tomorrow");
+  else left = t("dashboard.expires_days", { days: daysLeft });
+
+  return {
+    text: t("dashboard.expires", { date: due.toISOString().slice(0, 10), left }),
+    soon: daysLeft <= RENEWAL_WINDOW_DAYS,
+  };
+}
 
 export function initializeDashboardPage() {
   resetMessage();
@@ -55,8 +90,14 @@ export function initializeDashboardPage() {
     valueDisplay.className = "record-value";
     valueDisplay.textContent = recordValue;
 
+    const expiry = expiryLine(item.expires_at ?? item.expiresAt);
+    const expiryDisplay = document.createElement("span");
+    expiryDisplay.className = expiry.soon ? "record-expiry soon" : "record-expiry";
+    expiryDisplay.textContent = expiry.text;
+
     headerContent.appendChild(domainGroup);
     headerContent.appendChild(valueDisplay);
+    headerContent.appendChild(expiryDisplay);
 
     const icon = document.createElement("span");
     icon.className = "dashboard-item-chevron";

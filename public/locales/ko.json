@@ -52,6 +52,12 @@
   "dashboard.delete_success": "{domain} 삭제 완료.",
   "dashboard.load_error": "도메인을 불러오지 못했어요. 잠시 후 다시 시도해주세요.",
   "dashboard.txt_label": "Vercel TXT 인증",
+  "dashboard.expires": "{date} · {left}",
+  "dashboard.expires_days": "{days}일 남음",
+  "dashboard.expires_today": "오늘 만료",
+  "dashboard.expires_tomorrow": "내일 만료",
+  "dashboard.expired": "기한 지남",
+  "dashboard.expires_never": "만료 없음",
 
   "docs.nav.quickstart": "빠른 시작",
   "docs.nav.vercel": "Vercel 연결",

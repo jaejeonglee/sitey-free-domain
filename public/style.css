@@ -600,6 +600,21 @@ button:disabled, .primary-button:disabled, .danger-button:disabled {
   overflow-wrap: anywhere;
 }
 
+/* When it runs out, under where it points. Quiet by default — it is only
+   news for a fortnight of every three months. */
+.dashboard-item .record-expiry {
+  display: block;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+/* Inside the window the renew button opens in. --bad is the palette's one
+   alarm colour, the same red the delete button and error text already use. */
+.dashboard-item .record-expiry.soon {
+  color: var(--bad);
+  font-weight: 700;
+}
+
 /* The span is empty in the markup — the arrow is drawn here. 98 used a
    solid triangle, not a rotating chevron, and it did not animate. */
 .dashboard-item-chevron {

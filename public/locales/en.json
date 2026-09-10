@@ -52,6 +52,12 @@
   "dashboard.delete_success": "{type} record for {domain} deleted successfully.",
   "dashboard.load_error": "Could not load your domains.",
   "dashboard.txt_label": "Vercel TXT Verification",
+  "dashboard.expires": "{date} · {left}",
+  "dashboard.expires_days": "{days} days left",
+  "dashboard.expires_today": "expires today",
+  "dashboard.expires_tomorrow": "expires tomorrow",
+  "dashboard.expired": "past due",
+  "dashboard.expires_never": "Never expires",
 
   "docs.nav.quickstart": "Quick Start",
   "docs.nav.vercel": "Vercel Setup",

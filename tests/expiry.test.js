@@ -181,6 +181,20 @@ describe("when renewal opens", () => {
     expect(renewalNotDueMessage(gate)).toContain("2026-11-25");
   });
 
+  it("is the same number the dashboard highlights from", () => {
+    // Nothing serves this to the browser, so public/modules/constants.js keeps
+    // its own copy. If they part company the dashboard flags records the
+    // button would refuse, or stays quiet about ones it would take.
+    const source = fs.readFileSync(
+      path.join(process.cwd(), "public", "modules", "constants.js"),
+      "utf8"
+    );
+    const declared = source.match(/RENEWAL_WINDOW_DAYS = (\d+)/);
+
+    expect(declared).not.toBeNull();
+    expect(Number(declared[1])).toBe(RENEWAL_WINDOW_DAYS);
+  });
+
   it("still renews one that is already past due", () => {
     // Deletion is a separate switch and is off; a record that ran out last
     // night is still here and its owner may still keep it.
