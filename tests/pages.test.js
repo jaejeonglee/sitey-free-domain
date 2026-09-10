@@ -160,7 +160,7 @@ describe("per-path canonical and Open Graph tags", () => {
     it.each([
       ["/", "Get your free domain"],
       ["/", "What We Deliver"],
-      ["/docs", "Get your domain up and running in 3 steps."],
+      ["/docs", "Three steps and you're done."],
       ["/guide", "1. Check availability"],
       ["/help", "Help & Support"],
       ["/blog", "AI 에이전트가 서브도메인을 만들 수 있게 되었어요 (MCP 지원)"],
