@@ -139,7 +139,17 @@ export function renderNavbar(currentPath) {
        <button type="button" id="nav-logout-btn" class="nav-auth-btn">${t("nav.logout")}</button>`
     : `<a href="/login" class="${currentPath === "/login" ? "active" : ""}">${t("nav.login")}</a>`;
 
+  // 홈에는 가운데에 큰 글자 로고가 서 있다. 위에 또 두면 같은 이름이 한
+  // 화면에 두 번 나오므로 홈에서만 뺀다. 다른 화면에는 그 큰 로고가 없어
+  // 여기가 집으로 돌아오는 유일한 문이 된다 — 구글이 첫 화면에만 로고를
+  // 빼고 결과 화면 왼쪽 위에 두는 것과 같은 이유다.
+  const atHome = currentPath === "/" || currentPath === "/index.html";
+  const brand = atHome
+    ? ""
+    : `<a href="/" class="brand" data-i18n-aria="nav.home" aria-label="Home">sitey<em>.my</em></a>`;
+
   container.innerHTML = `
+    ${brand}
     <nav aria-label="Primary">
       <a href="/docs" class="${currentPath === "/docs" || currentPath === "/guide" ? "active" : ""}">${t("nav.docs")}</a>
       ${account}
