@@ -69,6 +69,24 @@ const docs = {
     <h2>${t("docs.records.txt.title")}</h2>
     <p>${t("docs.records.txt.desc")}</p>
   `,
+
+  "limits": () => `
+    <h1>${t("docs.limits.title")}</h1>
+    <p class="docs-subtitle">${t("docs.limits.subtitle")}</p>
+
+    <h2>${t("docs.limits.free.title")}</h2>
+    <p>${t("docs.limits.free.desc")}</p>
+
+    <h2>${t("docs.limits.user.title")}</h2>
+    <p>${t("docs.limits.user.desc")}</p>
+
+    <h2>${t("docs.limits.agent.title")}</h2>
+    <p>${t("docs.limits.agent.desc")}</p>
+
+    <div class="callout">
+      <strong>Tip:</strong> ${t("docs.limits.tip")}
+    </div>
+  `,
 };
 
 function renderDoc(docId) {

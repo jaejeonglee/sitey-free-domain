@@ -56,6 +56,7 @@
   "docs.nav.quickstart": "빠른 시작",
   "docs.nav.vercel": "Vercel 연결",
   "docs.nav.records": "레코드 타입",
+  "docs.nav.limits": "한도와 기한",
 
   "docs.quickstart.title": "빠른 시작",
   "docs.quickstart.subtitle": "세 단계면 됩니다.",
@@ -96,6 +97,16 @@
   "docs.records.cname.example": "myapp.sitey.my → cname.vercel-dns.com",
   "docs.records.txt.title": "TXT 레코드 (Vercel 인증용)",
   "docs.records.txt.desc": "도메인 소유권 확인에 사용돼요. Vercel에 연결할 때 TXT 레코드를 추가해야 할 수 있어요. 대시보드에서 CNAME 레코드를 편집할 때 함께 관리할 수 있어요.",
+
+  "docs.limits.title": "한도와 기한",
+  "docs.limits.subtitle": "몇 개까지 쓸 수 있고, 언제까지 유지되는지",
+  "docs.limits.free.title": "5개까지 무료",
+  "docs.limits.free.desc": "가입 여부와 상관없이 5개까지 만들 수 있어요. 가입하지 않으면 IP를 기준으로, 가입하면 계정을 기준으로 셉니다.",
+  "docs.limits.user.title": "사람이 만들면 세 달",
+  "docs.limits.user.desc": "등록한 날부터 세 달입니다. 만료가 가까워지면 메일로 알려드려요.",
+  "docs.limits.agent.title": "에이전트가 만들면 한 달",
+  "docs.limits.agent.desc": "MCP로 만든 것은 한 달이고 메일이 가지 않습니다. <code>list_subdomains</code> 의 <code>expires_at</code> 을 읽고 <code>renew_subdomain</code> 으로 연장하세요.",
+  "docs.limits.tip": "갱신은 만료 2주 전부터 할 수 있어요. 한 번 누르면 그날부터 다시 셉니다.",
 
   "help.title": "도움이 필요하신가요?",
   "help.subtitle": "설정이나 문제가 있다면 편하게 연락주세요.",

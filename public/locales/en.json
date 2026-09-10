@@ -56,6 +56,7 @@
   "docs.nav.quickstart": "Quick Start",
   "docs.nav.vercel": "Vercel Setup",
   "docs.nav.records": "Record Types",
+  "docs.nav.limits": "Limits & Expiry",
 
   "docs.quickstart.title": "Quick Start",
   "docs.quickstart.subtitle": "Three steps and you're done.",
@@ -96,6 +97,16 @@
   "docs.records.cname.example": "myapp.sitey.my → cname.vercel-dns.com",
   "docs.records.txt.title": "TXT Record (Vercel verification)",
   "docs.records.txt.desc": "TXT records are used for domain verification. When connecting to Vercel, you may need to add a TXT record to prove you own the domain. You can manage this from the dashboard when editing a CNAME record.",
+
+  "docs.limits.title": "Limits and expiry",
+  "docs.limits.subtitle": "How many you can hold, and how long each one lasts.",
+  "docs.limits.free.title": "Five for free",
+  "docs.limits.free.desc": "You can create five, with or without an account. Without one they are counted against your IP address; with one, against the account.",
+  "docs.limits.user.title": "Three months when a person makes it",
+  "docs.limits.user.desc": "Three months from the day you registered it. We email you when the date is close.",
+  "docs.limits.agent.title": "One month when an agent makes it",
+  "docs.limits.agent.desc": "Anything made over MCP lasts one month, and no email goes out. Read <code>expires_at</code> from <code>list_subdomains</code> and extend it with <code>renew_subdomain</code>.",
+  "docs.limits.tip": "You can renew from two weeks before it expires. One press and it counts again from that day.",
 
   "help.title": "Help & Support",
   "help.subtitle": "We're here to help with setup, troubleshooting, and feature requests.",
