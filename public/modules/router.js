@@ -3,7 +3,7 @@ import { initializeLoginPage } from './auth.js';
 import { initializeDashboardPage } from './dashboard.js';
 import { initializeDocsPage } from './docs.js';
 import { initializeBlogPage } from './blog.js';
-import { renderNavbar, renderFooter } from './ui.js';
+import { renderNavbar } from './ui.js';
 import { applyTranslations, loadLang, getLang } from './i18n.js';
 import { getCurrentUser } from './api.js';
 
@@ -57,16 +57,18 @@ export async function router() {
   document.title = route.title;
 
   renderNavbar(path);
-  renderFooter();
   applyTranslations();
   route.init();
 
-  const langSelect = document.getElementById("lang-select");
-  if (langSelect) {
-    langSelect.value = getLang();
-    langSelect.addEventListener("change", async () => {
-      await loadLang(langSelect.value);
+  // KR·EN. The header is rebuilt on every route, so the buttons are wired
+  // here rather than once at boot — and re-running the router is what repaints
+  // the page in the new language, including anything route.init() drew.
+  document.querySelectorAll(".lang button[data-lang]").forEach((button) => {
+    button.setAttribute("aria-pressed", String(button.dataset.lang === getLang()));
+    button.addEventListener("click", async () => {
+      if (button.dataset.lang === getLang()) return;
+      await loadLang(button.dataset.lang);
       router();
     });
-  }
+  });
 }

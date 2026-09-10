@@ -160,8 +160,8 @@ describe("per-path canonical and Open Graph tags", () => {
   // previews, AI agents — was handed a blank page.
   describe("the body arrives in the HTML", () => {
     it.each([
-      ["/", "Get your free domain"],
-      ["/", "What We Deliver"],
+      ["/", "Register the address you want, with no paperwork."],
+      ["/", "The agent you already use can work with it too."],
       ["/docs", "Three steps and you're done."],
       ["/guide", "1. Check availability"],
       ["/blog", "AI 에이전트가 서브도메인을 만들 수 있게 되었어요 (MCP 지원)"],

@@ -7,12 +7,27 @@
     <link rel="canonical" href="https://sitey.my/" />
     <link rel="icon" href="/favicon-32.png" type="image/png" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    <!-- The saved choice has to land on <html> before the first paint, or a
+         visitor who picked dark gets a white page for as long as the deferred
+         module takes to run. Everything else about the theme lives in
+         modules/theme.js; this is only the part that cannot wait. -->
+    <script>
+      try {
+        var t = localStorage.getItem("sitey-theme");
+        if (t === "dark" || t === "light") {
+          document.documentElement.setAttribute("data-theme", t);
+        }
+      } catch (e) {}
+    </script>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      rel="preload"
-      href="/logo-64.png"
-      as="image"
-      type="image/png"
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@300;400;500;700&display=swap"
     />
+
     <title>Sitey - free domain</title>
     <meta
       name="description"
@@ -23,7 +38,8 @@
       content="sitey.my, sitey.one, free subdomain, domain, dns management, free domain, domain checker"
     />
     <meta name="author" content="Sitey" />
-    <meta name="theme-color" content="#008080" />
+    <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#0f1214" media="(prefers-color-scheme: dark)" />
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
@@ -61,67 +77,39 @@
     <script src="/script.js" type="module" defer></script>
   </head>
   <body>
-    <div class="container">
-      <div id="navbar"></div>
-      <main id="app-root"></main>
-      <div id="footer"></div>
-    </div>
+    <header id="navbar"></header>
+    <main id="app-root"></main>
+
+    <!-- The footer is markup, not a render: the Buy Me a Coffee widget draws
+         itself where its own <script> sits, and appending it later leaves an
+         empty row. Static also means a crawler sees these two links. -->
+    <footer>
+      <a
+        href="https://t.me/+yvrIFDbssJ0wNDJl"
+        target="_blank"
+        rel="noopener noreferrer"
+        data-i18n="nav.contact"
+        >Contact</a
+      >
+      <a href="/blog" data-i18n="nav.blog">Blog</a>
+      <span class="bmc">
+        <script
+          type="text/javascript"
+          src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js"
+          data-name="bmc-button"
+          data-slug="helpmeup"
+          data-color="#FFDD00"
+          data-emoji="☕"
+          data-font="Cookie"
+          data-text="Buy me a coffee"
+          data-outline-color="#000000"
+          data-font-color="#000000"
+          data-coffee-color="#ffffff"
+        ></script>
+      </span>
+    </footer>
 
     <div id="toast-container" class="toast-container"></div>
-
-    <!-- Desktop furniture. The Start button opens a real menu, so it is a
-         button and not aria-hidden; the task label and clock still say nothing
-         a screen reader needs, and stay hidden from it. -->
-    <div class="taskbar">
-      <button
-        type="button"
-        class="taskbar-start"
-        id="start-button"
-        aria-expanded="false"
-        aria-controls="start-menu"
-      >
-        <span class="taskbar-flag" aria-hidden="true"><i></i><i></i><i></i><i></i></span>
-        <span data-i18n="taskbar.start">Start</span>
-      </button>
-      <div class="taskbar-tasks" aria-hidden="true"><span id="taskbar-window">sitey.my</span></div>
-      <div class="taskbar-tray" id="taskbar-clock" aria-hidden="true">--:--</div>
-    </div>
-
-    <!-- Start menu. Hidden until the button is pressed. The left rail is the
-         98 detail people recognise before they read anything. -->
-    <div class="start-menu hidden" id="start-menu" role="menu" aria-labelledby="start-button">
-      <div class="start-rail" aria-hidden="true"><span>sitey</span></div>
-      <ul class="start-items">
-        <li><a role="menuitem" href="/" data-link data-i18n="start.new">New address</a></li>
-        <li><a role="menuitem" href="/docs" data-link data-i18n="start.docs">Documents</a></li>
-        <li class="start-sep" role="separator"></li>
-        <!-- Buy Me a Coffee, their own widget, their own markup.
-             Deliberately of another decade: a rounded yellow pill in a
-             handwriting face inside a 98 window. That contrast is the joke the
-             whole skin is built on (Jay), so it is not restyled.
-
-             It sits inline rather than being injected on first open: the
-             widget draws itself relative to its own script tag, and appending
-             it later leaves an empty row. -->
-        <li class="start-coffee" id="start-coffee">
-          <script
-            type="text/javascript"
-            src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js"
-            data-name="bmc-button"
-            data-slug="helpmeup"
-            data-color="#FFDD00"
-            data-emoji="☕"
-            data-font="Cookie"
-            data-text="Buy me a coffee"
-            data-outline-color="#000000"
-            data-font-color="#000000"
-            data-coffee-color="#ffffff"
-          ></script>
-        </li>
-        <li class="start-sep" role="separator"></li>
-        <li><a role="menuitem" href="/login" data-link data-i18n="start.login">Log in</a></li>
-      </ul>
-    </div>
 
     <!-- Create Modal -->
     <div
@@ -206,68 +194,51 @@
 
     <!-- Page Templates -->
     <template id="template-home">
-      <section class="hero">
-        <h1 data-i18n="hero.title">Get your free domain</h1>
-        <p class="subtitle">
-          <span data-i18n="hero.subtitle.prefix">with</span> <span id="domain-list-span" aria-live="polite">Loading...</span>
-        </p>
+      <div class="stage">
+        <!-- The name is the page's heading. A second, smaller copy of it in
+             the header would say the same thing twice on one screen. -->
+        <h1 class="wordmark">sitey<em>.my</em></h1>
+
         <form id="subdomain-form" novalidate>
-          <fieldset class="groupbox">
-            <legend data-i18n="home.group.legend">New domain</legend>
-            <div class="search-box">
-              <label for="subdomain" data-i18n="home.name_label">Name</label>
-              <input
-                type="text"
-                id="subdomain"
-                data-i18n-placeholder="hero.search.placeholder"
-                placeholder="Enter your desired domain"
-                required
-                pattern="^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
-                autocomplete="off"
-                spellcheck="false"
-                autocapitalize="none"
-              />
-              <button type="submit" id="check-btn" data-i18n="hero.search.button">Check</button>
-            </div>
-            <div class="results-section">
-              <div
-                id="availability-results"
-                class="hidden"
-                aria-live="polite"
-              ></div>
-            </div>
-          </fieldset>
+          <div class="field">
+            <input
+              type="text"
+              id="subdomain"
+              data-i18n-placeholder="home.placeholder"
+              data-i18n-aria="home.input_label"
+              aria-label="Name you want"
+              placeholder="Check a name first — no sign-up needed"
+              required
+              pattern="^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
+              autocomplete="off"
+              spellcheck="false"
+              autocapitalize="none"
+            />
+            <button type="submit" id="check-btn" data-i18n="home.check">Check</button>
+          </div>
         </form>
-        <!-- Agents reach us over MCP, so there is nothing here for them to
-             click - one line to the docs is the whole interface they need. -->
-        <p class="home-agent-line" data-i18n="home.agent_line" data-i18n-html>
-          You can create one from code too &mdash; see the <a href="/docs">docs</a>.
-        </p>
-        <div class="statusbar domain-badge">
-          <span aria-live="polite" aria-atomic="true">
-            <span data-i18n="hero.badge">Active domains:</span> <span id="domain-count-number">--</span>
-          </span>
-          <span data-i18n="home.status.free">3 free by default</span>
-          <span data-i18n="home.status.renew">Renewed every 3 months</span>
+
+        <div
+          id="availability-results"
+          class="results hidden"
+          aria-live="polite"
+        ></div>
+
+        <div class="points">
+          <div>
+            <h2 data-i18n="home.point.fast.title">Fast</h2>
+            <p data-i18n="home.point.fast.desc">Register the address you want, with no paperwork.</p>
+          </div>
+          <div>
+            <h2 data-i18n="home.point.simple.title">Simple</h2>
+            <p data-i18n="home.point.simple.desc">Change every setting from a single dashboard.</p>
+          </div>
+          <div>
+            <h2 data-i18n="home.point.mcp.title">MCP</h2>
+            <p data-i18n="home.point.mcp.desc">The agent you already use can work with it too.</p>
+          </div>
         </div>
-      </section>
-      <section class="features">
-        <h2 data-i18n="features.title">What We Deliver</h2>
-        <div class="feature-grid">
-          <article class="feature-card">
-            <h3 data-i18n="features.speed.title">Speed</h3>
-            <p data-i18n="features.speed.desc">Claim a custom domain on our nameserver in seconds. No registrar, no waiting.</p>
-          </article>
-          <article class="feature-card">
-            <h3 data-i18n="features.control.title">Control</h3>
-            <p data-i18n="features.control.desc">Update DNS targets from your dashboard without touching a registrar panel.</p>
-          </article>
-          <article class="feature-card">
-            <h3 data-i18n="features.security.title">Security</h3>
-            <p data-i18n="features.security.desc">Manage changes securely through your own credentials with validated records.</p>
-          </article>
-        </div>
-      </section>
+      </div>
     </template>
 
     <template id="template-login">
@@ -285,10 +256,6 @@
       <div class="dashboard-section">
         <h1 data-i18n="dashboard.title">My Domains</h1>
         <p class="dashboard-subtitle" data-i18n="dashboard.subtitle">Manage your active domains below.</p>
-        <!-- The domains as desktop icons. Single click selects, double
-             click opens the site. The cards below stay: this is the view,
-             those are the controls. -->
-        <div id="dashboard-icons" class="desk-icons" role="list"></div>
         <div id="dashboard-list" class="dashboard-list-container">
           <p>Loading your domains...</p>
         </div>

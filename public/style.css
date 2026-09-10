@@ -1,517 +1,339 @@
 /* ============================================================
-   sitey — Windows 98 skin.
+   sitey — the clean skin.
 
-   Two rules carry the whole look and everything else follows.
+   Three rules carry the look; everything else follows from them.
 
-   1. THE BEVEL IS TWO LAYERS DEEP. A single 1px border reads as
-      "flat box with a line around it"; 98 chrome is an outer edge
-      (white / near-black) wrapped around an inner edge (light grey /
-      mid grey). The four inset shadows in .raise and .sink below are
-      that, and they are defined in exactly two places — every raised
-      or sunken part is listed in the grouped selectors of section 2
-      rather than repeating the shadows.
+   1. COLOUR IS A TOKEN, NEVER A LITERAL. Every surface, rule and
+      piece of text reads from the eight custom properties below.
+      That is what makes one dark-mode block enough for the whole
+      site instead of a dark rule beside every light one.
 
-   2. NOTHING IS ROUND, NOTHING FADES. No border-radius, no shadow
-      spread, no transitions. The only motion left is the progress
-      bar, and prefers-reduced-motion stops that too.
+   2. SEPARATION IS A HAIRLINE, NOT A BOX. One 1px rule in --rule or
+      --rule-2 divides things; there are no cards, no drop shadows
+      and no filled panels competing with the text.
 
-   Type is the system stack on purpose — Tahoma is what 98 looked
-   like, and a webfont would undo the 1MB → 8KB image work.
+   3. GREEN MEANS "YOU CAN HAVE IT". --go is the answer this service
+      exists to give, so it is spent only on availability, the focus
+      ring and the one button that acts. Nothing decorative is green.
    ============================================================ */
 
 /* ============================================
    1. Tokens
+
+   Declared three times on purpose, and the order matters.
+
+   :root first, in full, for the light screen — a token that only
+   exists inside a media query or a [data-theme] block is a token
+   that is missing when the visitor has expressed no preference at
+   all, and the page renders with unset colours.
+
+   Then the system preference, gated on :not([data-theme="light"])
+   so that choosing light explicitly still wins on a dark machine.
+
+   Then the explicit dark choice, which has to repeat the values
+   because a media query cannot be re-entered from a selector.
    ============================================ */
 :root {
-  --face: #c0c0c0;         /* window surface */
-  --desk: #008080;         /* desktop teal */
-  --ink: #000000;
-  --dim: #404040;          /* secondary text */
-  --white: #ffffff;        /* bevel: outer light edge */
-  --light: #dfdfdf;        /* bevel: inner light edge */
-  --shadow: #808080;       /* bevel: inner dark edge */
-  --dark: #0a0a0a;         /* bevel: outer dark edge */
-  --title1: #000080;       /* title bar, left */
-  --title2: #1084d0;       /* title bar, right */
-  --title-ink: #ffffff;
-  --sel: #000080;          /* selection / active row */
-  --sel-ink: #ffffff;
-  --field: #ffffff;        /* editable surfaces: inputs, lists, code */
-  --field-ink: #000000;
-  --ok: #007800;
-  --bad: #a80000;
-  --link: #0000c0;
+  --paper: #ffffff;
+  --ink: #16191c;
+  --ink-2: #5a6169;        /* secondary text */
+  --ink-3: #8b939b;        /* placeholder, disabled, quiet meta */
+  --rule: #e6e9ec;         /* borders you are meant to notice */
+  --rule-2: #f2f4f6;       /* dividers and quiet fills */
+
+  /* 초록을 쓴 이유 — 이 서비스가 내놓는 답이 「쓸 수 있다」라서다.
+     요즘 이런 서비스가 다 파란색이라 눈에 갈리기도 한다. */
+  --go: #0e7c4a;
+  --go-soft: #eaf5ef;
+
+  /* The palette's one alarm: delete, errors, and an expiry close
+     enough that renewal is already open. */
+  --bad: #c0392b;
 }
 
-/*
-  The theme toggle stays. 98 is one world and a "modern dark mode"
-  would leave the site half in and half out of it — but Windows
-  shipped a High Contrast Black scheme that IS part of that world, so
-  the dark side becomes that instead: black desktop, white text, the
-  same two-layer bevel.
-
-  The window face is #202020 rather than pure black on purpose. The
-  bevel needs a surface that something can be darker than; on #000 the
-  bottom-right edges vanish and a pressed button stops being legible.
-*/
-/* ============================================
-   2. Bevels
-   ============================================ */
-.raise,
-.container,
-.win-btn,
-.feature-card,
-.form-card,
-.dashboard-item,
-.record-type-badge,
-.modal-content,
-.toast,
-.callout,
-.tooltip-bubble,
-.domain-chip,
-.blog-list-item,
-.taskbar-start,
-button,
-.primary-button,
-.danger-button,
-.google-login-button,
-.blog-back,
-.nav-select {
-  box-shadow:
-    inset -1px -1px var(--dark),
-    inset 1px 1px var(--white),
-    inset -2px -2px var(--shadow),
-    inset 2px 2px var(--light);
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #0f1214;
+    --ink: #e8ebee;
+    --ink-2: #a0a8b0;
+    --ink-3: #6f7780;
+    --rule: #232a2f;
+    --rule-2: #1a2024;
+    --go: #4fc28a;
+    --go-soft: #132520;
+    --bad: #f2857a;
+  }
 }
 
-.sink,
-input,
-select,
-textarea,
-.input-select,
-.groupbox,
-#availability-results,
-.docs-sidebar,
-.dashboard-item-detail,
-.loader-spinner,
-pre,
-code,
-.statusbar > *,
-.site-footer > *,
-.taskbar-tasks span,
-.taskbar-tray {
-  box-shadow:
-    inset -1px -1px var(--white),
-    inset 1px 1px var(--shadow),
-    inset -2px -2px var(--light),
-    inset 2px 2px var(--dark);
-}
-
-/* Pressing a button flips the bevel and nudges the label down-right —
-   that shift is most of what made a 98 button feel clicked. */
-button:active:not(:disabled),
-.primary-button:active:not(:disabled),
-.danger-button:active:not(:disabled),
-.google-login-button:active,
-.taskbar-start:active {
-  box-shadow:
-    inset -1px -1px var(--white),
-    inset 1px 1px var(--shadow),
-    inset -2px -2px var(--light),
-    inset 2px 2px var(--dark);
-  padding-top: 5px;
-  padding-bottom: 3px;
-  padding-left: 14px;
-  padding-right: 12px;
+:root[data-theme="dark"] {
+  --paper: #0f1214;
+  --ink: #e8ebee;
+  --ink-2: #a0a8b0;
+  --ink-3: #6f7780;
+  --rule: #232a2f;
+  --rule-2: #1a2024;
+  --go: #4fc28a;
+  --go-soft: #132520;
+  --bad: #f2857a;
 }
 
 /* ============================================
-   3. Reset & base
+   2. Base
    ============================================ */
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body { max-width: 100%; overflow-x: hidden; }
 
 body {
-  /* 바탕화면 — 그 초록 언덕.
-     Jay 요청. 다만 원본 사진은 마이크로소프트 것이라 쓸 수 없어서 그렸다.
-     그림 파일도 아니다: 오늘 이미지를 1MB 에서 8KB 로 줄인 참이라
-     배경 하나로 그걸 되돌리지 않는다. 전부 그라데이션이다. */
-  background:
-    /* 구름. 층마다 크기를 지정한다 — 안 그러면 그라데이션이 화면 전체를
-       칠해서 아래 층을 덮어버린다. 처음에 그렇게 만들어 하늘이 사라졌다. */
-    radial-gradient(closest-side, rgba(255, 255, 255, 0.9), rgba(255, 255, 255, 0))
-      16% 15% / 200px 48px no-repeat,
-    radial-gradient(closest-side, rgba(255, 255, 255, 0.7), rgba(255, 255, 255, 0))
-      70% 9% / 240px 54px no-repeat,
-    /* 언덕 — 아래 28% 만 차지한다 */
-    radial-gradient(ellipse 150% 100% at 50% 100%, #7cbb46 0%, #4b8a28 100%)
-      bottom / 100% 28% no-repeat,
-    /* 하늘 */
-    linear-gradient(180deg, #2a6ab0 0%, #4f92cf 42%, #93c8ea 78%, #c6e2f5 100%);
-  background-attachment: fixed;
-  background-color: var(--desk);
+  /* 토큰 배경색을 body 에 명시한다. 여기를 비우면 시스템이 어두울 때
+     글자만 밝아지고 바탕은 흰색으로 남는다. */
+  background: var(--paper);
   color: var(--ink);
-  font-family: Tahoma, Verdana, Geneva, "MS Sans Serif", sans-serif;
-  font-size: 14.5px;
-  line-height: 1.55;
-  /* 사방에 바탕이 보이도록 여백을 준다. 창이 화면에 딱 붙어 있으면
-     «페이지»로 읽히고, 둘레에 바탕이 보여야 «떠 있는 창»이 된다. */
-  padding: 46px 44px 78px;
-  -webkit-font-smoothing: none;
-}
+  font-family: "Gothic A1", "Apple SD Gothic Neo", system-ui, sans-serif;
+  font-size: 16px;
+  line-height: 1.65;
+  -webkit-font-smoothing: antialiased;
 
-::selection { background: var(--sel); color: var(--sel-ink); }
-
-a { color: var(--link); }
-
-/* 98 marked focus with a dotted rectangle inside the control. */
-:focus-visible { outline: 1px dotted var(--ink); outline-offset: -4px; }
-
-img { max-width: 100%; }
-
-.sr-only {
-  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
-  overflow: hidden; clip: rect(0,0,0,0); white-space: nowrap; border: 0;
-}
-
-.hidden { display: none !important; }
-
-/* ============================================
-   4. The window
-   The whole site is one window: navbar is its title bar and menu,
-   #app-root its client area, footer its status bar. Skinning the
-   frame once is why every route comes out 98 without per-page work.
-   ============================================ */
-.container {
-  max-width: 1000px;
-  margin: 0 auto;
-  background: var(--face);
-  padding: 3px;
-
-  /* 창이 작업표시줄까지 내려오게 한다. 짧은 페이지에서 창이 위쪽에만
-     떠 있고 아래가 청록 바탕으로 텅 비면 «덜 만든 화면»처럼 보인다.
-     22 + 52 는 body 의 위아래 여백이다. */
-  min-height: calc(100vh - 136px);
+  /* 세로로 쌓고 본문이 남는 자리를 다 먹게 하면 푸터가 바닥에 붙는다.
+     내용이 길어지면 밀려 내려가므로 창 높이와 상관없이 맞는다. */
+  min-height: 100vh;
   display: flex;
   flex-direction: column;
 }
 
-/* 내용이 짧아도 상태바(footer)가 창 바닥에 붙어 있게 한다.
-   98 의 최대화된 창이 그렇게 생겼다. */
-.container > main {
-  flex: 1 0 auto;
+h1, h2, h3 { font-weight: 700; line-height: 1.3; letter-spacing: -0.015em; }
+
+a { color: var(--go); }
+
+img { max-width: 100%; }
+
+:focus-visible { outline: 2px solid var(--go); outline-offset: 2px; }
+
+::selection { background: var(--go-soft); color: var(--ink); }
+
+.sr-only {
+  position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px;
+  overflow: hidden; clip: rect(0, 0, 0, 0); white-space: nowrap; border: 0;
 }
 
-main {
-  display: block;
-  padding: 12px 12px 14px;
-  min-width: 0;
-}
+.hidden { display: none !important; }
 
-h1, h2, h3 { font-weight: 700; line-height: 1.3; }
-
-/* Group box: a sunken frame with its label sitting on the edge. */
-.groupbox {
-  border: none;
-  background: var(--face);
-  margin: 0 0 12px;
-  padding: 12px 11px 13px;
-  min-width: 0;
-}
-
-.groupbox > legend {
-  font-size: 14.5px;
-  font-weight: 700;
-  padding: 0 4px;
-  /* box-shadow draws no notch the way border does, so the label has to
-     paint over the frame line itself. */
-  background: var(--face);
-}
-
-/* Status bar: sunken cells butted together along the bottom. */
-.statusbar {
-  display: flex;
-  gap: 3px;
-  font-size: 13px;
-}
-
-.statusbar > * {
-  flex: 1;
-  min-width: 0;
-  padding: 2px 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
+.error { color: var(--bad); }
 
 /* ============================================
-   5. Navigation — title bar + menu bar
+   3. Header
+
+   ⚠️ width:100% is load-bearing. In a column flex container the
+   default align-items:stretch is what gives a child the full width,
+   and setting a left/right auto margin (which is how the content is
+   centred) overrides stretch — without the explicit width the header
+   shrinks to the width of its own links and floats away from the
+   page it belongs to.
    ============================================ */
-.site-nav {
+header {
   display: flex;
-  flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
-  background: linear-gradient(90deg, var(--title1), var(--title2));
-  padding: 3px 3px 0 6px;
+  gap: 24px;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 20px 28px;
 }
 
-.nav-left { order: 1; flex: 1; min-width: 0; }
-.nav-right { order: 2; flex: none; display: flex; align-items: center; gap: 2px; }
-.nav-center { order: 4; width: 100%; }
-
-.site-nav .nav-logo {
+header nav {
+  margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 6px;
-  color: var(--title-ink);
-  text-decoration: none;
+  gap: 22px;
+  font-size: 14.5px;
+  color: var(--ink-2);
   min-width: 0;
 }
 
-.site-nav .nav-logo img { width: 16px; height: 16px; flex: none; }
-
-.nav-brand {
+header nav a,
+header nav .nav-auth-btn {
+  color: inherit;
+  text-decoration: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
   font-size: 14.5px;
-  font-weight: 700;
-  letter-spacing: 0.01em;
+  cursor: pointer;
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
 }
 
-/* The title-bar controls: lang, theme, sign in — sized like [_][□][×]. */
-.nav-right .nav-auth-btn,
-.nav-toggle,
-.nav-select {
-  font-family: inherit;
-  font-size: 13px;
-  line-height: 1;
-  background: var(--face);
-  color: var(--ink);
-  border: none;
-  padding: 4px 5px;
-  /* 글자를 키우면서 «KR» 이 화살표에 밀려 잘렸다. select 는 글자 말고
-     드롭다운 화살표 자리도 필요하다. 폭을 글자 기준으로 잡아둔다. */
-  min-width: 4em;
-  min-height: 18px;
-  cursor: pointer;
-  text-decoration: none;
+header nav a:hover,
+header nav .nav-auth-btn:hover { color: var(--ink); }
+header nav a.active { color: var(--ink); font-weight: 700; }
+
+/* 언어와 화면, 둘 다 «지금 것을 진하게 · 갈 곳을 연하게».
+   규칙이 둘이면 둘 다 못 읽힌다. 같은 자리에 같은 모양, 뜻도 같다.
+
+   가운데 점은 둘을 «가르는» 것이지 세 번째 항목이 아니다 — 바짝 붙인다. */
+.lang, .theme {
   display: inline-flex;
   align-items: center;
-  justify-content: center;
+  gap: 2px;
+  color: var(--ink-3);
+  font-size: 13px;
   flex: none;
 }
 
-.nav-select { padding: 3px 4px; appearance: none; }
-
-.nav-right .nav-auth-btn:active,
-.nav-toggle:active { padding: 5px 6px 3px 8px; }
-
-/* Menu bar: File / View / Help lived flush left under the title. */
-.nav-center {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 2px;
-  background: var(--face);
-  padding: 2px 4px;
-  margin-top: 3px;
+.lang button, .theme button {
+  border: 0;
+  background: none;
+  padding: 4px 2px;
+  margin: -4px 0;
+  color: var(--ink-3);
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  border-radius: 6px;
+  line-height: 0;
 }
 
-.nav-center a {
+.lang button:hover, .theme button:hover { color: var(--ink-2); }
+
+.lang button[aria-pressed="true"],
+.theme button[aria-pressed="true"] {
   color: var(--ink);
-  text-decoration: none;
-  font-size: 14.5px;
-  padding: 2px 8px;
+  font-weight: 700;
+  cursor: default;
 }
 
-.nav-center a:hover { background: var(--sel); color: var(--sel-ink); }
-
-/* The current page is the open menu: inverted, the way a held-down
-   menu title looked. */
-.nav-center a.active { background: var(--sel); color: var(--sel-ink); }
-
-/* One hamburger, for widths where five menu titles stop fitting. It shares
-   the title-bar button rule above, which sets a row flex — the three bars
-   have to stack. */
-.nav-toggle { display: none; order: 3; flex-direction: column; }
-.nav-toggle span {
-  display: block; width: 11px; height: 2px; background: var(--ink); margin: 1px 0;
-}
+.theme svg { width: 16px; height: 16px; display: block; }
 
 /* ============================================
-   6. Home
+   4. Main
    ============================================ */
-.hero { margin: 0 0 16px; }
-
-.hero h1 { font-size: 15.5px; margin: 0 0 3px; }
-
-.hero .subtitle {
-  margin: 0 0 14px;
-  color: var(--dim);
-  overflow-wrap: anywhere;
-}
-
-/* label + input + button on one line, the input taking the slack.
-   min-width:0 is load-bearing: without it one long domain name in the
-   results below pushes the whole page wider than the phone. */
-.search-box {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  flex-wrap: wrap;
+main {
+  flex: 1;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 0 28px 72px;
   min-width: 0;
 }
 
-.search-box label { flex: none; }
+/* ============================================
+   5. Home
+   ============================================ */
+.stage {
+  max-width: 680px;
+  margin: 0 auto;
+  padding: 78px 0 0;
+  text-align: center;
+}
 
-.search-box input {
+/* 구글 첫 화면처럼 이름이 곧 제목이다. 위에 작은 로고를 같이 두면
+   같은 이름이 한 화면에 두 번 나와서 헤더 쪽을 뺐다. */
+.wordmark {
+  font-size: 62px;
+  font-weight: 700;
+  letter-spacing: -0.045em;
+  margin: 0 0 38px;
+  line-height: 1;
+}
+
+.wordmark em { font-style: normal; color: var(--go); }
+
+.field {
+  display: flex;
+  align-items: stretch;
+  border: 1px solid var(--rule);
+  border-radius: 10px;
+  background: var(--paper);
+  overflow: hidden;
+  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+}
+
+.field:focus-within {
+  border-color: var(--go);
+  box-shadow: 0 0 0 3px var(--go-soft);
+}
+
+.field input {
   flex: 1;
   min-width: 0;
+  border: 0;
+  outline: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-size: 19px;
+  font-weight: 500;
+  padding: 15px 18px;
 }
 
-.search-box button { flex: none; }
+.field input::placeholder { color: var(--ink-3); font-weight: 400; }
 
-/* The one-line pointer to /docs. Agents get an MCP server, not a
-   panel of their own — there is no UI for them to click. */
-.home-agent-line {
-  margin: 12px 0 0;
-  color: var(--dim);
-  font-size: 14px;
+.field button {
+  flex: none;
+  border: 0;
+  background: none;
+  color: var(--ink-2);
+  font: inherit;
+  font-size: 15px;
+  font-weight: 500;
+  padding: 0 18px;
+  cursor: pointer;
 }
 
-.home-agent-line a { color: var(--link); }
+/* The shared button rule paints a hover fill; inside the field that fill is a
+   grey block clipped by the rounded border, so this one stays flat. */
+.field button:hover { background: none; color: var(--ink); }
 
-.domain-badge { margin-top: 12px; }
-
-/* ============================================
-   7. Results list
-   ============================================ */
-.results-section { min-width: 0; }
-
-#availability-results {
-  background: var(--field);
-  color: var(--field-ink);
-  margin-top: 11px;
-  padding: 5px;
-  min-width: 0;
-}
+.results { margin-top: 22px; text-align: left; min-width: 0; }
 
 .result-row {
   display: flex;
-  gap: 7px;
   align-items: center;
-  padding: 2px 4px;
+  gap: 14px;
+  padding: 13px 4px;
+  border-bottom: 1px solid var(--rule-2);
   min-width: 0;
 }
+
+.result-row:last-child { border-bottom: 0; }
 
 .result-row .domain-name {
   flex: 1;
   min-width: 0;
+  font-size: 15.5px;
+  letter-spacing: -0.01em;
   overflow-wrap: anywhere;
 }
 
-.result-row .status {
-  flex: none;
-  font-size: 13px;
-}
+.result-row.taken .domain-name { color: var(--ink-3); }
 
-.result-row .status.available { color: var(--ok); }
-.result-row .status.taken { color: var(--shadow); }
+.result-row .status { flex: none; font-size: 13px; color: var(--ink-3); }
+.result-row .status.available { color: var(--go); }
 
-/* ============================================
-   8. Feature cards
-   ============================================ */
-.features { margin-top: 4px; }
-
-.features h2 { font-size: 14.5px; margin: 0 0 8px; }
-
-.feature-grid {
+.points {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
-  gap: 8px;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 34px;
+  margin-top: 64px;
+  text-align: left;
 }
 
-.feature-card {
-  background: var(--face);
-  padding: 10px 11px 11px;
-  min-width: 0;
-}
+.points h2 { font-size: 15px; margin: 0 0 6px; }
 
-.feature-card h3 { font-size: 14.5px; margin: 0 0 4px; }
-.feature-card p { color: var(--dim); font-size: 14px; }
+/* keep-all — 브라우저는 한글을 글자 아무 데서나 끊는다. 세 칸으로 좁아지니
+   「복잡한 절차 / 없이」처럼 말 가운데가 잘렸다. 띄어쓰기에서만 끊게 한다. */
+.points p {
+  margin: 0;
+  font-size: 14.5px;
+  color: var(--ink-2);
+  line-height: 1.6;
+  word-break: keep-all;
+}
 
 /* ============================================
-   9. Forms & inputs
-   ============================================ */
-input, select, textarea, .input-select {
-  font-family: inherit;
-  font-size: 14.5px;
-  background: var(--field);
-  color: var(--field-ink);
-  border: none;
-  padding: 3px 5px;
-  min-width: 0;
-}
-
-input[type="checkbox"], input[type="radio"] { box-shadow: none; }
-
-.input-select, select { cursor: pointer; }
-
-.input-group { margin-bottom: 10px; min-width: 0; }
-.input-group input, .input-group .input-select { width: 100%; }
-
-.form-label, .input-group label {
-  display: block;
-  font-size: 14.5px;
-  margin-bottom: 4px;
-}
-
-.field-label { display: flex; align-items: center; gap: 5px; margin-bottom: 4px; position: relative; }
-.field-label .form-label { margin: 0; }
-
-.field-helper { color: var(--dim); font-size: 13px; margin: -6px 0 10px; }
-
-.tooltip-toggle {
-  width: 16px; height: 16px;
-  font-size: 12px; font-weight: 700;
-  padding: 0;
-  background: var(--face);
-  color: var(--ink);
-  border: none;
-  cursor: pointer;
-}
-
-.tooltip-bubble {
-  display: none;
-  position: absolute;
-  top: 100%; left: 0;
-  z-index: 20;
-  width: min(260px, 80vw);
-  /* 98 tooltips were the one yellow surface in the UI. */
-  background: #ffffe1;
-  color: #000000;
-  padding: 4px 6px;
-  font-size: 13px;
-  box-shadow: none;
-  border: 1px solid var(--ink);
-}
-
-.tooltip-bubble.show { display: block; }
-
-.form-card {
-  background: var(--face);
-  padding: 14px 14px 16px;
-  max-width: 360px;
-  margin: 8px auto;
-}
-
-.form-card h1 { font-size: 15.5px; margin-bottom: 4px; }
-.form-card .form-subtitle { color: var(--dim); margin-bottom: 14px; }
-
-/* ============================================
-   10. Buttons
+   6. Buttons
    ============================================ */
 button,
 .primary-button,
@@ -520,78 +342,183 @@ button,
 .blog-back {
   font-family: inherit;
   font-size: 14.5px;
-  background: var(--face);
+  font-weight: 500;
+  background: var(--paper);
   color: var(--ink);
-  border: none;
-  padding: 4px 13px;
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 8px 16px;
   cursor: pointer;
   text-decoration: none;
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: 8px;
+  transition: background-color 0.12s ease, border-color 0.12s ease, color 0.12s ease;
 }
 
-button:disabled, .primary-button:disabled, .danger-button:disabled {
-  color: var(--shadow);
-  /* 98 greyed a disabled label by drawing it twice, white below black. */
-  text-shadow: 1px 1px var(--white);
+button:hover:not(:disabled),
+.blog-back:hover { background: var(--rule-2); }
+
+.primary-button {
+  background: var(--ink);
+  border-color: var(--ink);
+  color: var(--paper);
+}
+
+.primary-button:hover:not(:disabled) {
+  background: var(--go);
+  border-color: var(--go);
+  color: var(--paper);
+}
+
+.primary-button.small { padding: 6px 13px; font-size: 13px; }
+
+.danger-button { color: var(--bad); }
+.danger-button:hover:not(:disabled) { background: var(--go-soft); }
+
+button:disabled,
+.primary-button:disabled,
+.danger-button:disabled {
+  background: var(--rule-2);
+  border-color: var(--rule-2);
+  color: var(--ink-3);
   cursor: default;
 }
 
-.primary-button.small { padding: 2px 8px; font-size: 13px; }
-
-.danger-button { color: var(--bad); }
-
-.google-login-button { width: 100%; padding: 6px 13px; }
-
-.link-button {
-  background: none;
-  border: none;
-  box-shadow: none;
-  color: var(--link);
-  text-decoration: underline;
-  padding: 0;
-  cursor: pointer;
-  font-size: 14.5px;
-}
+.google-login-button { width: 100%; padding: 11px 16px; }
 
 /* ============================================
-   11. Dashboard
+   7. Forms
    ============================================ */
-.dashboard-section h1 { font-size: 15.5px; margin-bottom: 3px; }
-.dashboard-subtitle { color: var(--dim); margin-bottom: 12px; }
+input, select, textarea, .input-select {
+  font-family: inherit;
+  font-size: 15px;
+  background: var(--paper);
+  color: var(--ink);
+  border: 1px solid var(--rule);
+  border-radius: 8px;
+  padding: 9px 12px;
+  min-width: 0;
+}
 
-.dashboard-list-container { display: flex; flex-direction: column; gap: 6px; min-width: 0; }
+input:focus, select:focus, textarea:focus, .input-select:focus {
+  outline: 0;
+  border-color: var(--go);
+  box-shadow: 0 0 0 3px var(--go-soft);
+}
 
-.dashboard-item { background: var(--face); padding: 3px; min-width: 0; }
+input::placeholder { color: var(--ink-3); }
+
+.input-select, select { cursor: pointer; }
+
+.input-group { margin-bottom: 14px; min-width: 0; }
+.input-group input, .input-group .input-select { width: 100%; }
+
+.form-label, .input-group label {
+  display: block;
+  font-size: 14px;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
+
+.field-label {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  position: relative;
+}
+
+.field-label .form-label { margin: 0; }
+
+.field-helper { color: var(--ink-3); font-size: 13px; margin: -8px 0 14px; }
+
+.tooltip-toggle {
+  width: 18px; height: 18px;
+  flex: none;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--ink-3);
+  background: var(--rule-2);
+  border: 0;
+}
+
+.tooltip-bubble {
+  display: none;
+  position: absolute;
+  top: 100%; left: 0;
+  z-index: 20;
+  width: min(280px, 80vw);
+  margin-top: 6px;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 8px;
+  padding: 8px 11px;
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.tooltip-bubble.show { display: block; }
+
+.form-card {
+  max-width: 380px;
+  margin: 64px auto 0;
+}
+
+.form-card h1 { font-size: 24px; margin-bottom: 6px; }
+.form-card .form-subtitle { color: var(--ink-2); font-size: 15px; margin-bottom: 24px; }
+
+/* ============================================
+   8. Dashboard
+
+   목록이다. 한 줄에 주소·값·만료가 있고, 펼치면 고치는 자리가 열린다.
+   ============================================ */
+.dashboard-section { max-width: 760px; margin: 0 auto; padding-top: 48px; }
+.dashboard-section h1 { font-size: 26px; margin-bottom: 4px; }
+.dashboard-subtitle { color: var(--ink-2); margin-bottom: 28px; }
+
+.dashboard-list-container { display: flex; flex-direction: column; min-width: 0; }
+
+.dashboard-item { border-bottom: 1px solid var(--rule-2); min-width: 0; }
 
 .dashboard-item-header {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 5px 7px;
+  gap: 12px;
+  padding: 14px 4px;
   cursor: pointer;
   min-width: 0;
 }
 
 .dashboard-item-title { flex: 1; min-width: 0; }
 
-.dashboard-item-domain { display: flex; align-items: center; gap: 6px; min-width: 0; }
+.dashboard-item-domain { display: flex; align-items: center; gap: 8px; min-width: 0; }
 
-.dashboard-item .domain-name { font-weight: 700; overflow-wrap: anywhere; min-width: 0; }
+.dashboard-item .domain-name {
+  font-size: 15.5px;
+  font-weight: 700;
+  overflow-wrap: anywhere;
+  min-width: 0;
+}
 
 .record-type-badge {
   flex: none;
-  background: var(--face);
-  font-size: 12px;
-  padding: 1px 5px;
+  background: var(--rule-2);
+  color: var(--ink-2);
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
 }
 
 .dashboard-item .record-value {
   display: block;
-  color: var(--dim);
-  font-family: "Courier New", monospace;
+  color: var(--ink-2);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   font-size: 13px;
   overflow-wrap: anywhere;
 }
@@ -600,160 +527,168 @@ button:disabled, .primary-button:disabled, .danger-button:disabled {
    news for a fortnight of every three months. */
 .dashboard-item .record-expiry {
   display: block;
-  color: var(--dim);
-  font-size: 12px;
+  color: var(--ink-3);
+  font-size: 12.5px;
 }
 
 /* Inside the window the renew button opens in. --bad is the palette's one
    alarm colour, the same red the delete button and error text already use. */
-.dashboard-item .record-expiry.soon {
-  color: var(--bad);
-  font-weight: 700;
-}
+.dashboard-item .record-expiry.soon { color: var(--bad); font-weight: 700; }
 
-/* The span is empty in the markup — the arrow is drawn here. 98 used a
-   solid triangle, not a rotating chevron, and it did not animate. */
 .dashboard-item-chevron {
   flex: none;
-  width: 0;
-  height: 0;
-  border-left: 4px solid transparent;
-  border-right: 4px solid transparent;
-  border-top: 5px solid var(--ink);
+  width: 8px; height: 8px;
+  border-right: 1.6px solid var(--ink-3);
+  border-bottom: 1.6px solid var(--ink-3);
+  transform: rotate(45deg);
+  margin-bottom: 3px;
 }
 
 .dashboard-item.expanded .dashboard-item-chevron {
-  border-top: none;
-  border-bottom: 5px solid var(--ink);
+  transform: rotate(225deg);
+  margin: 3px 0 0;
 }
 
 .dashboard-item-detail {
-  background: var(--face);
-  margin: 3px;
-  padding: 10px 11px 11px;
+  padding: 4px 4px 20px;
   min-width: 0;
 }
 
 .dashboard-item-detail[hidden] { display: none; }
 
-.dashboard-item-field { margin-bottom: 10px; min-width: 0; }
-.dashboard-item-field label { display: block; margin-bottom: 4px; }
+.dashboard-item-field { margin-bottom: 14px; min-width: 0; }
+.dashboard-item-field label {
+  display: block;
+  font-size: 14px;
+  color: var(--ink-2);
+  margin-bottom: 6px;
+}
 .dashboard-item-field input { width: 100%; }
 
-.dashboard-item-actions { display: flex; flex-wrap: wrap; gap: 6px; }
+.dashboard-item-actions { display: flex; flex-wrap: wrap; gap: 8px; }
 
 /* ============================================
-   12. Docs
+   9. Docs
    ============================================ */
 .docs-layout {
   display: grid;
-  grid-template-columns: 168px minmax(0, 1fr);
-  gap: 12px;
+  grid-template-columns: 190px minmax(0, 1fr);
+  gap: 40px;
   align-items: start;
+  padding-top: 48px;
 }
 
-/* The section list is a list box: sunken, white, selection inverted. */
-.docs-sidebar {
-  background: var(--field);
-  color: var(--field-ink);
-  padding: 4px;
-  min-width: 0;
-}
-
+.docs-sidebar { position: sticky; top: 28px; min-width: 0; }
 .docs-sidebar ul { list-style: none; }
 
 .docs-link {
   display: block;
-  color: var(--field-ink);
+  color: var(--ink-2);
   text-decoration: none;
-  padding: 2px 5px;
+  padding: 6px 0;
   font-size: 14.5px;
   overflow-wrap: anywhere;
 }
 
-.docs-link:hover { text-decoration: underline; }
-.docs-link.active { background: var(--sel); color: var(--sel-ink); }
+.docs-link:hover { color: var(--ink); }
+.docs-link.active { color: var(--ink); font-weight: 700; }
 
-.docs-content { min-width: 0; }
-.docs-content h1 { font-size: 15.5px; margin-bottom: 3px; }
-.docs-content .docs-subtitle { color: var(--dim); margin-bottom: 14px; }
-.docs-content h2 { font-size: 14.5px; margin: 14px 0 4px; }
-.docs-content p { font-size: 15.5px; margin-bottom: 8px; }
-.docs-content ol, .docs-content ul { margin: 0 0 10px 18px; }
-.docs-content li { font-size: 15.5px; margin-bottom: 4px; }
+.docs-content { min-width: 0; max-width: 680px; }
+.docs-content h1 { font-size: 26px; margin-bottom: 4px; }
+.docs-content .docs-subtitle { color: var(--ink-2); margin-bottom: 28px; }
+.docs-content h2 { font-size: 17px; margin: 28px 0 6px; }
+.docs-content p { margin-bottom: 10px; color: var(--ink-2); }
+.docs-content ol, .docs-content ul { margin: 0 0 14px 20px; color: var(--ink-2); }
+.docs-content li { margin-bottom: 5px; }
 
 code, pre {
-  font-family: "Courier New", monospace;
-  background: var(--field);
-  color: var(--field-ink);
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  background: var(--rule-2);
+  color: var(--ink);
+  border-radius: 6px;
   overflow-wrap: anywhere;
 }
 
-code { padding: 1px 4px; font-size: 14px; }
+code { padding: 2px 5px; font-size: 13.5px; }
 
-pre { padding: 7px 8px; margin: 0 0 10px; overflow-x: auto; }
-pre code { box-shadow: none; padding: 0; }
+pre { padding: 12px 14px; margin: 0 0 14px; overflow-x: auto; }
+pre code { background: none; padding: 0; }
 
-/* A callout is a 98 message panel, not a coloured card. */
+/* A callout is a line in the margin, not a coloured box. */
 .callout {
-  background: var(--face);
-  padding: 9px 10px;
-  margin: 12px 0;
+  border-left: 2px solid var(--go);
+  padding: 2px 0 2px 14px;
+  margin: 22px 0;
+  color: var(--ink-2);
   font-size: 14.5px;
 }
 
-.callout strong { display: inline; }
+.callout strong { display: inline; color: var(--ink); }
 
 /* ============================================
-   13. Blog
+   10. Blog
    ============================================ */
-.blog-article { min-width: 0; }
+.blog-article { min-width: 0; max-width: 720px; margin: 0 auto; padding-top: 48px; }
 
-.blog-list-header { margin-bottom: 12px; }
-.blog-list-header h1 { font-size: 15.5px; margin-bottom: 3px; }
-.blog-list-header p { color: var(--dim); }
+.blog-list-header { margin-bottom: 32px; }
+.blog-list-header h1 { font-size: 26px; margin-bottom: 4px; }
+.blog-list-header p { color: var(--ink-2); }
 
-.blog-list { list-style: none; display: flex; flex-direction: column; gap: 6px; }
+.blog-list { list-style: none; }
 
-.blog-list-item { background: var(--face); padding: 3px; min-width: 0; }
+.blog-list-item { border-bottom: 1px solid var(--rule-2); min-width: 0; }
 
-.blog-list-link { display: block; padding: 7px 9px; color: var(--ink); text-decoration: none; }
-.blog-list-link:hover h2 { text-decoration: underline; }
-.blog-list-link h2 { font-size: 14.5px; margin-bottom: 3px; }
+.blog-list-link {
+  display: block;
+  padding: 18px 0;
+  color: var(--ink);
+  text-decoration: none;
+}
 
-.blog-list-desc { color: var(--dim); font-size: 14px; }
-.blog-list-date { display: block; color: var(--shadow); font-size: 13px; margin-top: 4px; }
+.blog-list-link:hover h2 { color: var(--go); }
+.blog-list-link h2 { font-size: 17px; margin-bottom: 4px; }
 
-.blog-back { font-size: 13px; padding: 2px 8px; margin-bottom: 10px; }
+.blog-list-desc { color: var(--ink-2); font-size: 14.5px; }
+.blog-list-date { display: block; color: var(--ink-3); font-size: 13px; margin-top: 6px; }
 
-.blog-header { margin-bottom: 12px; }
-.blog-header h1 { font-size: 17px; margin-bottom: 3px; }
-.blog-meta { color: var(--shadow); font-size: 13px; }
+.blog-back {
+  border: 0;
+  padding: 0;
+  font-size: 14px;
+  color: var(--ink-2);
+  margin-bottom: 20px;
+}
 
-.blog-body { font-size: 15.5px; }
-.blog-body h2 { font-size: 15.5px; margin: 16px 0 5px; }
-.blog-body h3 { font-size: 14.5px; margin: 12px 0 4px; }
-.blog-body p { margin-bottom: 9px; }
-.blog-body ul, .blog-body ol { margin: 0 0 10px 18px; }
-.blog-body li { margin-bottom: 4px; }
-.blog-body a { color: var(--link); }
-.blog-body img { display: block; }
+.blog-back:hover { background: none; color: var(--ink); }
 
-.domain-chip-group { display: flex; flex-wrap: wrap; gap: 5px; margin: 8px 0; }
+.blog-header { margin-bottom: 28px; }
+.blog-header h1 { font-size: 30px; margin-bottom: 6px; }
+.blog-meta { color: var(--ink-3); font-size: 13.5px; }
+
+.blog-body { font-size: 16.5px; line-height: 1.75; }
+.blog-body h2 { font-size: 20px; margin: 34px 0 8px; }
+.blog-body h3 { font-size: 17px; margin: 26px 0 6px; }
+.blog-body p { margin-bottom: 14px; }
+.blog-body ul, .blog-body ol { margin: 0 0 16px 20px; }
+.blog-body li { margin-bottom: 6px; }
+.blog-body img { display: block; border-radius: 10px; }
+
+.domain-chip-group { display: flex; flex-wrap: wrap; gap: 6px; margin: 12px 0; }
 
 .domain-chip {
-  background: var(--face);
-  padding: 2px 8px;
+  background: var(--rule-2);
+  border: 0;
+  color: var(--ink-2);
+  border-radius: 999px;
+  padding: 4px 12px;
   font-size: 13px;
   cursor: pointer;
 }
 
-.error { color: var(--bad); }
+.domain-chip:hover { background: var(--go-soft); color: var(--ink); }
 
 /* ============================================
-   14. Modal — a 98 dialog
-   The <h2> is the dialog's title bar and .modal-close is its [×], so
-   the dialog needs no extra markup to look like one.
+   11. Modal
    ============================================ */
 .modal {
   position: fixed;
@@ -762,473 +697,179 @@ pre code { box-shadow: none; padding: 0; }
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 20px 12px;
+  padding: 24px 16px;
 }
 
 .modal.hidden { display: none; }
 
-.modal-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.35); }
+.modal-backdrop { position: absolute; inset: 0; background: rgba(0, 0, 0, 0.4); }
 
 .modal-content {
   position: relative;
   z-index: 1;
-  background: var(--face);
-  padding: 3px;
-  width: min(400px, 100%);
+  background: var(--paper);
+  border: 1px solid var(--rule);
+  border-radius: 14px;
+  padding: 24px;
+  width: min(420px, 100%);
   max-height: 90vh;
   overflow-y: auto;
 }
 
-.modal-content > h2 {
-  background: linear-gradient(90deg, var(--title1), var(--title2));
-  color: var(--title-ink);
+.modal-content > h2 { font-size: 19px; margin-bottom: 4px; padding-right: 28px; }
+
+.modal-subtitle {
+  color: var(--ink-2);
   font-size: 14.5px;
-  padding: 3px 24px 3px 6px;
-  margin-bottom: 11px;
+  margin-bottom: 20px;
+  overflow-wrap: anywhere;
 }
 
-.modal-subtitle { padding: 0 10px; margin-bottom: 11px; overflow-wrap: anywhere; }
-.modal-subtitle strong { font-weight: 700; }
-.modal-content form { padding: 0 10px 10px; }
+.modal-subtitle strong { color: var(--ink); }
 
 .modal-close {
   position: absolute;
-  top: 5px; right: 5px;
-  width: 17px; height: 15px;
+  top: 14px; right: 14px;
+  width: 28px; height: 28px;
   padding: 0;
-  font-size: 13px;
+  border: 0;
+  border-radius: 8px;
+  font-size: 19px;
   line-height: 1;
-  background: var(--face);
-  color: var(--ink);
-  cursor: pointer;
+  color: var(--ink-3);
+  background: none;
 }
 
-.modal-close:active { padding: 0; }
+.modal-close:hover { background: var(--rule-2); color: var(--ink); }
 
 body.modal-open { overflow: hidden; }
 
 /* ============================================
-   15. Toasts — message boxes stacked in the corner
+   12. Toasts
    ============================================ */
 .toast-container {
   position: fixed;
-  top: 12px; right: 12px;
+  top: 20px; right: 20px;
   z-index: 1100;
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  max-width: min(320px, calc(100vw - 24px));
+  gap: 8px;
+  max-width: min(340px, calc(100vw - 32px));
 }
 
 .toast {
-  background: var(--face);
-  color: var(--ink);
-  padding: 8px 11px 9px 9px;
+  background: var(--ink);
+  color: var(--paper);
+  border-radius: 10px;
+  padding: 11px 14px;
   font-size: 14.5px;
+  line-height: 1.5;
   overflow-wrap: anywhere;
 }
 
-.toast::before { font-weight: 700; margin-right: 6px; }
-.toast.info::before { content: "i"; color: var(--title1); }
-.toast.success::before { content: "\2713"; color: var(--ok); }
+.toast::before { font-weight: 700; margin-right: 8px; }
+.toast.info::before { content: "i"; }
+.toast.success::before { content: "\2713"; color: var(--go); }
 .toast.error::before { content: "\00D7"; color: var(--bad); }
 
 /* ============================================
-   16. Loader — the 98 progress bar
+   13. Loader
+
+   찾는 중임을 알리는 최소한의 표시. 글자가 아니라 선 하나다 —
+   결과가 바뀌는 자리가 아래라, 위에서 소란을 떨 이유가 없다.
    ============================================ */
 .loader-overlay {
   position: fixed;
-  inset: 0;
+  left: 0; right: 0; top: 0;
   z-index: 1200;
   display: none;
-  align-items: center;
-  justify-content: center;
-  background: rgba(0, 0, 0, 0.25);
-  cursor: progress;
+  height: 2px;
+  background: var(--rule-2);
+  overflow: hidden;
 }
 
-.loader-overlay.show { display: flex; }
+.loader-overlay.show { display: block; }
 
 .loader-spinner {
-  width: 148px;
-  height: 20px;
-  background-color: var(--field);
-  /* chunky blue blocks with a gap, marching right */
-  background-image: repeating-linear-gradient(
-    90deg,
-    var(--title1) 0 10px,
-    transparent 10px 13px
-  );
-  background-position: 0 0;
-  animation: sitey-progress 0.9s linear infinite;
+  display: block;
+  height: 100%;
+  width: 40%;
+  background: var(--go);
+  transform: translateX(-100%);
+  animation: sitey-sweep 0.9s ease-in-out infinite;
 }
 
-@keyframes sitey-progress {
-  from { background-position: 0 0; }
-  to { background-position: 13px 0; }
+@keyframes sitey-sweep {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(350%); }
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .loader-spinner { animation: none; }
+  .loader-spinner { animation: none; transform: none; width: 100%; opacity: 0.5; }
 }
 
 /* ============================================
-   17. Footer — the window's status bar
+   14. Footer
+
+   폭 규칙은 헤더와 같다 — 세로 flex 안에서 auto 마진만으로는
+   내용 폭으로 쪼그라든다.
    ============================================ */
-.site-footer {
-  display: flex;
-  gap: 3px;
-  font-size: 13px;
-  margin: 0 0 0;
-}
-
-.site-footer > * {
-  flex: 1;
-  min-width: 0;
-  padding: 2px 6px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.site-footer a { color: var(--ink); text-decoration: none; }
-.site-footer a:hover { text-decoration: underline; }
-.footer-brand { font-weight: 700; }
-
-/* The sunken cell edges already separate the fields; the pipe that
-   used to do it now reads as a stray character. */
-.footer-divider { display: none; }
-
-/* ============================================
-   18. Taskbar
-   ============================================ */
-.taskbar {
-  position: fixed;
-  left: 0; right: 0; bottom: 0;
-  height: 30px;
-  z-index: 900;
-  background: var(--face);
+footer {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 3px 4px;
-  box-shadow: inset 0 1px var(--white);
+  gap: 20px;
+  width: 100%;
+  max-width: 1080px;
+  margin: 0 auto;
+  padding: 22px 28px;
+  border-top: 1px solid var(--rule-2);
+  font-size: 13.5px;
+  color: var(--ink-3);
 }
 
-.taskbar-start {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  flex: none;
-  font-size: 14.5px;
-  font-weight: 700;
-  padding: 3px 8px 3px 5px;
-}
+footer a { color: inherit; text-decoration: none; }
+footer a:hover { color: var(--ink-2); text-decoration: underline; }
 
-.taskbar-flag {
-  display: flex;
-  flex-wrap: wrap;
-  width: 14px; height: 14px;
-  flex: none;
-  transform: skewX(-8deg);
-}
-
-.taskbar-flag i { width: 7px; height: 7px; display: block; }
-.taskbar-flag i:nth-child(1) { background: #ff0000; }
-.taskbar-flag i:nth-child(2) { background: #00a400; }
-.taskbar-flag i:nth-child(3) { background: #0000ff; }
-.taskbar-flag i:nth-child(4) { background: #ffc000; }
-
-.taskbar-tasks { flex: 1; display: flex; gap: 4px; min-width: 0; }
-
-/* ── 인터넷 창의 도구모음과 주소창 ─────────────────────────
-   제목줄과 메뉴는 «창»을 만들지만, 그 창을 «인터넷 창»으로 읽히게 하는
-   것은 주소창이다. 주소를 나눠주는 서비스라 더 그렇다. */
-.ie-tools {
-  display: flex;
-  align-items: center;
-  gap: 2px;
-  padding: 3px 5px;
-  border-top: 1px solid var(--white);
-  border-bottom: 1px solid var(--shadow);
-  overflow-x: auto;
-}
-.ie-btn {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  flex: none;
-  background: var(--face);
-  color: var(--ink);
-  border: none;
-  font: inherit;
-  font-size: 13px;
-  padding: 3px 8px;
-  cursor: pointer;
-  white-space: nowrap;
-  /* The skin gives every button a raised bevel. A toolbar button is the one
-     place that is wrong: it lies flat until the pointer is over it. */
-  box-shadow: none;
-}
-/* 98 의 도구모음 단추는 평소엔 평평하고 마우스를 올려야 튀어나온다. */
-.ie-btn:hover {
-  box-shadow:
-    inset -1px -1px var(--dark), inset 1px 1px var(--white),
-    inset -2px -2px var(--shadow), inset 2px 2px var(--light);
-}
-.ie-btn:active {
-  box-shadow:
-    inset -1px -1px var(--white), inset 1px 1px var(--shadow),
-    inset -2px -2px var(--light), inset 2px 2px var(--dark);
-  padding: 4px 7px 2px 9px;
-}
-.ie-btn span { font-size: 12px; line-height: 1; }
-.ie-divider {
-  flex: none;
-  width: 0;
-  height: 16px;
-  margin: 0 4px;
-  border-left: 1px solid var(--shadow);
-  border-right: 1px solid var(--white);
-}
-
-.ie-address {
-  display: flex;
-  align-items: center;
-  gap: 7px;
-  padding: 3px 6px 5px;
-  border-bottom: 1px solid var(--shadow);
-}
-.ie-address label {
-  flex: none;
-  font-size: 13px;
-}
-.ie-address input {
-  flex: 1;
-  min-width: 0;
-  font: inherit;
-  font-size: 14px;
-  background: var(--field);
-  color: var(--field-ink);
-  border: none;
-  padding: 3px 10px;
-  box-shadow:
-    inset -1px -1px var(--white), inset 1px 1px var(--shadow),
-    inset -2px -2px var(--light), inset 2px 2px var(--dark);
-}
-
-/* 모바일 사파리는 background-attachment: fixed 를 제대로 못 그린다.
-   작은 화면에서는 붙박이를 풀고 여백도 줄인다 — 폰에서 바탕을 넓게
-   보여줄 자리가 없다. */
-@media (max-width: 520px) {
-  body {
-    background-attachment: scroll;
-    padding: 12px 10px 56px;
-  }
-  .container { min-height: calc(100vh - 74px); }
-}
-
-@media (max-width: 520px) {
-  .ie-btn { padding: 3px 6px; font-size: 12.5px; }
-  .ie-btn:active { padding: 4px 5px 2px 7px; }
-  .ie-address label { display: none; }
-}
-
-/* ── 바탕화면 아이콘 ─────────────────────────────────────────
-   대시보드의 도메인들을 아이콘으로 본다. 그림 파일은 쓰지 않는다 —
-   오늘 이미지를 1MB 에서 8KB 로 줄인 참이라 아이콘마다 파일을 두면
-   그걸 되돌리게 된다. 지구본은 CSS 로 그린다. */
-.desk-icons {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 4px;
-  margin: 0 0 16px;
-  padding: 8px;
-  min-height: 0;
-  box-shadow:
-    inset -1px -1px var(--white), inset 1px 1px var(--shadow),
-    inset -2px -2px var(--light), inset 2px 2px var(--dark);
-  background: var(--field);
-}
-.desk-icons:empty { display: none; }
-
-.desk-icon {
-  width: 76px;
-  padding: 6px 2px 5px;
-  display: flex;
-  flex-direction: column;
-  align-items: center;
-  gap: 5px;
-  text-decoration: none;
-  color: var(--field-ink);
-  cursor: default;
-}
-.desk-icon-glyph {
-  width: 30px;
-  height: 30px;
-  flex: none;
-  border-radius: 50%;
-  background: var(--title2);
-  box-shadow: inset -2px -3px rgba(0, 0, 0, 0.35), inset 2px 2px rgba(255, 255, 255, 0.5);
-  position: relative;
-}
-/* 지구본의 경선 두 줄. 이것만 있어도 «주소»로 읽힌다. */
-.desk-icon-glyph::before,
-.desk-icon-glyph::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  border-radius: 50%;
-  border: 1px solid rgba(255, 255, 255, 0.55);
-}
-.desk-icon-glyph::after {
-  inset: 0 8px;
-}
-.desk-icon-label {
-  font-size: 13px;
-  line-height: 1.3;
-  text-align: center;
-  word-break: break-all;
-  padding: 1px 3px;
-}
-/* 98 의 선택 표시는 파란 띠와 점선 테두리다. */
-.desk-icon.selected .desk-icon-label,
-.desk-icon:focus-visible .desk-icon-label {
-  background: var(--sel);
-  color: var(--sel-ink);
-  outline: 1px dotted var(--sel-ink);
-  outline-offset: -1px;
-}
-.desk-icon:focus { outline: none; }
-
-@media (max-width: 520px) {
-  .desk-icon { width: 68px; }
-}
-
-/* ── 시작 메뉴 ───────────────────────────────────────────────
-   왼쪽 세로 띠가 98 을 «읽기 전에» 알아보게 하는 부분이라 뺄 수 없다.
-   작업표시줄(높이 30) 바로 위에 붙는다. */
-.start-menu {
-  position: fixed;
-  left: 4px;
-  bottom: 30px;
-  z-index: 901;
-  display: flex;
-  background: var(--face);
-  padding: 3px;
-  min-width: 200px;
-  box-shadow:
-    inset -1px -1px var(--dark), inset 1px 1px var(--white),
-    inset -2px -2px var(--shadow), inset 2px 2px var(--light);
-}
-.start-menu.hidden { display: none; }
-
-.start-rail {
-  flex: none;
-  width: 26px;
-  background: linear-gradient(180deg, var(--title2) 0%, var(--title1) 100%);
-  position: relative;
-}
-/* 세로로 세운 글자. 98 의 그 띠. */
-.start-rail span {
-  position: absolute;
-  bottom: 8px;
-  left: 50%;
-  transform: translateX(-50%) rotate(180deg);
-  writing-mode: vertical-rl;
-  color: var(--title-ink);
-  font-size: 15.5px;
-  font-weight: 700;
-  letter-spacing: 0.02em;
-  white-space: nowrap;
-}
-
-.start-items {
-  flex: 1;
-  list-style: none;
-  margin: 0;
-  padding: 2px 0;
-  min-width: 0;
-}
-.start-items li { margin: 0; }
-.start-items a {
-  display: block;
-  padding: 5px 22px 5px 12px;
-  font-size: 14.5px;
-  color: var(--ink);
-  text-decoration: none;
-  white-space: nowrap;
-}
-/* 98 의 선택 표시는 파란 띠다. 밑줄이 아니다. */
-.start-items a:hover,
-.start-items a:focus {
-  background: var(--sel);
-  color: var(--sel-ink);
-  outline: none;
-}
-.start-sep {
-  height: 0;
-  margin: 3px 4px;
-  border-top: 1px solid var(--shadow);
-  border-bottom: 1px solid var(--white);
-}
-
-/* 공식 버튼이 들어오는 자리. 위젯이 제 모양을 그대로 가져오므로
-   여기서는 «놓일 자리»만 만든다. 색도 서체도 건드리지 않는다 —
+/* 공식 위젯이 그려지는 자리. 위젯이 제 script 태그 자리에 그리므로
+   여기서는 «놓일 자리»만 만든다 — 색도 서체도 건드리지 않는다.
    딴 시대처럼 보이는 것이 의도다(Jay). */
-.start-coffee {
-  padding: 6px 8px 4px;
+.bmc {
+  margin-left: auto;
   display: flex;
-  justify-content: center;
-}
-.start-coffee img,
-.start-coffee a { max-width: 100%; }
-
-@media (max-width: 520px) {
-  .start-menu { left: 2px; right: 2px; min-width: 0; }
-}
-
-.taskbar-tasks span {
-  flex: 0 1 170px;
+  align-items: center;
   min-width: 0;
-  padding: 3px 8px;
-  font-size: 13px;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
 
-.taskbar-tray {
-  flex: none;
-  padding: 3px 9px;
-  font-size: 13px;
-  font-variant-numeric: tabular-nums;
-}
+.bmc img, .bmc a { max-width: 100%; }
 
 /* ============================================
-   19. Responsive
+   15. Responsive
    ============================================ */
-@media (max-width: 640px) {
-  .docs-layout { grid-template-columns: minmax(0, 1fr); }
+@media (max-width: 720px) {
+  .docs-layout { grid-template-columns: minmax(0, 1fr); gap: 24px; }
+  .docs-sidebar { position: static; }
+  .docs-sidebar ul { display: flex; flex-wrap: wrap; gap: 16px; }
+  .docs-link { padding: 0; }
 }
 
-@media (max-width: 520px) {
-  body { padding: 12px 6px 48px; }
-  main { padding: 10px 9px 12px; }
+@media (max-width: 640px) {
+  header { padding: 16px 18px; gap: 14px; }
+  header nav { gap: 14px; }
+  main { padding: 0 18px 56px; }
+  footer { padding: 18px; gap: 14px; flex-wrap: wrap; }
 
-  .nav-toggle { display: inline-flex; }
-  .nav-center { display: none; }
-  .nav-center.open { display: flex; flex-direction: column; }
-  .nav-center a { padding: 4px 8px; }
+  .stage { padding-top: 46px; }
+  .wordmark { font-size: 44px; margin-bottom: 30px; }
 
-  /* One long domain name must not widen the page: let the input take
-     its own row instead of fighting the button for the same one. */
-  .search-box input { flex: 1 1 100%; order: 3; }
-  .search-box button { order: 4; }
+  .field { flex-wrap: wrap; border-radius: 12px; }
+  .field input { flex: 1 1 100%; padding: 14px 16px; font-size: 18px; }
+  .field button { flex: 1 1 100%; justify-content: flex-end; padding: 0 16px 14px; }
 
-  .statusbar, .site-footer { flex-direction: column; gap: 2px; }
-  .statusbar > *, .site-footer > * { white-space: normal; }
+  .points { grid-template-columns: 1fr; gap: 26px; margin-top: 56px; }
 
-  .taskbar-tasks span { flex: 1 1 auto; }
-  .feature-grid { grid-template-columns: minmax(0, 1fr); }
+  .result-row { flex-wrap: wrap; gap: 8px 12px; }
+  .result-row .domain-name { flex: 1 1 100%; }
+
+  .dashboard-section, .blog-article, .docs-layout { padding-top: 32px; }
+  .form-card { margin-top: 40px; }
 }

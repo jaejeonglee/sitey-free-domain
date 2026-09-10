@@ -1,44 +1,12 @@
 import { apiFetch, getCurrentUser } from "./api.js";
 import { navigateTo } from "./router.js";
-import { showMessage, setButtonLoading, clearButtonLoading, showLoader, hideLoader, setHidden, clearChildren, resetMessage, formatDomainList } from "./ui.js";
+import { showMessage, setButtonLoading, clearButtonLoading, showLoader, hideLoader, setHidden, clearChildren, resetMessage } from "./ui.js";
 import { normalizeRecordType, validateRecordValue } from "./util.js";
 import { SUBDOMAIN_REGEX, RECORD_TYPE_UI } from "./constants.js";
 import { t } from "./i18n.js";
 
-async function loadManagedDomains() {
-  const target = document.getElementById("domain-list-span");
-  if (!target) return;
-
-  try {
-    const data = await apiFetch("/api/managed-domains");
-    if (Array.isArray(data.domains) && data.domains.length > 0) {
-      target.textContent = formatDomainList(data.domains);
-    } else {
-      target.textContent = "No domains configured";
-    }
-  } catch (error) {
-    target.textContent = "Unavailable";
-  }
-}
-
-export async function refreshDomainCount() {
-  const counter = document.getElementById("domain-count-number");
-  if (!counter) return;
-
-  try {
-    const data = await apiFetch("/api/stats/active-domains");
-    const value =
-      typeof data?.activeDomains === "number" ? data.activeDomains : "--";
-    counter.textContent = value;
-  } catch (error) {
-    counter.textContent = "N/A";
-  }
-}
-
 export function initializeLandingPage() {
   resetMessage();
-  loadManagedDomains();
-  refreshDomainCount();
 
   const form = document.getElementById("subdomain-form");
   const subdomainInput = document.getElementById("subdomain");
@@ -297,7 +265,6 @@ export function initializeLandingPage() {
         }
 
         closeCreateModal();
-        refreshDomainCount();
       } catch (error) {
         showMessage(error.message, "error");
       } finally {

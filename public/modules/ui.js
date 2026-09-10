@@ -1,6 +1,6 @@
 import { getCurrentUser, logoutAndRedirect } from "./api.js";
 import { t } from "./i18n.js";
-import { setWindowTitle } from "./taskbar.js";
+import { wireThemeButtons } from "./theme.js";
 
 /* ============================================
    Toast Notifications
@@ -106,164 +106,63 @@ export function hideLoader() {
 }
 
 /* ============================================
-   Format Helpers
-   ============================================ */
-export function formatDomainList(domains = []) {
-  return domains.join(", ");
-}
-
-/* ============================================
-   Footer
-   ============================================ */
-export function renderFooter() {
-  const container = document.getElementById("footer");
-  if (!container) return;
-  container.innerHTML = `
-    <footer class="site-footer">
-      <span class="footer-brand">SITEY</span>
-      <span class="footer-divider" aria-hidden="true">|</span>
-      <a href="/api/policies/privacy" target="_blank" rel="noopener noreferrer">
-        Privacy Policy
-      </a>
-    </footer>
-  `;
-}
-
-/* ============================================
    Navbar
+
+   Right-aligned and small: the header is not where the work happens.
+
+   Two links plus two pairs. The pairs — KR·EN and sun·moon — follow one
+   rule between them: the one you are on is bold and inert, the one you can
+   go to is quiet. A different rule for each would leave neither readable.
    ============================================ */
+
+const SUN = `<svg viewBox="0 0 20 20" aria-hidden="true">
+      <circle cx="10" cy="10" r="3.6" fill="none" stroke="currentColor" stroke-width="1.6"/>
+      <path d="M10 1.6v2.2M10 16.2v2.2M18.4 10h-2.2M3.8 10H1.6M15.9 4.1l-1.6 1.6M5.7 14.3l-1.6 1.6M15.9 15.9l-1.6-1.6M5.7 5.7 4.1 4.1"
+            stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/>
+    </svg>`;
+
+const MOON = `<svg viewBox="0 0 20 20" aria-hidden="true">
+      <path d="M16 11.8A6.5 6.5 0 0 1 8.2 4a6.5 6.5 0 1 0 7.8 7.8Z"
+            fill="none" stroke="currentColor" stroke-width="1.6" stroke-linejoin="round"/>
+    </svg>`;
+
 export function renderNavbar(currentPath) {
   const container = document.getElementById("navbar");
   if (!container) return;
 
   const user = getCurrentUser();
 
-  const navLinks = [
-    { path: "/", label: t("nav.home") },
-    { path: "/docs", label: t("nav.docs") },
-    { path: "/blog", label: t("nav.blog") },
-  ];
-
-  if (user) {
-    navLinks.push({ path: "/dashboard", label: t("nav.dashboard") });
-  }
-
-  // The title bar says which window you are in, and the task button below
-  // repeats it. /login and /dashboard are not menu titles but are still
-  // pages, so they get their labels from the same strings.
-  const titles = {
-    ...Object.fromEntries(navLinks.map(({ path, label }) => [path, label])),
-    "/guide": t("nav.docs"),
-    "/login": t("nav.login"),
-    "/signup": t("nav.login"),
-    "/dashboard": t("nav.dashboard"),
-  };
-  const pageLabel =
-    titles[currentPath] || (currentPath.startsWith("/blog") ? t("nav.blog") : "");
-  const windowTitle = pageLabel ? `sitey.my — ${pageLabel}` : "sitey.my";
-  setWindowTitle(windowTitle);
-
-  const authLink = user
-    ? `<button type="button" id="nav-logout-btn" class="nav-auth-btn">${t("nav.logout")}</button>`
-    : `<a href="/login" class="nav-auth-btn ${currentPath === "/login" ? "active" : ""}">${t("nav.login")}</a>`;
+  // Signed in, the login link becomes the two things only a signed-in
+  // visitor can do. Signed out, it is the one thing they can.
+  const account = user
+    ? `<a href="/dashboard" class="${currentPath === "/dashboard" ? "active" : ""}">${t("nav.dashboard")}</a>
+       <button type="button" id="nav-logout-btn" class="nav-auth-btn">${t("nav.logout")}</button>`
+    : `<a href="/login" class="${currentPath === "/login" ? "active" : ""}">${t("nav.login")}</a>`;
 
   container.innerHTML = `
-    <nav class="site-nav" aria-label="Primary">
-      <div class="nav-left">
-        <a href="/" class="nav-logo" aria-label="Sitey Home">
-          <img src="/logo-64.png" alt="sitey.my logo" width="28" height="28" decoding="async" />
-          <span class="nav-brand">${windowTitle}</span>
-        </a>
-      </div>
-      <button type="button" class="nav-toggle" id="nav-toggle" aria-label="Toggle menu" aria-expanded="false">
-        <span></span><span></span><span></span>
-      </button>
-      <div class="nav-center" id="nav-menu">
-        ${navLinks.map(({ path, label }) => `
-          <a href="${path}" class="${currentPath === path ? "active" : ""}">${label}</a>
-        `).join("")}
-      </div>
-      <div class="nav-right">
-        <select id="lang-select" class="nav-select">
-          <option value="en">EN</option>
-          <option value="ko">KR</option>
-        </select>
-        ${authLink}
-      </div>
+    <nav aria-label="Primary">
+      <a href="/docs" class="${currentPath === "/docs" || currentPath === "/guide" ? "active" : ""}">${t("nav.docs")}</a>
+      ${account}
+      <span class="lang" role="group" data-i18n-aria="lang.group" aria-label="Language">
+        <button type="button" data-lang="ko">KR</button>
+        <span aria-hidden="true">·</span>
+        <button type="button" data-lang="en">EN</button>
+      </span>
+      <span class="theme" role="group" data-i18n-aria="theme.group" aria-label="Theme">
+        <button type="button" data-set-theme="light" data-i18n-aria="theme.light" aria-label="Light">${SUN}</button>
+        <span aria-hidden="true">·</span>
+        <button type="button" data-set-theme="dark" data-i18n-aria="theme.dark" aria-label="Dark">${MOON}</button>
+      </span>
     </nav>
-
-    <!-- Internet Explorer's furniture. Jay: «윈도우 os 위에 인터넷 창이
-         띄워진 느낌이 아니라 어색해» — a title bar and a menu make a window,
-         but what makes it an *internet* window is the address bar. And for a
-         service whose product is addresses, showing one is not decoration. -->
-    <div class="ie-tools" role="toolbar" aria-label="${t("ie.toolbar")}">
-      <button type="button" class="ie-btn" data-go="back">
-        <span aria-hidden="true">&#x25C0;</span> ${t("ie.back")}
-      </button>
-      <button type="button" class="ie-btn" data-go="forward">
-        <span aria-hidden="true">&#x25B6;</span> ${t("ie.forward")}
-      </button>
-      <span class="ie-divider" aria-hidden="true"></span>
-      <button type="button" class="ie-btn" data-go="reload">
-        <span aria-hidden="true">&#x21BB;</span> ${t("ie.reload")}
-      </button>
-      <button type="button" class="ie-btn" data-go="home">
-        <span aria-hidden="true">&#x2302;</span> ${t("ie.home")}
-      </button>
-    </div>
-
-    <div class="ie-address">
-      <label for="ie-url">${t("ie.address")}</label>
-      <input id="ie-url" type="text" readonly value="https://sitey.my${currentPath === "/" ? "/" : currentPath}" />
-    </div>
   `;
 
-  // Back and forward are the browser's own history — the buttons say what
-  // they do and then do exactly that, rather than imitating it.
-  container.querySelectorAll("[data-go]").forEach((btn) => {
-    btn.addEventListener("click", () => {
-      const where = btn.dataset.go;
-      if (where === "back") history.back();
-      else if (where === "forward") history.forward();
-      else if (where === "reload") window.location.reload();
-      // A full load rather than the client router: router.js imports this
-      // file, so importing it back would be a cycle — and a Home button that
-      // actually reloads is the more faithful one anyway.
-      else if (where === "home") window.location.assign("/");
-    });
-  });
+  wireThemeButtons(container);
 
-  // Selecting the whole address on focus is what a browser does, and it is
-  // the one gesture people try on an address bar.
-  const urlField = container.querySelector("#ie-url");
-  if (urlField) urlField.addEventListener("focus", () => urlField.select());
-
-  // Logout
   const logoutBtn = container.querySelector("#nav-logout-btn");
   if (logoutBtn) {
     logoutBtn.addEventListener("click", (event) => {
       event.preventDefault();
       logoutAndRedirect("/");
-    });
-  }
-
-  // Mobile menu toggle
-  const navToggle = container.querySelector("#nav-toggle");
-  const navMenu = container.querySelector("#nav-menu");
-  if (navToggle && navMenu) {
-    navToggle.addEventListener("click", () => {
-      const isOpen = navMenu.classList.toggle("open");
-      navToggle.classList.toggle("open", isOpen);
-      navToggle.setAttribute("aria-expanded", isOpen ? "true" : "false");
-    });
-
-    // Close menu on link click
-    navMenu.querySelectorAll("a").forEach((link) => {
-      link.addEventListener("click", () => {
-        navMenu.classList.remove("open");
-        navToggle.classList.remove("open");
-        navToggle.setAttribute("aria-expanded", "false");
-      });
     });
   }
 }
