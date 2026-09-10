@@ -54,30 +54,6 @@
   bevel needs a surface that something can be darker than; on #000 the
   bottom-right edges vanish and a pressed button stops being legible.
 */
-/* 고대비 테마에서는 배경 그림을 끈다. 대비를 높이려고 켠 테마에
-   그림을 까는 것은 그 목적과 반대다. */
-body.dark-theme {
-  background-image: none;
-  --face: #202020;
-  --desk: #000000;
-  --ink: #ffffff;
-  --dim: #b8b8b8;
-  --white: #ffffff;
-  --light: #6e6e6e;
-  --shadow: #101010;
-  --dark: #000000;
-  --title1: #000000;
-  --title2: #0050a0;
-  --title-ink: #ffffff;
-  --sel: #ffffff;
-  --sel-ink: #000000;
-  --field: #000000;
-  --field-ink: #ffffff;
-  --ok: #33e033;
-  --bad: #ff8080;
-  --link: #7fc8ff;
-}
-
 /* ============================================
    2. Bevels
    ============================================ */
@@ -194,7 +170,6 @@ a { color: var(--link); }
 
 /* 98 marked focus with a dotted rectangle inside the control. */
 :focus-visible { outline: 1px dotted var(--ink); outline-offset: -4px; }
-body.dark-theme :focus-visible { outline-color: var(--white); }
 
 img { max-width: 100%; }
 
@@ -333,7 +308,6 @@ h1, h2, h3 { font-weight: 700; line-height: 1.3; }
 }
 
 .nav-select { padding: 3px 4px; appearance: none; }
-.theme-icon { font-size: 14.5px; line-height: 1; }
 
 .nav-right .nav-auth-btn:active,
 .nav-toggle:active { padding: 5px 6px 3px 8px; }
@@ -448,7 +422,6 @@ h1, h2, h3 { font-weight: 700; line-height: 1.3; }
 
 .result-row .status.available { color: var(--ok); }
 .result-row .status.taken { color: var(--shadow); }
-body.dark-theme .result-row .status.taken { color: var(--dim); }
 
 /* ============================================
    8. Feature cards
@@ -568,13 +541,6 @@ button:disabled, .primary-button:disabled, .danger-button:disabled {
   /* 98 greyed a disabled label by drawing it twice, white below black. */
   text-shadow: 1px 1px var(--white);
   cursor: default;
-}
-
-body.dark-theme button:disabled,
-body.dark-theme .primary-button:disabled,
-body.dark-theme .danger-button:disabled {
-  color: var(--dim);
-  text-shadow: none;
 }
 
 .primary-button.small { padding: 2px 8px; font-size: 13px; }
@@ -746,14 +712,12 @@ pre code { box-shadow: none; padding: 0; }
 
 .blog-list-desc { color: var(--dim); font-size: 14px; }
 .blog-list-date { display: block; color: var(--shadow); font-size: 13px; margin-top: 4px; }
-body.dark-theme .blog-list-date { color: var(--dim); }
 
 .blog-back { font-size: 13px; padding: 2px 8px; margin-bottom: 10px; }
 
 .blog-header { margin-bottom: 12px; }
 .blog-header h1 { font-size: 17px; margin-bottom: 3px; }
 .blog-meta { color: var(--shadow); font-size: 13px; }
-body.dark-theme .blog-meta { color: var(--dim); }
 
 .blog-body { font-size: 15.5px; }
 .blog-body h2 { font-size: 15.5px; margin: 16px 0 5px; }
@@ -872,7 +836,6 @@ body.modal-open { overflow: hidden; }
 .toast.info::before { content: "i"; color: var(--title1); }
 .toast.success::before { content: "\2713"; color: var(--ok); }
 .toast.error::before { content: "\00D7"; color: var(--bad); }
-body.dark-theme .toast.info::before { color: var(--title2); }
 
 /* ============================================
    17. Loader — the 98 progress bar

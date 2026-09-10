@@ -1,5 +1,4 @@
 import { router, navigateTo } from './modules/router.js';
-import { loadInitialTheme } from './modules/theme.js';
 import { getSavedLang, loadLang } from './modules/i18n.js';
 import { fetchCurrentUser } from './modules/api.js';
 import { startClock, startMenu } from './modules/taskbar.js';
@@ -23,9 +22,6 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   // Initial route
   router();
-
-  // Load initial theme
-  loadInitialTheme();
 
   startClock();
   startMenu();

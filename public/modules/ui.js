@@ -1,5 +1,4 @@
 import { getCurrentUser, logoutAndRedirect } from "./api.js";
-import { toggleTheme, applyTheme } from "./theme.js";
 import { t } from "./i18n.js";
 import { setWindowTitle } from "./taskbar.js";
 
@@ -190,12 +189,6 @@ export function renderNavbar(currentPath) {
           <option value="en">EN</option>
           <option value="ko">KR</option>
         </select>
-        <button type="button" id="theme-toggle-btn" class="nav-auth-btn" aria-label="Toggle theme">
-          <!-- U+FE0E asks for the text glyph: a colour emoji is the one thing
-               on screen that could not have been drawn in 1998. -->
-          <span id="theme-icon-sun" class="theme-icon" style="display: none;">&#x263C;&#xFE0E;</span>
-          <span id="theme-icon-moon" class="theme-icon" style="display: none;">&#x263E;&#xFE0E;</span>
-        </button>
         ${authLink}
       </div>
     </nav>
@@ -253,16 +246,6 @@ export function renderNavbar(currentPath) {
       event.preventDefault();
       logoutAndRedirect("/");
     });
-  }
-
-  // Theme toggle — re-apply current theme to refresh icon state
-  const themeToggleBtn = container.querySelector("#theme-toggle-btn");
-  if (themeToggleBtn) {
-    themeToggleBtn.addEventListener("click", toggleTheme);
-    const currentTheme = document.body.classList.contains("dark-theme")
-      ? "dark"
-      : "light";
-    applyTheme(currentTheme);
   }
 
   // Mobile menu toggle
