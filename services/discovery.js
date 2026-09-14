@@ -520,4 +520,56 @@ function openApi({ origin }) {
   };
 }
 
-module.exports = { SUMMARY, API_PREFIX, hostOf, limitNotes, mcpManifest, openApi };
+/**
+ * The plain-text introduction at /llms.txt.
+ *
+ * Markdown, per llmstxt.org, and short on purpose: it is read by something
+ * that has a question and a budget, so it answers "what is this, how do I call
+ * it, what will stop me" and points at the two documents that hold the detail.
+ * Nothing here is stated that the OpenAPI document does not also state — one
+ * of them being newer than the other is how the file in public/ went wrong.
+ */
+function llmsTxt({ origin, domains }) {
+  const host = hostOf(origin);
+  const root = domains[0] || host;
+
+  return [
+    `# ${host}`,
+    "",
+    `> ${SUMMARY}`,
+    "",
+    "No account is needed to create one. A caller with no API key is identified by its",
+    "IP address and owns what that address created; an API key from the dashboard puts the",
+    "records under an account instead.",
+    "",
+    "## Calling it",
+    "",
+    `- [OpenAPI 3.1 spec](${origin}/openapi.json): every REST operation, every error code.`,
+    `- [MCP endpoint](${origin}/mcp): Streamable HTTP, stateless — one POST per JSON-RPC`,
+    "  message. Nine tools, the same nine operations as the REST API.",
+    `- [MCP manifest](${origin}/.well-known/mcp.json): what to hand an agent runtime.`,
+    "",
+    "Claiming a name is one request:",
+    "",
+    "```",
+    `curl -X POST ${origin}/api/v1/subdomains \\`,
+    "  -H 'content-type: application/json' \\",
+    `  -d '{"subdomain":"demo","domain":"${root}","type":"A","value":"203.0.113.10"}'`,
+    "```",
+    "",
+    `The roots you may create under are ${domains.join(", ")}. Ask ${origin}/api/v1/domains`,
+    "rather than copying that list: which roots are on offer is a table, not a constant.",
+    "",
+    "## Limits",
+    "",
+    ...limitNotes().map((note) => `- ${note}`),
+    "",
+    "## Pages",
+    "",
+    `- [Docs](${origin}/docs): the same ground for a person, with the Vercel setup written out.`,
+    `- [Blog](${origin}/blog): notes on running the service.`,
+    "",
+  ].join("\n");
+}
+
+module.exports = { SUMMARY, API_PREFIX, hostOf, limitNotes, mcpManifest, openApi, llmsTxt };

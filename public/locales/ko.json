@@ -50,6 +50,7 @@
   "docs.nav.records": "레코드 타입",
   "docs.nav.limits": "한도와 기한",
   "docs.nav.openapi": "API 명세 (OpenAPI)",
+  "docs.nav.llms": "llms.txt",
 
   "docs.quickstart.title": "빠른 시작",
   "docs.quickstart.subtitle": "세 단계면 됩니다.",

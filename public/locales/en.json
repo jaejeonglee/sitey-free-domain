@@ -50,6 +50,7 @@
   "docs.nav.records": "Record Types",
   "docs.nav.limits": "Limits & Expiry",
   "docs.nav.openapi": "API spec (OpenAPI)",
+  "docs.nav.llms": "llms.txt",
 
   "docs.quickstart.title": "Quick Start",
   "docs.quickstart.subtitle": "Three steps and you're done.",

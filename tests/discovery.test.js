@@ -199,6 +199,46 @@ describe("/openapi.json", () => {
   });
 });
 
+describe("/llms.txt", () => {
+  it("answers as plain text a browser will show", async () => {
+    const res = await app.inject({ method: "GET", url: "/llms.txt" });
+
+    expect(res.statusCode).toBe(200);
+    expect(res.headers["content-type"]).toMatch(/^text\/plain/);
+  });
+
+  it("points at the two documents that hold the detail", async () => {
+    const body = (await app.inject({ method: "GET", url: "/llms.txt" })).body;
+    const origin = config.server.publicOrigin;
+
+    expect(body).toContain(`${origin}/openapi.json`);
+    expect(body).toContain(`${origin}/mcp`);
+    expect(body).toContain(`${origin}/.well-known/mcp.json`);
+    // The roots come from the database, like everywhere else.
+    expect(body).toContain("sitey.my, officials.one");
+  });
+
+  it("carries no origin of its own and the limits the code applies", () => {
+    const built = discovery.llmsTxt({
+      origin: "https://example.test",
+      domains: ["example.test"],
+    });
+
+    expect(built).not.toContain("sitey");
+    expect(built).toContain("https://example.test/openapi.json");
+    for (const note of discovery.limitNotes()) {
+      expect(built).toContain(note);
+    }
+  });
+
+  it("is linked from /docs without JavaScript", async () => {
+    const res = await app.inject({ method: "GET", url: "/docs" });
+    const appRoot = res.body.match(/<main id="app-root">([\s\S]*?)<\/main>/)[1];
+
+    expect(appRoot).toContain('href="/llms.txt"');
+  });
+});
+
 // robots.txt disallows /api/, which is why none of these live under it. A
 // document a crawler is told not to read is no use for being found.
 describe("robots.txt lets the readers in", () => {

@@ -30,6 +30,17 @@ async function discoveryRoutes(fastify, options) {
   fastify.get("/openapi.json", async (request, reply) =>
     reply.type("application/json; charset=utf-8").header("Cache-Control", CACHE).send(openApi)
   );
+
+  // Markdown, served as text/plain: llmstxt.org asks for a file a reader can
+  // take in without parsing anything, and a browser that lands on it should
+  // show it rather than offer to download it.
+  fastify.get("/llms.txt", async (request, reply) => {
+    const domains = (await getManagedDomains(fastify)).map((d) => d.domain);
+    return reply
+      .type("text/plain; charset=utf-8")
+      .header("Cache-Control", CACHE)
+      .send(discovery.llmsTxt({ origin, domains }));
+  });
 }
 
 module.exports = discoveryRoutes;
