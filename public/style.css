@@ -190,7 +190,6 @@ img { max-width: 100%; }
   color: var(--ink);
   text-decoration: none;
 }
-.brand em { font-style: normal; color: var(--go); }
 
 #navbar nav {
   margin-left: auto;
@@ -297,7 +296,6 @@ main {
   line-height: 1;
 }
 
-.wordmark em { font-style: normal; color: var(--go); }
 
 .field {
   display: flex;
@@ -1226,7 +1224,6 @@ textarea { border-radius: var(--r-input); }
 }
 
 .hero-panel .wordmark { color: var(--hero-ink); margin-bottom: 34px; }
-.hero-panel .wordmark em { color: var(--hero-ink); opacity: 0.72; }
 
 /* 판 위의 입력창은 흰 카드처럼 보여야 읽힌다. */
 .hero-panel .field {

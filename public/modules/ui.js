@@ -146,7 +146,7 @@ export function renderNavbar(currentPath) {
   const atHome = currentPath === "/" || currentPath === "/index.html";
   const brand = atHome
     ? ""
-    : `<a href="/" class="brand" data-i18n-aria="nav.home" aria-label="Home">sitey<em>.my</em></a>`;
+    : `<a href="/" class="brand" data-i18n-aria="nav.home" aria-label="Home">sitey</a>`;
 
   container.innerHTML = `
     ${brand}
