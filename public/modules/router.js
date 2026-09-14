@@ -78,13 +78,15 @@ export async function router() {
     button.setAttribute("aria-pressed", String(button.dataset.lang === getLang()));
     button.addEventListener("click", async () => {
       if (button.dataset.lang === getLang()) return;
-      // The policy text is chosen on the server, so re-running the client
-      // router would repaint everything except the words being read.
+      await loadLang(button.dataset.lang);
+      // These pages have their text chosen on the server, so repainting on the
+      // client would change everything except the words being read. loadLang
+      // has just written the cookie the server reads, so a reload is enough —
+      // and it drops any ?lang= left in the address by an earlier choice.
       if (serverRendered) {
-        window.location.search = `?lang=${button.dataset.lang}`;
+        window.location.assign(window.location.pathname);
         return;
       }
-      await loadLang(button.dataset.lang);
       router();
     });
   });

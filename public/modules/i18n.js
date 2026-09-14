@@ -18,6 +18,10 @@ export async function loadLang(lang) {
     translations = await res.json();
     currentLang = lang;
     localStorage.setItem(STORAGE_KEY, lang);
+    // Also a cookie: pages whose text is rendered on the server (/about,
+    // /privacy) cannot read localStorage, and without this they always came
+    // back in the default language while the chrome said otherwise.
+    document.cookie = `${STORAGE_KEY}=${lang}; path=/; max-age=31536000; SameSite=Lax`;
     document.documentElement.lang = lang;
   } catch {
     if (lang !== DEFAULT_LANG) {

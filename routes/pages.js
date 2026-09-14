@@ -239,7 +239,15 @@ async function pageRoutes(fastify, options) {
     fastify.get(routePath, async (request, reply) => {
       let body = "";
       try {
-        const lang = request.query.lang === "en" ? "en" : "ko";
+        // An explicit ?lang= wins — that is a link someone chose. Otherwise
+        // follow the cookie the language buttons set, so the text matches the
+        // chrome around it. A crawler sends neither and gets the default.
+        const lang =
+          request.query.lang === "en" || request.query.lang === "ko"
+            ? request.query.lang
+            : request.cookies?.["sitey-lang"] === "en"
+              ? "en"
+              : "ko";
         const raw = await fs.readFile(
           path.join(__dirname, "..", "content", dir, `${name}.${lang}.md`),
           "utf8"
