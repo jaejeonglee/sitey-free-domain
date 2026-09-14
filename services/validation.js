@@ -54,6 +54,73 @@ async function validateRecord(recordType, recordValue) {
 }
 
 /**
+ * The check a write runs, whose verdict is written down rather than acted on.
+ *
+ * Create and update used to refuse a record whose target did not answer. That
+ * made "claim the address, then deploy to it" impossible, and that is the
+ * order both an agent and a person work in — a host generally wants the DNS
+ * record in place before it will serve anything at the name. Between
+ * 2026-09-07 and 2026-09-14 the funnel logged 65 name searches and 2 issue
+ * attempts; the door, not the feature, is what is shut.
+ *
+ * So the probe still runs, exactly as before, and this returns what to tell
+ * the caller. An abandoned name is already covered three times over: the
+ * nightly check mails its owner (handleValidationResult, below — it deletes
+ * nothing), the lease expires, and the limit counts what is held.
+ *
+ * `fqdn` is deliberately not passed on to probeRecord. The nightly job knows
+ * the name and presents it in Host and SNI; here nothing is attached to it
+ * yet, and dialling the target under a name it has never been configured for
+ * would answer a different question than the one asked before. It is only used
+ * on the log line.
+ *
+ * @param {{info: Function, warn: Function}} log - request.log or fastify.log
+ * @param {object} params
+ * @param {string} params.phase - "create" or "update", for the log line
+ * @returns {{ok: boolean, check: string, status: number|null, detail: string,
+ *            note: string|null}} `note` is the sentence for the caller, and is
+ *   null when the target answered.
+ */
+async function noteReachability(log, { recordType, recordValue, subdomain, domain, phase }) {
+  const probe = await probeRecord(recordType, recordValue);
+
+  // Same shape as the nightly line handleValidationResult writes, so both ends
+  // of a record's life read out of one query. `phase` is what tells them apart.
+  log[probe.ok ? "info" : "warn"](
+    {
+      evt: "validate",
+      phase,
+      subdomain,
+      domain,
+      type: recordType,
+      value: recordValue,
+      check: probe.check,
+      status: probe.status,
+      detail: probe.detail,
+      result: probe.ok ? "ok" : "unreachable",
+    },
+    probe.ok
+      ? `Target answered on ${phase}: ${subdomain}.${domain} → ${recordValue}`
+      : `Target did not answer on ${phase}, writing the record anyway: ${subdomain}.${domain} → ${recordValue}`
+  );
+
+  return { ...probe, note: probe.ok ? null : unreachableNote(recordType, recordValue) };
+}
+
+/** What a caller is told about a target that did not answer. */
+function unreachableNote(recordType, recordValue) {
+  const what =
+    recordType === "A"
+      ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
+      : `Nothing answered an HTTP request at ${recordValue}.`;
+  return (
+    `${what} The record was written anyway, so the name is yours and resolves now — ` +
+    "point something at it and it will start working. Nothing is removed for being " +
+    "unreachable; a record is only lost by not renewing it."
+  );
+}
+
+/**
  * Run concurrency-limited async tasks
  */
 async function processWithConcurrency(items, concurrency, fn) {
@@ -300,6 +367,7 @@ async function runPeriodicValidation(fastify) {
 module.exports = {
   probeRecord,
   validateRecord,
+  noteReachability,
   handleValidationResult,
   runPeriodicValidation,
 };
