@@ -1054,3 +1054,28 @@ footer a:hover { color: var(--ink-2); text-decoration: underline; }
   .dashboard-section, .blog-article, .docs-layout { padding-top: 32px; }
   .form-card { margin-top: 40px; }
 }
+
+/* The policy is long: give it room and let it scroll inside the dialog rather
+   than pushing the page. Sized against the viewport so a phone gets the same
+   reading width the page would give it. */
+.privacy-modal-content {
+  max-width: 720px;
+  width: min(720px, calc(100vw - 32px));
+  max-height: min(80vh, 720px);
+  overflow-y: auto;
+}
+
+.privacy-modal-content .blog-body {
+  font-size: 14px;
+  line-height: 1.7;
+}
+
+.privacy-modal-content .blog-body table {
+  width: 100%;
+  display: block;
+  overflow-x: auto;
+}
+
+.privacy-loading {
+  color: var(--muted, #888);
+}

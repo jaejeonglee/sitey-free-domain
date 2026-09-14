@@ -200,6 +200,30 @@
       </div>
     </div>
 
+    <!-- Privacy Modal — the policy lives at /privacy as a real page for
+         crawlers; this is the same text opened over the page for a reader. -->
+    <div
+      id="privacy-modal"
+      class="modal hidden"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="privacy-modal-title"
+    >
+      <div class="modal-backdrop" data-modal-close></div>
+      <div class="modal-content privacy-modal-content">
+        <button
+          type="button"
+          class="modal-close"
+          data-modal-close
+          aria-label="Close"
+        >
+          &times;
+        </button>
+        <h2 id="privacy-modal-title" data-i18n="nav.privacy">Privacy</h2>
+        <div id="privacy-modal-body" class="blog-body"></div>
+      </div>
+    </div>
+
     <!-- Page Templates -->
     <template id="template-home">
       <div class="stage">
