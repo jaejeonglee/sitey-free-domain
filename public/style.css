@@ -49,6 +49,18 @@
 
   --bad: #c0392b;
 
+  /* 여백 — 4px 배수. Letters 의 인상 절반이 여기서 나온다:
+     카드 안쪽을 크게 두고 섹션 사이를 멀리 띄운다. */
+  --pad-card: 40px;
+  --gap-section: 96px;
+  --gap-item: 14px;
+
+  /* 히어로는 «파란 판»이다 — 배경에 깔리는 물빛이 아니라, 둥근 모서리를
+     가진 면 위에 흰 글자가 올라간다. 원본의 180도 그래디언트. */
+  --hero: linear-gradient(180deg, #779bc1 0%, #a9c2da 45%, #cbdcec 100%);
+  --hero-ink: #ffffff;
+  --hero-ink-2: rgba(255, 255, 255, 0.82);
+
   /* 반경 — 버튼은 알약, 카드는 크게. Letters 의 특징이 여기 있다. */
   --r-pill: 100px;
   --r-card: 18px;
@@ -71,6 +83,9 @@
     --rule-2: #16171b;
     --go: #4fb3e4;
     --go-soft: #10222c;
+    --hero: linear-gradient(180deg, #1d3347 0%, #16222c 55%, #11181f 100%);
+    --hero-ink: #f2f2f5;
+    --hero-ink-2: rgba(242, 242, 245, 0.72);
     --bad: #f2857a;
   }
 }
@@ -84,6 +99,9 @@
   --rule-2: #16171b;
   --go: #4fb3e4;
   --go-soft: #10222c;
+  --hero: linear-gradient(180deg, #1d3347 0%, #16222c 55%, #11181f 100%);
+  --hero-ink: #f2f2f5;
+  --hero-ink-2: rgba(242, 242, 245, 0.72);
   --bad: #f2857a;
 }
 
@@ -250,11 +268,16 @@ main {
    5. Home
    ============================================ */
 .stage {
-  max-width: 680px;
+  max-width: 1080px;
   margin: 0 auto;
-  padding: 78px 0 0;
+  padding: 0;
   text-align: center;
 }
+
+/* 판은 넓고, 그 «안의 내용»만 읽기 좋은 폭으로 묶는다. 680px 를 판에
+   걸면 판까지 좁아져서 원본의 넓은 면이 안 나온다. */
+.hero-panel > form,
+.hero-panel > .bar { max-width: 680px; margin-left: auto; margin-right: auto; }
 
 /* 구글 첫 화면처럼 이름이 곧 제목이다. 위에 작은 로고를 같이 두면
    같은 이름이 한 화면에 두 번 나와서 헤더 쪽을 뺐다. */
@@ -1126,3 +1149,94 @@ textarea { border-radius: var(--r-input); }
   box-shadow: var(--lift);
 }
 .btn-primary:hover { box-shadow: var(--lift), 0 0 0 3px var(--go-soft); }
+
+/* ============================================
+   Letters — 여백과 카드
+   색만 바꾸면 색만 바뀐다. 이 디자인이 이 디자인처럼 보이는 건
+   카드 안쪽 여백과 섹션 사이 거리에서 온다.
+   ============================================ */
+
+/* 히어로 뒤에 깔리는 파랑.
+   가짜 요소를 -50vw 로 넓히면 body·main·.stage 의 scrollWidth 가 화면보다
+   커진다 — overflow-x:hidden 이 가려줄 뿐 사라지는 게 아니다. body 의
+   배경으로 두면 상자를 전혀 건드리지 않는다. */
+.stage { padding-top: 96px; }
+
+
+
+/* 세 가지 설명이 그냥 글이었다. 카드로 세운다 — 큰 반경, 넉넉한 안쪽,
+   파란 톤의 아주 옅은 그림자. */
+.points {
+  margin-top: 56px;
+  gap: 20px;
+}
+
+/* 흰 바탕 위에 «회색» 카드. 내가 처음에 반대로 했다 — 흰 카드에 그림자를
+   깔았더니 떠 보이기만 하고 원본의 차분함이 안 나왔다. */
+.points > div {
+  background: var(--rule-2);
+  border: 0;
+  border-radius: 28px;
+  padding: 32px 28px;
+  box-shadow: none;
+}
+
+.points h2 { font-size: 16px; margin: 0 0 10px; }
+
+/* 결과 줄과 검색창 사이도 벌린다. */
+.results:not(:empty) { margin-top: 28px; }
+
+/* 글이 실리는 페이지는 위아래를 더 띄운다. */
+.blog-article { padding-top: 72px; padding-bottom: 72px; }
+.blog-list-header { margin-bottom: 48px; }
+.blog-list-item { padding: 4px 0; }
+.blog-list-link { padding: 22px 0; }
+
+/* 모달 안쪽도 카드 규격으로. */
+.modal-content { padding: 32px; }
+
+@media (max-width: 720px) {
+  .stage { padding-top: 56px; }
+  .points { margin-top: 56px; }
+  .points > div { padding: 28px 22px; }
+  .blog-article { padding-top: 44px; padding-bottom: 44px; }
+}
+
+/* ============================================
+   Letters — 히어로 판
+   ============================================ */
+
+.stage { padding-top: 0; }
+
+/* 파란 면. 둥근 모서리를 가진 «판»이고, 그 위 글자는 흰색이다. */
+.hero-panel {
+  background: var(--hero);
+  border-radius: 32px;
+  padding: 88px 32px 92px;
+  margin: 8px 0 0;
+  color: var(--hero-ink);
+}
+
+.hero-panel .wordmark { color: var(--hero-ink); margin-bottom: 34px; }
+.hero-panel .wordmark em { color: var(--hero-ink); opacity: 0.72; }
+
+/* 판 위의 입력창은 흰 카드처럼 보여야 읽힌다. */
+.hero-panel .field {
+  border-color: transparent;
+  box-shadow: 0 2px 6px rgba(7, 7, 9, 0.06), 0 12px 28px rgba(7, 7, 9, 0.10);
+}
+
+.hero-panel .bar i { background: var(--hero-ink); }
+
+@media (max-width: 720px) {
+  .hero-panel { border-radius: 22px; padding: 56px 18px 64px; }
+}
+
+/* 결과와 설명 카드는 판 아래에 온다 — 읽기 폭으로 묶는다. */
+.results { max-width: 680px; margin-left: auto; margin-right: auto; }
+
+/* 결과 자리를 180px 비워두던 것은 «타이핑할 때 카드가 안 튀게» 하려던 것이다.
+   판이 커진 지금은 그 빈자리가 구멍으로 읽힌다. 비어 있을 때만 접고,
+   결과가 나오면 그때 한 번 밀린다 — 빈 화면보다 낫다. */
+.results:empty { min-height: 0; margin-top: 0; }
+.points { margin-top: 72px; }
