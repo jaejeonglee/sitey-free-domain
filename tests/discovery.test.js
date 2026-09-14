@@ -160,9 +160,7 @@ describe("/openapi.json", () => {
   });
 
   // An error code is the interface an agent branches on, so a new one that
-  // never reaches the document is a silent gap. Only this direction is
-  // checked: the document also names RATE_LIMITED and INTERNAL_ERROR, which
-  // the error handler produces without naming them at a call site.
+  // never reaches the document is a silent gap.
   it("names every error code routes/api-v1.js can return", async () => {
     const doc = JSON.stringify((await app.inject({ method: "GET", url: "/openapi.json" })).json());
     const source = fs.readFileSync(path.join(ROOT, "routes/api-v1.js"), "utf8");
@@ -178,6 +176,27 @@ describe("/openapi.json", () => {
     }
   });
 
+  // And the other way round, which is the direction that rotted: when create
+  // stopped refusing an unreachable target on 2026-09-14, VALIDATION_UNREACHABLE
+  // stayed in this document describing a 400 nothing could return any more. A
+  // code that is documented and never sent is worse than an undocumented one —
+  // an agent writes a branch for a case it will wait for forever.
+  it("names no error code routes/api-v1.js cannot return", async () => {
+    const doc = JSON.stringify((await app.inject({ method: "GET", url: "/openapi.json" })).json());
+    const source = fs.readFileSync(path.join(ROOT, "routes/api-v1.js"), "utf8");
+
+    // The document writes a code as "CODE — what to do about it", which is
+    // what separates one from an ordinary capitalised word in the prose.
+    const documented = new Set(
+      [...doc.matchAll(/([A-Z][A-Z_]{3,}) \u2014 /g)].map((m) => m[1])
+    );
+
+    expect(documented.size).toBeGreaterThan(8);
+    for (const code of documented) {
+      expect(source, `${code} is documented but routes/api-v1.js never sends it`).toContain(code);
+    }
+  });
+
   // In the delivered HTML, not just in the browser: the reader most likely to
   // want a machine-readable spec is the one that does not run JavaScript.
   // services/page-body.js ships the docs sidebar, so the link has to be there.
@@ -186,6 +205,27 @@ describe("/openapi.json", () => {
     const appRoot = res.body.match(/<main id="app-root">([\s\S]*?)<\/main>/)[1];
 
     expect(appRoot).toContain('href="/openapi.json"');
+  });
+
+  // The hardest sentence in this document to keep true, because it describes
+  // something that has not happened yet. Create stopped refusing a dark target
+  // on 2026-09-14, which left "what happens to it instead" as prose — and the
+  // honest answer depends on UNREACHABLE_NOTICE_ENABLED, which is off.
+  it("describes a dark target from the switch that decides its fate", async () => {
+    const doc = (await app.inject({ method: "GET", url: "/openapi.json" })).json();
+    const description = doc.paths["/api/v1/subdomains"].post.description;
+
+    expect(description).toContain("`reachable`");
+    expect(description).toContain("Nothing is removed for being unreachable");
+
+    if (config.validation.unreachableNoticeEnabled) {
+      expect(description).toMatch(/email/);
+      expect(description).toContain(String(config.validation.unreachableNoticeDays));
+    } else {
+      // Promising mail that is switched off is the old public/.well-known
+      // mistake in a new place.
+      expect(description).not.toMatch(/email/);
+    }
   });
 
   it("keeps the prefixes a TXT record may use in step with config", async () => {
@@ -216,6 +256,15 @@ describe("/llms.txt", () => {
     expect(body).toContain(`${origin}/.well-known/mcp.json`);
     // The roots come from the database, like everywhere else.
     expect(body).toContain("sitey.my, officials.one");
+  });
+
+  // The one thing an agent has to know before it plans its calls, and the one
+  // most likely to be assumed the other way round.
+  it("says the name can be claimed before there is anything to point it at", async () => {
+    const body = (await app.inject({ method: "GET", url: "/llms.txt" })).body;
+
+    expect(body).toContain("reachable: false");
+    expect(body).toMatch(/claim the address, then deploy to it/i);
   });
 
   it("carries no origin of its own and the limits the code applies", () => {

@@ -85,6 +85,20 @@ function limitNotes() {
 }
 
 /**
+ * What happens to a record whose target stays dark, from the switch that
+ * decides it. The nightly check has never removed anything; whether it writes
+ * to the owner is UNREACHABLE_NOTICE_ENABLED, and that has been off since the
+ * mails were written because none has ever been watched arriving.
+ */
+function darkNote() {
+  const days = config.validation.unreachableNoticeDays;
+  return config.validation.unreachableNoticeEnabled
+    ? `A record owned by an account whose target is still dark after ${days} days earns its ` +
+        "owner an email; one created without an account has nobody to write to, and is left alone."
+    : "A record whose target stays dark is counted every night and otherwise left alone.";
+}
+
+/**
  * The manifest an agent finds at /.well-known/mcp.json.
  *
  * `domains` is passed in rather than read here because it is a table —
@@ -238,9 +252,11 @@ function operations(origin) {
     "POST /api/v1/subdomains": {
       summary: "Claim a name and point it somewhere",
       description:
-        "Creates the DNS record and the row behind it together. The target is asked for an " +
-        "HTTP response before anything is written: a record pointing at nothing is the one " +
-        "outcome nobody can debug from the outside.",
+        "Creates the DNS record and the row behind it together. Claim the name first and " +
+        "deploy to it second if that is the order you need: the target is asked for an HTTP " +
+        "response, but the answer is reported in `reachable` rather than refused, because " +
+        "most hosts want the DNS record in place before they will serve anything at the name. " +
+        `Nothing is removed for being unreachable. ${darkNote()}`,
       requestBody: body(
         {
           subdomain: { type: "string", example: "demo", description: "The label on its own." },
@@ -255,25 +271,39 @@ function operations(origin) {
         ["subdomain", "domain", "value"]
       ),
       responses: {
-        201: ok("The record, and the date it falls due.", {
-          fqdn: { type: "string", example: fqdn },
-          type: RECORD_TYPE,
-          value: { type: "string", example: "203.0.113.10" },
-          expires_at: {
-            type: "string",
-            format: "date-time",
-            description:
-              "When the lease ends. It travels in the response because a caller with no " +
-              "account has no mailbox to be reminded at.",
+        201: ok(
+          "The record, the date it falls due, and whether anything is answering at it yet.",
+          {
+            fqdn: { type: "string", example: fqdn },
+            type: RECORD_TYPE,
+            value: { type: "string", example: "203.0.113.10" },
+            expires_at: {
+              type: "string",
+              format: "date-time",
+              description:
+                "When the lease ends. It travels in the response because a caller with no " +
+                "account has no mailbox to be reminded at.",
+            },
+            reachable: {
+              type: "boolean",
+              description:
+                "Whether the target answered an HTTP request at the moment the record was " +
+                "written. False is not a failure and nothing was rolled back; it means the " +
+                "name resolves and there is not yet anything at the other end.",
+            },
+            note: {
+              type: "string",
+              description:
+                "Present only when `reachable` is false: which check ran, and what it means.",
+            },
           },
-        }),
+          ["fqdn", "type", "value", "expires_at", "reachable"]
+        ),
         400: fail(
           "INVALID_SUBDOMAIN — the label is not one DNS accepts. " +
             "INVALID_INPUT — the value is not an address of the type given. " +
             "INVALID_DOMAIN — that root is not managed here. " +
-            "BLACKLISTED — the name is reserved. " +
-            "VALIDATION_UNREACHABLE — nothing answered an HTTP request at the target, so " +
-            "nothing was written. Put something there and repeat the call."
+            "BLACKLISTED — the name is reserved."
         ),
         402: {
           description:
@@ -315,19 +345,32 @@ function operations(origin) {
       summary: "Point an existing name somewhere else",
       description:
         "The record type cannot be changed, only the value it points at. The new target is " +
-        "asked for an HTTP response first, exactly as on create.",
+        "asked for an HTTP response and the answer comes back in `reachable`, exactly as on " +
+        "create: the record is moved either way, so a name can be pointed at somewhere that " +
+        "is not serving yet.",
       parameters: pathParams("subdomain", "domain"),
       requestBody: body({ value: { type: "string", example: "203.0.113.11" } }, ["value"]),
       responses: {
-        200: ok("The record as it now stands.", {
-          fqdn: { type: "string", example: fqdn },
-          type: RECORD_TYPE,
-          value: { type: "string", example: "203.0.113.11" },
-        }),
+        200: ok(
+          "The record as it now stands.",
+          {
+            fqdn: { type: "string", example: fqdn },
+            type: RECORD_TYPE,
+            value: { type: "string", example: "203.0.113.11" },
+            reachable: {
+              type: "boolean",
+              description: "Whether the new target answered. False did not stop the move.",
+            },
+            note: {
+              type: "string",
+              description: "Present only when `reachable` is false.",
+            },
+          },
+          ["fqdn", "type", "value", "reachable"]
+        ),
         400: fail(
           "INVALID_INPUT — the value is not an address of this record's type. " +
-            "INVALID_DOMAIN — that root is not managed here. " +
-            "VALIDATION_UNREACHABLE — nothing answered at the new target, so the old one still stands."
+            "INVALID_DOMAIN — that root is not managed here."
         ),
         403: fail("FORBIDDEN — no such record under this caller. Deliberately the same answer as one that exists and belongs to somebody else."),
       },
@@ -541,6 +584,9 @@ function llmsTxt({ origin, domains }) {
     "No account is needed to create one. A caller with no API key is identified by its",
     "IP address and owns what that address created; an API key from the dashboard puts the",
     "records under an account instead.",
+    "",
+    "The name comes first: a record whose target is not serving yet is created all the same,",
+    "with `reachable: false` in the response saying so. Claim the address, then deploy to it.",
     "",
     "## Calling it",
     "",
