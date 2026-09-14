@@ -4,7 +4,7 @@ const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/ser
 const { z } = require("zod");
 const config = require("../configs/index");
 const bindService = require("../services/bind");
-const { validateRecord } = require("../services/validation");
+const { noteReachability } = require("../services/validation");
 const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
 const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
@@ -184,7 +184,8 @@ function createMcpServer(fastify) {
   // --- Tool: create_subdomain ---
   server.tool(
     "create_subdomain",
-    "Create a new DNS record for a subdomain. Supports A records (IP address) and CNAME records (hostname). Example: create demo.sitey.one pointing to 1.2.3.4",
+    "Create a new DNS record for a subdomain. Supports A records (IP address) and CNAME records (hostname). Example: create demo.sitey.one pointing to 1.2.3.4. " +
+      "The target does not have to be serving yet: claim the name first and deploy to it second if that is your order. The result carries reachable:false when nothing answered, and the record is created either way.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
@@ -247,14 +248,17 @@ function createMcpServer(fastify) {
         });
       }
 
-      // Reachability validation
-      const isReachable = await validateRecord(recordType, recordValue);
-      if (!isReachable) {
-        const msg = recordType === "A"
-          ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
-          : `Nothing answered an HTTP request at ${recordValue}.`;
-        return mcpErrorObj({ error: msg, code: "VALIDATION_UNREACHABLE" });
-      }
+      // Reachability, recorded rather than enforced. An agent claims the name
+      // before it has anywhere to point it, which is the order this tool is
+      // for; refusing here shut the door on its own use case.
+      // services/validation.js carries the reasoning.
+      const reach = await noteReachability(fastify.log, {
+        recordType,
+        recordValue,
+        subdomain,
+        domain: domainEntry.domain,
+        phase: "create",
+      });
 
       try {
         const newRecord = await createSubdomain(fastify, {
@@ -277,6 +281,8 @@ function createMcpServer(fastify) {
           // back with every read. renew_subdomain resets it.
           expires_at: newRecord.expiresAt,
           renew_with: "renew_subdomain",
+          reachable: reach.ok,
+          ...(reach.note ? { note: reach.note } : {}),
         });
       } catch (error) {
         if (error.statusCode === 409) {
@@ -387,7 +393,8 @@ function createMcpServer(fastify) {
   // --- Tool: update_subdomain ---
   server.tool(
     "update_subdomain",
-    "Update the DNS record value of a subdomain you own. For example, change the IP address that demo.sitey.one points to.",
+    "Update the DNS record value of a subdomain you own. For example, change the IP address that demo.sitey.one points to. " +
+      "The new target does not have to be serving yet; the result carries reachable:false when nothing answered, and the record is moved either way.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
@@ -432,13 +439,14 @@ function createMcpServer(fastify) {
       if (!validation.valid) return mcpError(validation.message);
       const recordValue = validation.value;
 
-      const isReachable = await validateRecord(recordType, recordValue);
-      if (!isReachable) {
-        const msg = recordType === "A"
-          ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
-          : `Nothing answered an HTTP request at ${recordValue}.`;
-        return mcpErrorObj({ error: msg, code: "VALIDATION_UNREACHABLE" });
-      }
+      // Recorded rather than enforced — as on create.
+      const reach = await noteReachability(fastify.log, {
+        recordType,
+        recordValue,
+        subdomain,
+        domain: domainEntry.domain,
+        phase: "update",
+      });
 
       try {
         await updateSubdomain(fastify, {
@@ -453,6 +461,8 @@ function createMcpServer(fastify) {
           success: true,
           fullSubdomain: `${subdomain}.${domainEntry.domain}`,
           value: recordValue,
+          reachable: reach.ok,
+          ...(reach.note ? { note: reach.note } : {}),
         });
       } catch (error) {
         fastify.log.error(error, "MCP update_subdomain failed");

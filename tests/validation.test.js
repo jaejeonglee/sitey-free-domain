@@ -3,7 +3,7 @@ import { createRequire } from "module";
 
 const require2 = createRequire(import.meta.url);
 
-const { probeRecord, validateRecord, noteReachability } = require2("../services/validation.js");
+const { probeRecord, noteReachability } = require2("../services/validation.js");
 
 // ---------------------------------------------------------------------------
 // probeRecord asks one question of both record types now — "does this open" —
@@ -39,17 +39,6 @@ describe("probeRecord", () => {
     const probe = await probeRecord("MX", "mail.example.com");
 
     expect(probe).toMatchObject({ ok: true, check: "none", status: null });
-  });
-});
-
-describe("validateRecord", () => {
-  it("reduces the probe to the yes/no the create path needs", async () => {
-    expect(await validateRecord("CNAME", "gone.invalid")).toBe(false);
-    expect(await validateRecord("MX", "mail.example.com")).toBe(true);
-  });
-
-  it("rejects an empty value", async () => {
-    expect(await validateRecord("CNAME", "")).toBe(false);
   });
 });
 

@@ -6,9 +6,9 @@ const config = require("../configs/index");
 /**
  * Run the reachability check and say what it did.
  *
- * The create and update paths only need yes/no, and validateRecord still
- * answers that. The nightly job needs more: how long a record has been dark,
- * and which check saw what, so a notice to its owner can be justified.
+ * Nobody is refused on the strength of this any more. Create and update hand
+ * the verdict back to the caller (noteReachability, below); the nightly job
+ * uses the detail to justify a notice to the owner, and removes nothing.
  *
  * Both record types are probed the same way now — an HTTP(S) request, because
  * "does this open" is the only question worth asking. See
@@ -44,13 +44,6 @@ async function probeRecord(recordType, recordValue, options = {}) {
     status: null,
     detail: `no reachability check for ${recordType}`,
   };
-}
-
-/**
- * Validate a record based on its type
- */
-async function validateRecord(recordType, recordValue) {
-  return (await probeRecord(recordType, recordValue)).ok;
 }
 
 /**
@@ -366,7 +359,6 @@ async function runPeriodicValidation(fastify) {
 
 module.exports = {
   probeRecord,
-  validateRecord,
   noteReachability,
   handleValidationResult,
   runPeriodicValidation,

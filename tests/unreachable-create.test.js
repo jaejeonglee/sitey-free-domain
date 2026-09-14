@@ -67,6 +67,7 @@ for (const spec of [
   "../services/validation.js",
   "../routes/domain.js",
   "../routes/api-v1.js",
+  "../plugins/mcp.js",
 ]) {
   delete require2.cache[require2.resolve(spec)];
 }
@@ -75,6 +76,7 @@ const Fastify = require2("fastify");
 const config = require2("../configs/index.js");
 const domainRoutes = require2("../routes/domain.js");
 const apiV1Routes = require2("../routes/api-v1.js");
+const mcpPlugin = require2("../plugins/mcp.js");
 const bindMod = require2("../services/bind.js");
 const { probeRecord, handleValidationResult } = require2("../services/validation.js");
 
@@ -123,6 +125,53 @@ function restApp() {
   return app;
 }
 
+function mcpApp() {
+  const app = Fastify({ logger: false });
+  app.decorate("mysql", { execute: scriptedDb() });
+  // The MCP SDK drains the request body and arms a timer to force the socket
+  // shut if the drain never finishes. inject()'s socket is a stand-in and has
+  // no destroySoon, so that timer throws minutes later, in whichever file
+  // happens to be running. Nothing to do with the code under test.
+  app.addHook("onRequest", async (request) => {
+    const socket = request.raw.socket;
+    if (socket && typeof socket.destroySoon !== "function") {
+      socket.destroySoon = () => socket.destroy?.();
+    }
+  });
+  app.register(mcpPlugin);
+  return app;
+}
+
+/**
+ * One JSON-RPC call over the streamable-HTTP transport, unwrapped.
+ *
+ * ⚠️ plugins/mcp.js allows an anonymous caller three creates a minute and the
+ * counter is module-level, so it is shared by every test in this file. Three
+ * create_subdomain calls is the ceiling; a fourth fails on the rate limit and
+ * not on anything this file is about.
+ */
+async function callTool(app, name, args) {
+  const res = await app.inject({
+    method: "POST",
+    url: "/mcp",
+    headers: {
+      "content-type": "application/json",
+      accept: "application/json, text/event-stream",
+    },
+    payload: {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: { name, arguments: args },
+    },
+  });
+
+  const line = res.body.split("\n").find((l) => l.startsWith("data: "));
+  const message = JSON.parse(line.slice("data: ".length));
+  const result = message.result;
+  return { isError: Boolean(result.isError), data: JSON.parse(result.content[0].text) };
+}
+
 // ---------------------------------------------------------------------------
 // 1. The name is issued
 // ---------------------------------------------------------------------------
@@ -156,9 +205,22 @@ describe("creating a record whose target does not answer", () => {
     await app.close();
   });
 
+  it("succeeds over MCP", async () => {
+    const app = mcpApp();
+
+    const { isError, data } = await callTool(app, "create_subdomain", {
+      subdomain: "demo", domain: DOMAIN, type: "A", value: DARK,
+    });
+
+    expect(isError).toBe(false);
+    expect(data.fullSubdomain).toBe(`demo.${DOMAIN}`);
+    await app.close();
+  });
+
   // The check is the reason this is not simply "validation removed": it still
-  // runs on both, and its verdict is what the next block hands back.
-  it("still asks the target, on both", async () => {
+  // runs, on every one of the three, and its verdict is what the next block
+  // hands back.
+  it("still asks the target, on all three", async () => {
     for (const build of [webApp, restApp]) {
       probeHost.mockClear();
       const app = build();
@@ -172,6 +234,14 @@ describe("creating a record whose target does not answer", () => {
       expect(probeHost).toHaveBeenCalledTimes(1);
       await app.close();
     }
+
+    probeHost.mockClear();
+    const app = mcpApp();
+    await callTool(app, "create_subdomain", {
+      subdomain: "demo", domain: DOMAIN, type: "A", value: DARK,
+    });
+    expect(probeHost).toHaveBeenCalledTimes(1);
+    await app.close();
   });
 });
 
@@ -213,6 +283,18 @@ describe("the answer says nothing is there yet", () => {
     expect(data.reachable).toBe(false);
     expect(data.note).toContain(DARK);
     expect(data.expires_at).toBeTruthy();
+    await app.close();
+  });
+
+  it("marks the MCP result unreachable and says why", async () => {
+    const app = mcpApp();
+
+    const { data } = await callTool(app, "create_subdomain", {
+      subdomain: "demo", domain: DOMAIN, type: "A", value: DARK,
+    });
+
+    expect(data.reachable).toBe(false);
+    expect(data.note).toContain(DARK);
     await app.close();
   });
 
@@ -300,6 +382,18 @@ describe("pointing an existing name at something that does not answer", () => {
 
     expect(res.statusCode).toBe(200);
     expect(res.json().data).toMatchObject({ reachable: false, value: DARK });
+    await app.close();
+  });
+
+  it("succeeds over MCP and says the target is dark", async () => {
+    const app = mcpApp();
+
+    const { isError, data } = await callTool(app, "update_subdomain", {
+      subdomain: "demo", domain: DOMAIN, value: DARK,
+    });
+
+    expect(isError).toBe(false);
+    expect(data.reachable).toBe(false);
     await app.close();
   });
 });
