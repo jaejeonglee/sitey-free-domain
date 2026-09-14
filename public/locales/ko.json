@@ -24,6 +24,8 @@
   "home.point.simple.desc": "대시보드 하나로 도메인 설정을 자유롭게 바꿀 수 있어요.",
   "home.point.mcp.title": "MCP",
   "home.point.mcp.desc": "사용하고 있는 Agent도 사용할 수 있어요.",
+  "home.mock.ask": "주소 하나 만들어줘",
+  "home.mock.until": "2027-03-12 까지",
 
   "login.title": "로그인",
   "login.subtitle": "Google 계정으로 로그인하세요.",

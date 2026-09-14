@@ -24,6 +24,8 @@
   "home.point.simple.desc": "Change every setting from a single dashboard.",
   "home.point.mcp.title": "MCP",
   "home.point.mcp.desc": "The agent you already use can work with it too.",
+  "home.mock.ask": "Get me an address",
+  "home.mock.until": "Renews 2027-03-12",
 
   "login.title": "Log In",
   "login.subtitle": "Sign in with your Google account to manage domains.",

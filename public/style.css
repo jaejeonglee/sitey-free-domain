@@ -49,6 +49,10 @@
 
   --bad: #c0392b;
 
+  /* 카드 안에 들어가는 «화면 조각»의 면. 회색 카드 위에 얹히므로
+     카드보다 한 단계 밝아야 얹힌 것으로 보인다. */
+  --mock: #ffffff;
+
   /* 여백 — 4px 배수. Letters 의 인상 절반이 여기서 나온다:
      카드 안쪽을 크게 두고 섹션 사이를 멀리 띄운다. */
   --pad-card: 40px;
@@ -87,6 +91,8 @@
     --hero-ink: #f2f2f5;
     --hero-ink-2: rgba(242, 242, 245, 0.72);
     --bad: #f2857a;
+  --mock: #202127;
+    --mock: #202127;
   }
 }
 
@@ -1240,3 +1246,156 @@ textarea { border-radius: var(--r-input); }
    결과가 나오면 그때 한 번 밀린다 — 빈 화면보다 낫다. */
 .results:empty { min-height: 0; margin-top: 0; }
 .points { margin-top: 72px; }
+
+/* ============================================
+   Letters — 카드 안의 «화면 조각»
+
+   원본 카드에는 그 제품이 «일하는 장면»이 작게 들어 있다. 받아쓰기 타이머,
+   대화 말풍선, 업로드 위젯 — 전부 자기 화면의 축소판이지 삽화가 아니다.
+   우리도 사이티가 실제로 하는 일을 세 조각으로 넣는다.
+
+   📌 그림 «파일»을 쓰지 않는 이유: 2026-09-09 에 첫 화면을 1,046KB 에서
+   8.4KB 로 줄여놨다. 래스터 세 장이면 그게 도로 없어진다. CSS 로 그리면 0KB다.
+   ============================================ */
+
+.mock {
+  background: var(--mock);
+  border-radius: 14px;
+  padding: 14px;
+  margin-bottom: 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  /* 셋의 높이를 맞춘다. 안 맞으면 제목 줄이 들쭉날쭉해서 한 벌로 안 읽힌다.
+     136 은 가장 높은 조각(MCP)의 실측값 — 한국어·영어, 900~1280px 에서 같다. */
+  min-height: 136px;
+  font-size: 12px;
+  line-height: 1.4;
+  box-shadow: 0 1px 2px rgba(7, 7, 9, 0.04);
+}
+
+/* 조각 안의 주소·레코드는 전부 코드다. 한글이 섞이지 않으므로 등폭으로. */
+.mock-host,
+.mock-target,
+.mock-call code {
+  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
+  font-size: 11.5px;
+  letter-spacing: -0.01em;
+}
+
+.mock-chip {
+  display: inline-block;
+  padding: 2px 8px;
+  border-radius: var(--r-pill);
+  background: var(--go-soft);
+  color: var(--go);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+
+/* ── 빠르게: 이름을 찾는 순간 ── */
+.mock-input {
+  display: flex;
+  align-items: center;
+  gap: 1px;
+  padding: 8px 10px;
+  border: 1px solid var(--rule);
+  border-radius: var(--r-tight);
+  color: var(--ink);
+}
+.mock-caret {
+  width: 1.5px;
+  height: 13px;
+  background: var(--go);
+  border-radius: 1px;
+}
+
+.mock-hit {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink-2);
+}
+
+/* 체크 표시. 글자가 아니라 도형이라 번역할 것이 없다. */
+.mock-tick {
+  flex: none;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: var(--go-soft);
+  position: relative;
+}
+.mock-tick::after {
+  content: "";
+  position: absolute;
+  left: 4.5px;
+  top: 3px;
+  width: 3.5px;
+  height: 6.5px;
+  border: solid var(--go);
+  border-width: 0 1.6px 1.6px 0;
+  transform: rotate(45deg);
+}
+
+/* ── 간편하게: 대시보드 한 줄 ── */
+.mock-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  color: var(--ink);
+}
+.mock-arrow {
+  color: var(--ink-3);
+  padding-left: 2px;
+}
+.mock-target { color: var(--ink-2); word-break: break-all; }
+.mock-foot {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px solid var(--rule-2);
+  color: var(--ink-3);
+  font-size: 11px;
+}
+.mock-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--go);
+}
+
+/* ── MCP: 에이전트가 주고받는 한 토막 ── */
+.mock-said {
+  margin: 0;
+  max-width: 88%;
+  padding: 7px 11px;
+  border-radius: 12px 12px 12px 3px;
+  background: var(--rule-2);
+  color: var(--ink);
+}
+.mock-said-back {
+  align-self: flex-end;
+  border-radius: 12px 12px 3px 12px;
+  background: var(--go);
+  /* 흰색을 박아두면 어두운 판에서 밝은 하늘색 위에 흰 글자가 된다.
+     --paper 를 쓰면 밝은 판에선 흰색, 어두운 판에선 먹색으로 뒤집힌다. */
+  color: var(--paper);
+}
+.mock-call {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--ink-3);
+  font-size: 11px;
+}
+
+@media (max-width: 720px) {
+  /* 한 칸으로 접히면 카드가 넓어진다. 높이를 억지로 맞출 이유가 없어진다. */
+  .mock { min-height: 0; }
+}

@@ -273,16 +273,43 @@
 
         <div id="availability-results" class="results" aria-live="polite"></div>
 
+        <!-- 카드마다 «그 카드가 말하는 일이 실제로 일어나는 장면»을 작게 넣는다.
+             삽화가 아니라 사이티 자기 화면의 축소판이고, 그림 파일이 아니라
+             CSS 로 그려서 첫 화면 무게가 늘지 않는다. -->
         <div class="points">
           <div>
+            <div class="mock mock-find" aria-hidden="true">
+              <div class="mock-input"><span class="mock-host">myapp</span><span class="mock-caret"></span></div>
+              <div class="mock-hit"><span class="mock-host">myapp.sitey.my</span><span class="mock-tick"></span></div>
+              <div class="mock-hit"><span class="mock-host">myapp.sitey.one</span><span class="mock-tick"></span></div>
+            </div>
             <h2 data-i18n="home.point.fast.title">Fast</h2>
             <p data-i18n="home.point.fast.desc">Register the address you want, with no paperwork.</p>
           </div>
           <div>
+            <div class="mock mock-record" aria-hidden="true">
+              <div class="mock-head">
+                <span class="mock-host">blog.sitey.my</span>
+                <span class="mock-chip">CNAME</span>
+              </div>
+              <div class="mock-target"><span class="mock-arrow">&#8594;</span> cname.vercel-dns.com</div>
+              <div class="mock-foot">
+                <span class="mock-dot"></span>
+                <span data-i18n="home.mock.until">Renews 2027-03-12</span>
+              </div>
+            </div>
             <h2 data-i18n="home.point.simple.title">Simple</h2>
             <p data-i18n="home.point.simple.desc">Change every setting from a single dashboard.</p>
           </div>
           <div>
+            <div class="mock mock-agent" aria-hidden="true">
+              <p class="mock-said" data-i18n="home.mock.ask">Get me an address</p>
+              <div class="mock-call">
+                <span class="mock-chip">MCP</span>
+                <span class="mock-host">create_subdomain</span>
+              </div>
+              <p class="mock-said mock-said-back"><span class="mock-host">demo.sitey.my</span></p>
+            </div>
             <h2 data-i18n="home.point.mcp.title">MCP</h2>
             <p data-i18n="home.point.mcp.desc">The agent you already use can work with it too.</p>
           </div>
