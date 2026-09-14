@@ -144,11 +144,6 @@ export function renderNavbar(currentPath) {
   // 여기가 집으로 돌아오는 유일한 문이 된다 — 구글이 첫 화면에만 로고를
   // 빼고 결과 화면 왼쪽 위에 두는 것과 같은 이유다.
   const atHome = currentPath === "/" || currentPath === "/index.html";
-
-  // 홈에는 파란 판이 바로 아래 있어서 네비까지 파랗게 하면 판이 둘이 된다.
-  // 안쪽 화면에는 그 판이 없어 다른 사이트처럼 보였으므로, 네비 자체를
-  // 판으로 만들어 같은 얼굴을 준다.
-  container.classList.toggle("on-panel", !atHome);
   const brand = atHome
     ? ""
     : `<a href="/" class="brand" data-i18n-aria="nav.home" aria-label="Home">sitey</a>`;
