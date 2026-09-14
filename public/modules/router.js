@@ -43,22 +43,30 @@ export async function router() {
     return navigateTo("/login");
   }
 
+  // /privacy arrives fully rendered from the server (routes/pages.js) and has
+  // no client template. Wiping app-root to drop a template in would blank the
+  // policy a moment after it appears — so for this path the swap is skipped
+  // and only the chrome around it is wired.
+  const serverRendered = path === "/privacy";
+
   const appRoot = document.getElementById("app-root");
   if (!appRoot) return;
 
-  const template = document.getElementById(route.templateId);
-  if (!template) {
-    appRoot.innerHTML = "<h1>Error: Page not found</h1>";
-    return;
-  }
+  if (!serverRendered) {
+    const template = document.getElementById(route.templateId);
+    if (!template) {
+      appRoot.innerHTML = "<h1>Error: Page not found</h1>";
+      return;
+    }
 
-  appRoot.innerHTML = "";
-  appRoot.appendChild(template.content.cloneNode(true));
-  document.title = route.title;
+    appRoot.innerHTML = "";
+    appRoot.appendChild(template.content.cloneNode(true));
+    document.title = route.title;
+  }
 
   renderNavbar(path);
   applyTranslations();
-  route.init();
+  if (!serverRendered) route.init();
 
   // KR·EN. The header is rebuilt on every route, so the buttons are wired
   // here rather than once at boot — and re-running the router is what repaints
@@ -67,6 +75,12 @@ export async function router() {
     button.setAttribute("aria-pressed", String(button.dataset.lang === getLang()));
     button.addEventListener("click", async () => {
       if (button.dataset.lang === getLang()) return;
+      // The policy text is chosen on the server, so re-running the client
+      // router would repaint everything except the words being read.
+      if (serverRendered) {
+        window.location.search = `?lang=${button.dataset.lang}`;
+        return;
+      }
       await loadLang(button.dataset.lang);
       router();
     });
