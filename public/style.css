@@ -1403,3 +1403,49 @@ textarea { border-radius: var(--r-input); }
   /* 한 칸으로 접히면 카드가 넓어진다. 높이를 억지로 맞출 이유가 없어진다. */
   .mock { min-height: 0; }
 }
+
+/* ============================================
+   Letters — 안쪽 화면의 네비도 판 위에 (2026-09-14 Jay 지시)
+
+   첫 화면만 파란 판을 갖고 있어서 /docs·/blog 로 넘어가면 다른 사이트처럼
+   보였다. 홈에서는 네비 바로 아래가 판이라 파랗게 하면 판이 둘로 겹치므로,
+   «홈이 아닐 때만» 네비를 판으로 만든다.
+   ============================================ */
+
+#navbar.on-panel {
+  /* 같은 그래디언트를 쓰되 «판의 윗동강»만 보이게 한다. 180도 그래디언트를
+     68px 높이에 통째로 욱여넣으면 아래쪽이 흰색에 가까워져 흐리멍덩해진다.
+     420px 짜리로 그려놓고 위만 보여주면 첫 화면 판의 머리와 같은 색이 된다. */
+  background: var(--hero);
+  background-size: 100% 420px;
+  background-repeat: no-repeat;
+  border-radius: 24px;
+  margin-top: 8px;
+  padding: 20px 28px;
+  color: var(--hero-ink);
+}
+
+#navbar.on-panel .brand { color: var(--hero-ink); }
+
+/* 판 위에서는 회색 단계(--ink-2/--ink-3)가 전부 안 읽힌다.
+   같은 «지금 것은 진하게, 갈 곳은 연하게» 규칙을 흰색 농도로 옮긴다. */
+#navbar.on-panel nav { color: var(--hero-ink-2); }
+#navbar.on-panel nav a:hover,
+#navbar.on-panel nav .nav-auth-btn:hover { color: var(--hero-ink); }
+#navbar.on-panel nav a.active { color: var(--hero-ink); }
+
+#navbar.on-panel .lang button,
+#navbar.on-panel .theme button { color: var(--hero-ink-2); opacity: 0.75; }
+#navbar.on-panel .lang button:hover,
+#navbar.on-panel .theme button:hover { opacity: 1; }
+#navbar.on-panel .lang button[aria-pressed="true"],
+#navbar.on-panel .theme button[aria-pressed="true"] {
+  color: var(--hero-ink);
+  opacity: 1;
+}
+#navbar.on-panel .lang span[aria-hidden],
+#navbar.on-panel .theme span[aria-hidden] { color: var(--hero-ink-2); opacity: 0.5; }
+
+@media (max-width: 720px) {
+  #navbar.on-panel { border-radius: 18px; padding: 16px 18px; }
+}
