@@ -1,9 +1,0 @@
-{
-  "name": "sitey.one",
-  "description": "Free subdomain DNS service. Create A/CNAME/TXT records instantly. Supports Vercel domain verification.",
-  "url": "https://sitey.one/mcp",
-  "authentication": {
-    "type": "optional",
-    "description": "Anonymous: IP-based, 3 subdomains max. With API key: unlimited."
-  }
-}

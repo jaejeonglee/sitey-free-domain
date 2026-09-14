@@ -53,6 +53,10 @@ function buildApp(options = {}) {
   // Also ahead of the static wildcard, and not under /api: this is the link in
   // the renewal mail and a person opens it in a browser.
   fastify.register(require("./routes/renewal"));
+  // Ahead of the static wildcard for the same reason, and outside /api because
+  // robots.txt disallows /api/ — a document a crawler is told not to read is no
+  // use for being found. See routes/discovery.js.
+  fastify.register(require("./routes/discovery"));
   fastify.register(require("@fastify/static"), {
     root: path.join(__dirname, "public"),
     prefix: "/",
