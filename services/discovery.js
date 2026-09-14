@@ -100,6 +100,7 @@ function mcpManifest({ origin, domains }) {
     // GET /mcp answers 405 rather than opening a stream (plugins/mcp.js).
     transport: "streamable-http",
     documentation: `${origin}/docs`,
+    openapi: `${origin}/openapi.json`,
     // Every root a subdomain can be created under. Four of them, and which
     // four is a row in managed_domains, not a constant.
     domains,
@@ -115,4 +116,408 @@ function mcpManifest({ origin, domains }) {
   };
 }
 
-module.exports = { SUMMARY, hostOf, limitNotes, mcpManifest };
+/**
+ * Where the REST API lives. The routes are registered under this prefix in
+ * app.js, and `paths` below spells it out in full rather than hiding it in
+ * `servers`, so the document can be read straight against the route table.
+ */
+const API_PREFIX = "/api/v1";
+
+/** A response body, which is always `{ success: true, data: … }`. */
+function ok(description, properties, required) {
+  return {
+    description,
+    content: {
+      "application/json": {
+        schema: {
+          type: "object",
+          properties: {
+            success: { type: "boolean", const: true },
+            data: { type: "object", properties, required: required || Object.keys(properties) },
+          },
+          required: ["success", "data"],
+        },
+      },
+    },
+  };
+}
+
+/**
+ * A failure, which is always `{ error: true, message, code }`.
+ *
+ * The codes go in the description because that is the part an agent has to act
+ * on: which of them it got decides whether to change the request, wait, or
+ * stop. `message` is for a person reading a log and is not stable enough to
+ * branch on.
+ */
+function fail(description) {
+  return {
+    description,
+    content: { "application/json": { schema: { $ref: "#/components/schemas/Error" } } },
+  };
+}
+
+function pathParams(...names) {
+  return names.map((name) => ({
+    name,
+    in: "path",
+    required: true,
+    schema: { type: "string" },
+    description:
+      name === "domain"
+        ? "One of the roots from GET /api/v1/domains."
+        : name === "hostPrefix"
+          ? "The prefix the TXT record was created under."
+          : "The subdomain label on its own, without the root.",
+  }));
+}
+
+function body(properties, required) {
+  return {
+    required: true,
+    content: {
+      "application/json": {
+        schema: { type: "object", properties, required },
+      },
+    },
+  };
+}
+
+const RECORD_TYPE = {
+  type: "string",
+  enum: ["A", "CNAME"],
+  description: "A for an IP address, CNAME for a hostname. Nothing else is written.",
+};
+
+/**
+ * The nine operations, keyed by the route they document.
+ *
+ * The key is the method and the full path exactly as Fastify has it, because
+ * tests/discovery.test.js boots the app, reads the route table and compares
+ * the two sets. A route added without an entry here fails the suite; so does
+ * an entry here for a route that no longer exists.
+ */
+function operations(origin) {
+  const host = hostOf(origin);
+  const fqdn = `demo.${host}`;
+  const prefixes = config.txt.apexPrefixes;
+
+  return {
+    "GET /api/v1/domains": {
+      summary: "The roots you may create a subdomain under",
+      description:
+        "Call this first. Which roots are on offer is a row in a table, not a constant, and " +
+        "the first one in the list is the one the site itself uses.",
+      responses: {
+        200: ok("The active roots, canonical first.", {
+          domains: { type: "array", items: { type: "string" }, example: [host] },
+        }),
+      },
+    },
+
+    "GET /api/v1/check/{subdomain}/{domain}": {
+      summary: "Is this name free",
+      description:
+        "Checks the zone and the database. A name can be taken in either and available in " +
+        "neither, so both are asked before the answer is yes.",
+      parameters: pathParams("subdomain", "domain"),
+      responses: {
+        200: ok("Whether the name can be claimed.", {
+          available: { type: "boolean" },
+          subdomain: { type: "string", example: "demo" },
+          domain: { type: "string", example: host },
+          fqdn: { type: "string", example: fqdn },
+        }),
+        400: fail(
+          "INVALID_SUBDOMAIN — the label is not one DNS accepts. " +
+            "INVALID_DOMAIN — that root is not managed here; GET /api/v1/domains lists the ones that are."
+        ),
+      },
+    },
+
+    "POST /api/v1/subdomains": {
+      summary: "Claim a name and point it somewhere",
+      description:
+        "Creates the DNS record and the row behind it together. The target is asked for an " +
+        "HTTP response before anything is written: a record pointing at nothing is the one " +
+        "outcome nobody can debug from the outside.",
+      requestBody: body(
+        {
+          subdomain: { type: "string", example: "demo", description: "The label on its own." },
+          domain: { type: "string", example: host, description: "One of the roots from GET /api/v1/domains." },
+          type: { ...RECORD_TYPE, default: "A" },
+          value: {
+            type: "string",
+            example: "203.0.113.10",
+            description: "An IPv4 address for A, a hostname for CNAME. A CNAME may not point at itself.",
+          },
+        },
+        ["subdomain", "domain", "value"]
+      ),
+      responses: {
+        201: ok("The record, and the date it falls due.", {
+          fqdn: { type: "string", example: fqdn },
+          type: RECORD_TYPE,
+          value: { type: "string", example: "203.0.113.10" },
+          expires_at: {
+            type: "string",
+            format: "date-time",
+            description:
+              "When the lease ends. It travels in the response because a caller with no " +
+              "account has no mailbox to be reminded at.",
+          },
+        }),
+        400: fail(
+          "INVALID_SUBDOMAIN — the label is not one DNS accepts. " +
+            "INVALID_INPUT — the value is not an address of the type given. " +
+            "INVALID_DOMAIN — that root is not managed here. " +
+            "BLACKLISTED — the name is reserved. " +
+            "VALIDATION_UNREACHABLE — nothing answered an HTTP request at the target, so " +
+            "nothing was written. Put something there and repeat the call."
+        ),
+        402: {
+          description:
+            "Only when the payment route is switched on, and only for a caller over the " +
+            "limit. The body is an x402 payment requirement — what to pay, in what, and to " +
+            "whom — and the same request repeated with an `x-payment` header goes through. " +
+            "With the route off this is a 403 instead.",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  x402Version: { type: "integer" },
+                  error: { type: "string" },
+                  accepts: { type: "array", items: { type: "object" } },
+                },
+              },
+            },
+          },
+        },
+        403: fail("LIMIT_REACHED — the caller is holding as many as they may. The message says both numbers."),
+        409: fail("SUBDOMAIN_TAKEN — somebody else has it."),
+      },
+    },
+
+    "GET /api/v1/subdomains": {
+      summary: "What this caller holds",
+      description:
+        "An API key lists the account's records. Without one, the records created from this " +
+        "IP address — which is the only identity an anonymous caller has.",
+      responses: {
+        200: ok("Newest first.", {
+          subdomains: { type: "array", items: { $ref: "#/components/schemas/Subdomain" } },
+        }),
+      },
+    },
+
+    "PATCH /api/v1/subdomains/{subdomain}/{domain}": {
+      summary: "Point an existing name somewhere else",
+      description:
+        "The record type cannot be changed, only the value it points at. The new target is " +
+        "asked for an HTTP response first, exactly as on create.",
+      parameters: pathParams("subdomain", "domain"),
+      requestBody: body({ value: { type: "string", example: "203.0.113.11" } }, ["value"]),
+      responses: {
+        200: ok("The record as it now stands.", {
+          fqdn: { type: "string", example: fqdn },
+          type: RECORD_TYPE,
+          value: { type: "string", example: "203.0.113.11" },
+        }),
+        400: fail(
+          "INVALID_INPUT — the value is not an address of this record's type. " +
+            "INVALID_DOMAIN — that root is not managed here. " +
+            "VALIDATION_UNREACHABLE — nothing answered at the new target, so the old one still stands."
+        ),
+        403: fail("FORBIDDEN — no such record under this caller. Deliberately the same answer as one that exists and belongs to somebody else."),
+      },
+    },
+
+    "DELETE /api/v1/subdomains/{subdomain}/{domain}": {
+      summary: "Give a name back",
+      description: "Removes the zone record and the row together. The name is free immediately.",
+      parameters: pathParams("subdomain", "domain"),
+      responses: {
+        200: ok("Gone.", {
+          fqdn: { type: "string", example: fqdn },
+          deleted: { type: "boolean", const: true },
+        }),
+        400: fail("INVALID_DOMAIN — that root is not managed here."),
+        403: fail("FORBIDDEN — no such record under this caller."),
+      },
+    },
+
+    "POST /api/v1/subdomains/{subdomain}/{domain}/renew": {
+      summary: "Keep a name for another period",
+      description:
+        `The clock is reset from today rather than added to the old date, so calling this in ` +
+        `a loop cannot stack up years. It opens ${expiry.RENEWAL_WINDOW_DAYS} days before ` +
+        "expiry — asking earlier is refused with the date it becomes possible.",
+      parameters: pathParams("subdomain", "domain"),
+      responses: {
+        200: ok("The new date.", {
+          fqdn: { type: "string", example: fqdn },
+          expires_at: { type: "string", format: "date-time" },
+        }),
+        400: fail("INVALID_DOMAIN — that root is not managed here."),
+        403: fail("FORBIDDEN — no such record under this caller."),
+        404: fail("SUBDOMAIN_NOT_FOUND — it was there a moment ago and is not now."),
+        409: fail(
+          "RENEWAL_NOT_DUE — too early, or the record has no expiry at all. The message " +
+            "names the date to come back on, so the call does not have to be retried blindly."
+        ),
+      },
+    },
+
+    "POST /api/v1/subdomains/{subdomain}/{domain}/txt": {
+      summary: "Add the TXT record a host asks for",
+      description:
+        `Only ${prefixes.map((p) => `\`${p}\``).join(", ")} may be used as a prefix, and the ` +
+        "record is written at the root domain, which is where verification services look for " +
+        "it. Calling this twice with different values replaces this subdomain's own line and " +
+        "leaves everybody else's alone.",
+      parameters: pathParams("subdomain", "domain"),
+      requestBody: body(
+        {
+          host_prefix: { type: "string", enum: prefixes, example: prefixes[0] },
+          value: {
+            type: "string",
+            maxLength: 512,
+            description: "No line breaks, control characters, quotes or backslashes.",
+          },
+        },
+        ["host_prefix", "value"]
+      ),
+      responses: {
+        200: ok("The TXT record as written.", {
+          fqdn: { type: "string", example: `${prefixes[0]}.${host}` },
+          type: { type: "string", const: "TXT" },
+          value: { type: "string" },
+        }),
+        400: fail(
+          "INVALID_INPUT — the value is empty, too long, or carries a character a zone file " +
+            "cannot hold. " +
+            "INVALID_HOST_PREFIX — not one of the prefixes above. " +
+            "INVALID_DOMAIN — that root is not managed here. " +
+            "ROOT_LEVEL_FORBIDDEN — the `root_level` flag is gone; every TXT record is written " +
+            "at the root now, so the flag selects nothing. Omit it."
+        ),
+        403: fail("FORBIDDEN — no such subdomain under this caller to hang a TXT record on."),
+      },
+    },
+
+    "DELETE /api/v1/subdomains/{subdomain}/{domain}/txt/{hostPrefix}": {
+      summary: "Take that TXT record away",
+      description:
+        "Removes this subdomain's own line. The name is shared with every other subdomain of " +
+        "the root, so the stored value is what identifies which line is yours.",
+      parameters: pathParams("subdomain", "domain", "hostPrefix"),
+      responses: {
+        200: ok(
+          "Gone. `zone_record_removed` is false when the row was there and the zone line was " +
+            "not — the row is removed either way, and saying so beats claiming a change that " +
+            "did not happen.",
+          {
+            fqdn: { type: "string", example: `${prefixes[0]}.${host}` },
+            type: { type: "string", const: "TXT" },
+            deleted: { type: "boolean", const: true },
+            zone_record_removed: { type: "boolean" },
+          }
+        ),
+        400: fail("INVALID_HOST_PREFIX — not a prefix this service writes. INVALID_DOMAIN — that root is not managed here."),
+        403: fail("FORBIDDEN — no such subdomain under this caller."),
+        404: fail("TXT_NOT_FOUND — that subdomain has no TXT record under this prefix."),
+      },
+    },
+  };
+}
+
+/**
+ * The OpenAPI document served at /openapi.json.
+ *
+ * Every operation carries the three answers any of them can give — an invalid
+ * key, the rate limiter, and a fault of ours — so a client generated from this
+ * handles them without having to be told separately.
+ */
+function openApi({ origin }) {
+  const paths = {};
+  for (const [key, operation] of Object.entries(operations(origin))) {
+    const [method, path] = key.split(" ");
+    paths[path] = paths[path] || {};
+    paths[path][method.toLowerCase()] = {
+      ...operation,
+      responses: {
+        ...operation.responses,
+        401: { $ref: "#/components/responses/Unauthorized" },
+        429: { $ref: "#/components/responses/RateLimited" },
+        500: { $ref: "#/components/responses/ServerError" },
+      },
+    };
+  }
+
+  return {
+    openapi: "3.1.0",
+    info: {
+      title: "Sitey",
+      version: "1.0.0",
+      summary: SUMMARY,
+      description: [
+        SUMMARY,
+        "",
+        "Limits:",
+        ...limitNotes().map((note) => `- ${note}`),
+        "",
+        `The same operations are available to an agent runtime over MCP at ${origin}/mcp ` +
+          `(Streamable HTTP, one POST per message); ${origin}/.well-known/mcp.json describes it.`,
+      ].join("\n"),
+    },
+    servers: [{ url: origin }],
+    externalDocs: { description: "Docs", url: `${origin}/docs` },
+    // Both, in this order: no credential at all is a supported way to call
+    // every one of these, and it is how most callers arrive.
+    security: [{}, { apiKey: [] }],
+    paths,
+    components: {
+      securitySchemes: {
+        apiKey: {
+          type: "http",
+          scheme: "bearer",
+          description:
+            "An API key from the dashboard, sent as `Authorization: Bearer styo_…`. It makes " +
+            "the records belong to an account rather than to an address. Anything else after " +
+            "`Bearer ` is refused rather than treated as anonymous.",
+        },
+      },
+      responses: {
+        Unauthorized: fail("UNAUTHORIZED — the Authorization header carried something that is not a key of ours."),
+        RateLimited: fail("RATE_LIMITED — more than 100 requests in a minute from one address. Wait and repeat."),
+        ServerError: fail("INTERNAL_ERROR — ours, not yours. Nothing partial is left behind: a write that cannot finish is rolled back in full."),
+      },
+      schemas: {
+        Error: {
+          type: "object",
+          description: "Every failure has this shape. Branch on `code`, log `message`.",
+          properties: {
+            error: { type: "boolean", const: true },
+            message: { type: "string" },
+            code: { type: "string" },
+          },
+          required: ["error", "message", "code"],
+        },
+        Subdomain: {
+          type: "object",
+          properties: {
+            subdomain: { type: "string", example: "demo" },
+            domain: { type: "string", example: hostOf(origin) },
+            type: RECORD_TYPE,
+            value: { type: "string", example: "203.0.113.10" },
+            created_at: { type: "string", format: "date-time" },
+            expires_at: { type: "string", format: "date-time" },
+          },
+        },
+      },
+    },
+  };
+}
+
+module.exports = { SUMMARY, API_PREFIX, hostOf, limitNotes, mcpManifest, openApi };

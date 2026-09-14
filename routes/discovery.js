@@ -22,6 +22,14 @@ async function discoveryRoutes(fastify, options) {
       .header("Cache-Control", CACHE)
       .send(discovery.mcpManifest({ origin, domains }));
   });
+
+  // Built once: it describes routes and settings, and neither changes while
+  // the process is up.
+  const openApi = discovery.openApi({ origin });
+
+  fastify.get("/openapi.json", async (request, reply) =>
+    reply.type("application/json; charset=utf-8").header("Cache-Control", CACHE).send(openApi)
+  );
 }
 
 module.exports = discoveryRoutes;

@@ -758,6 +758,21 @@ input::placeholder { color: var(--ink-3); }
 .docs-link:hover { color: var(--ink); }
 .docs-link.active { color: var(--ink); font-weight: 700; }
 
+/* The documents a machine reads. In the sidebar because that is where the
+   links to the rest of the documentation already are, under a rule because
+   they are for a different reader. Not .docs-link: that class is what the
+   sidebar's click handler swallows, and these are real navigations. */
+.docs-machine { margin-top: 20px; padding-top: 14px; border-top: 1px solid var(--rule); }
+.docs-machine a {
+  display: block;
+  color: var(--ink-3);
+  text-decoration: none;
+  padding: 4px 0;
+  font-size: 13.5px;
+  overflow-wrap: anywhere;
+}
+.docs-machine a:hover { color: var(--ink); }
+
 .docs-content { min-width: 0; max-width: 680px; }
 .docs-content h1 { font-size: 26px; margin-bottom: 4px; }
 .docs-content .docs-subtitle { color: var(--ink-2); margin-bottom: 28px; }
