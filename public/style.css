@@ -1234,6 +1234,10 @@ textarea { border-radius: var(--r-input); }
   box-shadow: 0 2px 6px rgba(7, 7, 9, 0.06), 0 12px 28px rgba(7, 7, 9, 0.10);
 }
 
+/* 진행 막대의 «빈 트랙»(--rule-2)이 판 위에서는 입력창 바로 아래 회색
+   실선으로 보인다 — 검색을 안 하는 동안에도 계속. 트랙을 지우고 움직이는
+   조각만 남기면 검색 중에만 나타난다. */
+.hero-panel .bar { background: transparent; }
 .hero-panel .bar i { background: var(--hero-ink); }
 
 @media (max-width: 720px) {
