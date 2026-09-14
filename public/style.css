@@ -34,46 +34,56 @@
    because a media query cannot be re-entered from a selector.
    ============================================ */
 :root {
-  --paper: #ffffff;
-  --ink: #16191c;
-  --ink-2: #5a6169;        /* secondary text */
-  --ink-3: #8b939b;        /* placeholder, disabled, quiet meta */
-  --rule: #e6e9ec;         /* borders you are meant to notice */
-  --rule-2: #f2f4f6;       /* dividers and quiet fills */
+  /* Letters (styles.refero.design). 2026-09-14 Jay 결정으로 통째로 옮겨왔다.
+     전에는 초록이었고 「다들 파란색이라 눈에 갈린다」는 이유가 적혀 있었다 —
+     그 이유를 알고 뒤집은 것이지 잊고 바꾼 것이 아니다. */
+  --paper: #ffffff;        /* Paper White */
+  --ink: #070709;          /* Obsidian */
+  --ink-2: #60606c;        /* Charcoal — secondary text */
+  --ink-3: #9a9aa6;        /* placeholder, disabled, quiet meta */
+  --rule: #e5e5ea;         /* borders you are meant to notice */
+  --rule-2: #f5f5f5;       /* Cloud Gray — dividers and quiet fills */
 
-  /* 초록을 쓴 이유 — 이 서비스가 내놓는 답이 「쓸 수 있다」라서다.
-     요즘 이런 서비스가 다 파란색이라 눈에 갈리기도 한다. */
-  --go: #0e7c4a;
-  --go-soft: #eaf5ef;
+  --go: #2597d0;           /* Surgical Blue — the one accent */
+  --go-soft: #e9f4fb;
 
-  /* The palette's one alarm: delete, errors, and an expiry close
-     enough that renewal is already open. */
   --bad: #c0392b;
+
+  /* 반경 — 버튼은 알약, 카드는 크게. Letters 의 특징이 여기 있다. */
+  --r-pill: 100px;
+  --r-card: 18px;
+  --r-input: 12px;
+  --r-tight: 8px;
+
+  /* CTA 아래 네 겹 그림자. 한 겹으로 흉내내면 둔해 보인다. */
+  --lift: 0 1px 2px rgba(7, 7, 9, 0.04), 0 2px 6px rgba(7, 7, 9, 0.05),
+          0 8px 16px rgba(7, 7, 9, 0.05), 0 16px 32px rgba(7, 7, 9, 0.04);
+  --lift-card: 0 1px 3px rgba(37, 151, 208, 0.05), 0 8px 24px rgba(37, 151, 208, 0.06);
 }
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --paper: #0f1214;
-    --ink: #e8ebee;
-    --ink-2: #a0a8b0;
-    --ink-3: #6f7780;
-    --rule: #232a2f;
-    --rule-2: #1a2024;
-    --go: #4fc28a;
-    --go-soft: #132520;
+    --paper: #0b0c0f;
+    --ink: #f2f2f5;
+    --ink-2: #a3a3b0;
+    --ink-3: #6e6e7a;
+    --rule: #23242a;
+    --rule-2: #16171b;
+    --go: #4fb3e4;
+    --go-soft: #10222c;
     --bad: #f2857a;
   }
 }
 
 :root[data-theme="dark"] {
-  --paper: #0f1214;
-  --ink: #e8ebee;
-  --ink-2: #a0a8b0;
-  --ink-3: #6f7780;
-  --rule: #232a2f;
-  --rule-2: #1a2024;
-  --go: #4fc28a;
-  --go-soft: #132520;
+  --paper: #0b0c0f;
+  --ink: #f2f2f5;
+  --ink-2: #a3a3b0;
+  --ink-3: #6e6e7a;
+  --rule: #23242a;
+  --rule-2: #16171b;
+  --go: #4fb3e4;
+  --go-soft: #10222c;
   --bad: #f2857a;
 }
 
@@ -89,7 +99,9 @@ body {
      글자만 밝아지고 바탕은 흰색으로 남는다. */
   background: var(--paper);
   color: var(--ink);
-  font-family: "Gothic A1", "Apple SD Gothic Neo", system-ui, sans-serif;
+  /* 라틴은 Inter, 한글은 Gothic A1 — 브라우저가 글자마다 갈라서 고른다.
+     Inter·Open Runde 둘 다 라틴 전용이라 한글을 넣을 수 없다. */
+  font-family: "Inter", "Gothic A1", "Apple SD Gothic Neo", system-ui, sans-serif;
   font-size: 16px;
   line-height: 1.65;
   -webkit-font-smoothing: antialiased;
@@ -1081,3 +1093,36 @@ footer a:hover { color: var(--ink-2); text-decoration: underline; }
 .privacy-loading {
   color: var(--muted, #888);
 }
+
+/* ============================================
+   Letters — 제목 서체와 자간
+   ============================================ */
+h1, h2, h3, .brand {
+  font-family: "Open Runde", "Inter", "Gothic A1", "Apple SD Gothic Neo",
+    system-ui, sans-serif;
+  letter-spacing: -0.04em;
+}
+
+/* 버튼은 알약, 입력과 카드는 크게 — Letters 의 인상은 여기서 나온다. */
+.btn-primary,
+.nav-auth-btn,
+.lang button,
+.blog-list-link .tag,
+button.pill { border-radius: var(--r-pill); }
+
+.field,
+input[type="text"],
+input[type="email"],
+select,
+textarea { border-radius: var(--r-input); }
+
+.modal-content { border-radius: var(--r-card); }
+
+/* CTA 는 검정 바탕에 흰 글자, 그리고 네 겹 그림자. */
+.btn-primary {
+  background: var(--ink);
+  color: var(--paper);
+  border-color: var(--ink);
+  box-shadow: var(--lift);
+}
+.btn-primary:hover { box-shadow: var(--lift), 0 0 0 3px var(--go-soft); }
