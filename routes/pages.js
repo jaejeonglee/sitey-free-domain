@@ -41,6 +41,25 @@ const DEFAULT_DESCRIPTION =
 // Pages behind sign-in deliberately have none: their markup is an empty shell
 // waiting on an API call, so shipping it would only put a contentless page in
 // front of crawlers.
+/**
+ * @returns {"ko"|"en"} the language to render markdown in.
+ */
+function pickLang(request) {
+  const asked = request.query?.lang;
+  if (asked === "ko" || asked === "en") return asked;
+
+  const cookie = request.cookies?.["sitey-lang"];
+  if (cookie === "ko" || cookie === "en") return cookie;
+
+  // "en-GB,en;q=0.9,ko;q=0.8" — first tag wins, the rest is preference order
+  // we do not need: only two languages exist here.
+  const header = request.headers?.["accept-language"] || "";
+  const first = header.split(",")[0]?.trim().slice(0, 2).toLowerCase();
+  if (first === "en") return "en";
+
+  return "ko";
+}
+
 const PAGES = {
   "/": {
     title: "Sitey — free subdomains for developers",
@@ -239,15 +258,13 @@ async function pageRoutes(fastify, options) {
     fastify.get(routePath, async (request, reply) => {
       let body = "";
       try {
-        // An explicit ?lang= wins — that is a link someone chose. Otherwise
-        // follow the cookie the language buttons set, so the text matches the
-        // chrome around it. A crawler sends neither and gets the default.
-        const lang =
-          request.query.lang === "en" || request.query.lang === "ko"
-            ? request.query.lang
-            : request.cookies?.["sitey-lang"] === "en"
-              ? "en"
-              : "ko";
+        // Which language to render, in the order the client decides it
+        // (modules/i18n.js getSavedLang): an explicit ?lang= is a link
+        // somebody chose, then the cookie the language buttons write, then
+        // what the browser asks for. A first-time visitor never had a cookie,
+        // and without the Accept-Language step they read Korean text under
+        // English chrome — which is what a review team saw.
+        const lang = pickLang(request);
         const raw = await fs.readFile(
           path.join(__dirname, "..", "content", dir, `${name}.${lang}.md`),
           "utf8"
