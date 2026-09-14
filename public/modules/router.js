@@ -21,6 +21,22 @@ const routes = {
     "/blog": { templateId: "template-blog", init: initializeBlogPage, title: "Domain Name Ideas - Sitey" },
 };
 
+/**
+ * Does the client router own this path?
+ *
+ * The click handler used to carry a list of exceptions instead — every URL on
+ * this origin was intercepted unless it was named there. That made each new
+ * non-SPA URL a bug waiting to be found: /privacy was one this morning, and
+ * /openapi.json and /llms.txt the same evening, all with the same symptom of
+ * landing on the home page. Asking the route table what it knows cannot fall
+ * behind the way a list of exceptions does.
+ */
+export function isClientRoute(path) {
+  if (SERVER_RENDERED.has(path)) return false;
+  if (routes[path]) return true;
+  return /^\/blog\/[^/]+$/.test(path);
+}
+
 export function navigateTo(path) {
   history.pushState(null, null, path);
   router();

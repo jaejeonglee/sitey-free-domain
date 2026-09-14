@@ -1,4 +1,4 @@
-import { router, navigateTo } from './modules/router.js';
+import { router, navigateTo, isClientRoute } from './modules/router.js';
 import { getSavedLang, loadLang } from './modules/i18n.js';
 import { fetchCurrentUser } from './modules/api.js';
 import { initPrivacyModal } from './modules/privacy-modal.js';
@@ -12,11 +12,10 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (link && link.target !== "_blank" && link.origin === window.location.origin) {
       // Skip hash-only links (e.g. docs sidebar)
       if (link.getAttribute("href")?.startsWith("#")) return;
-      // The policy opens in a modal (modules/privacy-modal.js); /about is a
-      // server-rendered page. Leaving either to the client router would render
-      // the home template over markup the server already filled.
-      const href = link.getAttribute("href");
-      if (href === "/privacy" || href === "/about") return;
+      // Only paths the client router can actually render are taken over. The
+      // rest — the pages the server fills in, and documents like /openapi.json
+      // and /llms.txt — go to the network as ordinary navigations.
+      if (!isClientRoute(link.pathname)) return;
       event.preventDefault();
       navigateTo(link.pathname + link.search);
     }
