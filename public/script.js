@@ -12,10 +12,11 @@ document.addEventListener("DOMContentLoaded", async () => {
     if (link && link.target !== "_blank" && link.origin === window.location.origin) {
       // Skip hash-only links (e.g. docs sidebar)
       if (link.getAttribute("href")?.startsWith("#")) return;
-      // The policy opens in a modal (modules/privacy-modal.js). Leaving it to
-      // the router would render the home template over a page the server
-      // already filled — which is what it did.
-      if (link.getAttribute("href") === "/privacy") return;
+      // The policy opens in a modal (modules/privacy-modal.js); /about is a
+      // server-rendered page. Leaving either to the client router would render
+      // the home template over markup the server already filled.
+      const href = link.getAttribute("href");
+      if (href === "/privacy" || href === "/about") return;
       event.preventDefault();
       navigateTo(link.pathname + link.search);
     }

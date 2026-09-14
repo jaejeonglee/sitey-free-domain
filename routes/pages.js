@@ -63,11 +63,18 @@ const PAGES = {
     title: `Blog — ${SITE_TITLE_SUFFIX}`,
     description: "Notes on running a free subdomain service: DNS, deploys and developer tooling.",
   },
-  // /privacy builds its body per request from content/legal.
+  // These build their body per request from markdown under content/.
   "/privacy": {
     title: `Privacy Policy — ${SITE_TITLE_SUFFIX}`,
     description:
       "What sitey collects, why, how long it is kept, and who processes it.",
+    markdown: ["legal", "privacy"],
+  },
+  "/about": {
+    title: `About — ${SITE_TITLE_SUFFIX}`,
+    description:
+      "What sitey does, what it does not do, how names are lent, and how to get in touch.",
+    markdown: ["pages", "about"],
   },
   // No template below this line: sign-in and the dashboard are behind auth.
   "/login": {
@@ -175,7 +182,7 @@ async function pageRoutes(fastify, options) {
 
   for (const [routePath, page] of Object.entries(PAGES)) {
     // Registered below: their bodies are built per request, not from a template.
-    if (routePath === "/blog" || routePath === "/privacy") continue;
+    if (routePath === "/blog" || page.markdown) continue;
     fastify.get(routePath, async (request, reply) =>
       send(reply, { ...page, canonicalPath: page.canonicalPath || routePath })
     );
@@ -220,28 +227,33 @@ async function pageRoutes(fastify, options) {
     });
   });
 
-  // The privacy policy is a page a person — or a reviewer — has to be able to
-  // read. It used to exist only as JSON under /api/policies/privacy, which
-  // robots.txt disallows, so nobody could find it. The markdown in
-  // content/legal is the source; this renders it into the same shell the blog
-  // posts use, so it inherits their styling without a template of its own.
-  fastify.get("/privacy", async (request, reply) => {
-    let body = "";
-    try {
-      const lang = request.query.lang === "en" ? "en" : "ko";
-      const raw = await fs.readFile(
-        path.join(__dirname, "..", "content", "legal", `privacy.${lang}.md`),
-        "utf8"
-      );
-      body = `<article class="blog-content"><div class="blog-body">${marked.parse(raw)}</div></article>`;
-    } catch (error) {
-      // Degrade to the shell rather than 500: a policy page that fails to
-      // render is a bug to fix, not a reason to refuse the request.
-      fastify.log.error(error, "Failed to render the privacy policy body");
-    }
+  // Pages whose text lives in markdown rather than a template. The policy used
+  // to exist only as JSON under /api/policies/privacy, which robots.txt
+  // disallows — nobody could find it, reviewers included. Rendering the
+  // markdown into the same shell the blog posts use means these inherit their
+  // styling without a template of their own.
+  for (const [routePath, page] of Object.entries(PAGES)) {
+    if (!page.markdown) continue;
+    const [dir, name] = page.markdown;
 
-    return send(reply, { ...PAGES["/privacy"], canonicalPath: "/privacy", body });
-  });
+    fastify.get(routePath, async (request, reply) => {
+      let body = "";
+      try {
+        const lang = request.query.lang === "en" ? "en" : "ko";
+        const raw = await fs.readFile(
+          path.join(__dirname, "..", "content", dir, `${name}.${lang}.md`),
+          "utf8"
+        );
+        body = `<article class="blog-content"><div class="blog-body">${marked.parse(raw)}</div></article>`;
+      } catch (error) {
+        // Degrade to the shell rather than 500: a page that fails to render is
+        // a bug to fix, not a reason to refuse the request.
+        fastify.log.error(error, `Failed to render ${routePath}`);
+      }
+
+      return send(reply, { ...page, canonicalPath: routePath, body });
+    });
+  }
 }
 
 // Registered with fastify-plugin so the not-found handler on the root instance

@@ -7,6 +7,9 @@ import { renderNavbar } from './ui.js';
 import { applyTranslations, loadLang, getLang } from './i18n.js';
 import { getCurrentUser } from './api.js';
 
+// Paths the server fills in; the client must not paint over them.
+const SERVER_RENDERED = new Set(["/privacy", "/about"]);
+
 const routes = {
     "/": { templateId: "template-home", init: initializeLandingPage, title: "Sitey - free domain" },
     "/index.html": { templateId: "template-home", init: initializeLandingPage, title: "Sitey - free domain" },
@@ -43,11 +46,11 @@ export async function router() {
     return navigateTo("/login");
   }
 
-  // /privacy arrives fully rendered from the server (routes/pages.js) and has
-  // no client template. Wiping app-root to drop a template in would blank the
-  // policy a moment after it appears — so for this path the swap is skipped
-  // and only the chrome around it is wired.
-  const serverRendered = path === "/privacy";
+  // These arrive fully rendered from the server (routes/pages.js) and have no
+  // client template. Wiping app-root to drop a template in would blank the
+  // page a moment after it appears — so for these the swap is skipped and only
+  // the chrome around it is wired.
+  const serverRendered = SERVER_RENDERED.has(path);
 
   const appRoot = document.getElementById("app-root");
   if (!appRoot) return;
