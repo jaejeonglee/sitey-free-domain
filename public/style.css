@@ -282,8 +282,10 @@ main {
 
 /* 판은 넓고, 그 «안의 내용»만 읽기 좋은 폭으로 묶는다. 680px 를 판에
    걸면 판까지 좁아져서 원본의 넓은 면이 안 나온다. */
+/* 판은 1080 으로 펴되 «안의 도구»는 좁게 묶는다. 680 은 글 읽는 폭이지
+   검색창 폭이 아니다 — 판 안에서 입력창이 주인공처럼 커 보였다. */
 .hero-panel > form,
-.hero-panel > .bar { max-width: 680px; margin-left: auto; margin-right: auto; }
+.hero-panel > .bar { max-width: 560px; margin-left: auto; margin-right: auto; }
 
 /* 구글 첫 화면처럼 이름이 곧 제목이다. 위에 작은 로고를 같이 두면
    같은 이름이 한 화면에 두 번 나와서 헤더 쪽을 뺐다. */
@@ -320,9 +322,9 @@ main {
   background: none;
   color: var(--ink);
   font: inherit;
-  font-size: 19px;
+  font-size: 16px;
   font-weight: 500;
-  padding: 15px 18px;
+  padding: 13px 18px;
 }
 
 .field input::placeholder { color: var(--ink-3); font-weight: 400; }
@@ -345,7 +347,7 @@ main {
   background: none;
   color: var(--ink-2);
   font: inherit;
-  font-size: 15px;
+  font-size: 14px;
   padding: 0 34px 0 16px;
   cursor: pointer;
   outline: 0;
@@ -1239,7 +1241,8 @@ textarea { border-radius: var(--r-input); }
 }
 
 /* 결과와 설명 카드는 판 아래에 온다 — 읽기 폭으로 묶는다. */
-.results { max-width: 680px; margin-left: auto; margin-right: auto; }
+/* 결과 줄은 검색창과 같은 폭이어야 한 덩어리로 읽힌다. */
+.results { max-width: 560px; margin-left: auto; margin-right: auto; }
 
 /* 결과 자리를 180px 비워두던 것은 «타이핑할 때 카드가 안 튀게» 하려던 것이다.
    판이 커진 지금은 그 빈자리가 구멍으로 읽힌다. 비어 있을 때만 접고,

@@ -73,10 +73,13 @@
     }
     </script>
 
-    <!-- Open Runde: Inter 의 둥근 변형, OFL-1.1. 구글 폰트에 없어 fontsource 를 쓴다. -->
+    <!-- Open Runde: Inter 의 둥근 변형, OFL-1.1. 구글 폰트에 없어 fontsource 를 쓴다.
+         index.css 는 400 한 벌만 싣는데 제목은 전부 700 이라, 브라우저가 400 을
+         뭉개 굵게 «합성»하고 있었다. 획이 뭉개져서 서체가 안 먹은 것처럼 보인다.
+         쓰는 굵기가 700 하나뿐이므로 그 한 벌만 부른다 — 파일도 하나 줄었다. -->
     <link
       rel="stylesheet"
-      href="https://cdn.jsdelivr.net/npm/@fontsource/open-runde@5/index.css"
+      href="https://cdn.jsdelivr.net/npm/@fontsource/open-runde@5/700.css"
     />
     <link rel="stylesheet" href="/style.css" />
     <script src="/script.js" type="module" defer></script>
