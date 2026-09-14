@@ -6,7 +6,7 @@ module.exports = {
   version: "2.0.0",
   updatedAt: "2026-09-14",
   contact: {
-    email: "hello@sitey.one",
+    email: "ljj5256@gmail.com",
   },
   scope: [
     "This policy applies to sitey (sitey.my) and the subdomains it issues, including the web app and the REST and MCP APIs.",
@@ -80,7 +80,7 @@ module.exports = {
       title: "Your rights",
       statements: [
         "You may ask to see, correct, erase, or stop the processing of your personal data.",
-        "Email hello@sitey.one from the address you signed up with. We respond within 30 days.",
+        "Email ljj5256@gmail.com from the address you signed up with. We respond within 30 days.",
         "You can delete your subdomain records yourself from the dashboard at any time.",
       ],
     },

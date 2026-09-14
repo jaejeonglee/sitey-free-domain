@@ -94,7 +94,7 @@ This site uses Google AdSense. Google and its partners may use cookies to serve 
 
 You may ask us to **show you** the personal data we hold, **correct** it, **erase** it, or **stop processing** it.
 
-Email `hello@sitey.one` from the address you signed up with. **We respond within 30 days.**
+Email `ljj5256@gmail.com` from the address you signed up with. **We respond within 30 days.**
 
 You can also delete your subdomain records yourself from the dashboard at any time.
 
@@ -111,7 +111,7 @@ Once the retention period ends or the purpose is met, data is erased without del
 
 ## 10. Contact
 
-Privacy enquiries: `hello@sitey.one`
+Privacy enquiries: `ljj5256@gmail.com`
 
 ## 11. Changes
 

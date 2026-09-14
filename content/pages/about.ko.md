@@ -47,7 +47,7 @@
 
 ## 연락처
 
-- 이메일 — `hello@sitey.one`
+- 이메일 — `ljj5256@gmail.com`
 - 텔레그램 — [https://t.me/+yvrIFDbssJ0wNDJl](https://t.me/+yvrIFDbssJ0wNDJl)
 
 문의·버그 제보·이름 관련 요청 모두 위 두 곳으로 주시면 됩니다. 보통 하루 안에 답합니다.

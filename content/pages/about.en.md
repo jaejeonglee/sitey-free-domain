@@ -47,7 +47,7 @@ One person. It was built to be used, then left open; a few dozen people use it n
 
 ## Contact
 
-- Email — `hello@sitey.one`
+- Email — `ljj5256@gmail.com`
 - Telegram — [https://t.me/+yvrIFDbssJ0wNDJl](https://t.me/+yvrIFDbssJ0wNDJl)
 
 Questions, bug reports and requests about a name all go to either of those. A reply usually comes within a day.
