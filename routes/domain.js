@@ -1,7 +1,7 @@
 // routes/domain.js
 const accessLog = require("../services/access-log");
 const bindService = require("../services/bind");
-const { validateRecord } = require("../services/validation");
+const { noteReachability } = require("../services/validation");
 const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
@@ -252,18 +252,16 @@ async function domainRoutes(fastify, options) {
         });
       }
 
-      // Active validation: check if target is reachable
-      const isReachable = await validateRecord(recordType, recordValue);
-      if (!isReachable) {
-        const msg =
-          recordType === "A"
-            ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
-            : `Nothing answered an HTTP request at ${recordValue}.`;
-        request.outcome = "VALIDATION_UNREACHABLE";
-        return reply
-          .code(400)
-          .send({ error: msg, code: "VALIDATION_UNREACHABLE" });
-      }
+      // Is the target answering yet? The verdict is recorded and handed back,
+      // not acted on — refusing here made "claim the name, then deploy to it"
+      // impossible. services/validation.js says why at length.
+      const reach = await noteReachability(request.log, {
+        recordType,
+        recordValue,
+        subdomain,
+        domain: domainEntry.domain,
+        phase: "create",
+      });
 
       try {
         const newRecord = await createSubdomain(fastify, {
@@ -275,11 +273,15 @@ async function domainRoutes(fastify, options) {
           recordType,
         });
 
+        // `reachable` is added to the response rather than replacing anything:
+        // the dashboard reads the four fields below and must keep working.
         return reply.code(201).send({
           success: true,
           domain: newRecord.name,
           value: recordValue,
           recordType,
+          reachable: reach.ok,
+          ...(reach.note ? { note: reach.note } : {}),
         });
       } catch (error) {
         if (error.statusCode === 409) {
@@ -349,17 +351,16 @@ async function domainRoutes(fastify, options) {
         }
         const recordValue = validation.value;
 
-        // Active validation: check if target is reachable
-        const isReachable = await validateRecord(recordType, recordValue);
-        if (!isReachable) {
-          const msg =
-            recordType === "A"
-              ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
-              : `Nothing answered an HTTP request at ${recordValue}.`;
-          return reply
-            .code(400)
-            .send({ error: msg, code: "VALIDATION_UNREACHABLE" });
-        }
+        // Recorded, not enforced — same as create, and for the same reason:
+        // the new target is often somewhere that will not answer until this
+        // record exists.
+        const reach = await noteReachability(request.log, {
+          recordType,
+          recordValue,
+          subdomain,
+          domain: domainEntry.domain,
+          phase: "update",
+        });
 
         // Validate TXT if provided
         let sanitizedTxt;
@@ -383,6 +384,8 @@ async function domainRoutes(fastify, options) {
         return reply.code(200).send({
           success: true,
           message: "Domain record updated successfully.",
+          reachable: reach.ok,
+          ...(reach.note ? { note: reach.note } : {}),
         });
       } catch (error) {
         fastify.log.error(error, "Failed to update domain");

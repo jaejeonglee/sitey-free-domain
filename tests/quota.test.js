@@ -36,9 +36,14 @@ const stubbed = [
   stub("../services/subdomain.js", {
     createSubdomain, updateSubdomain: vi.fn(), deleteSubdomain,
   }),
-  // The real one makes an HTTP request to the record's target.
+  // The real one makes an HTTP request to the record's target. It no longer
+  // refuses anything — the verdict rides back in the response — so the stub
+  // just answers that the target was up. tests/unreachable-create.test.js is
+  // where the dark case is checked.
   stub("../services/validation.js", {
-    validateRecord: vi.fn(async () => true),
+    noteReachability: vi.fn(async () => ({
+      ok: true, check: "https", status: 200, detail: "https 200", note: null,
+    })),
     setLogger: () => {},
   }),
 ];

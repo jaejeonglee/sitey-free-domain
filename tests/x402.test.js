@@ -30,7 +30,10 @@ const stubbed = [
     createSubdomain, updateSubdomain: vi.fn(), deleteSubdomain: vi.fn(),
   }),
   stub("../services/validation.js", {
-    validateRecord: vi.fn(async () => true), setLogger: () => {},
+    noteReachability: vi.fn(async () => ({
+      ok: true, check: "https", status: 200, detail: "https 200", note: null,
+    })),
+    setLogger: () => {},
   }),
 ];
 

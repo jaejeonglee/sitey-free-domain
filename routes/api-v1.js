@@ -2,7 +2,7 @@
 const config = require("../configs/index");
 const accessLog = require("../services/access-log");
 const bindService = require("../services/bind");
-const { validateRecord } = require("../services/validation");
+const { noteReachability } = require("../services/validation");
 const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
 const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
@@ -290,14 +290,17 @@ async function apiV1Routes(fastify, options) {
       return reply;
     }
 
-    // Reachability validation
-    const isReachable = await validateRecord(recordType, recordValue);
-    if (!isReachable) {
-      const msg = recordType === "A"
-        ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
-        : `Nothing answered an HTTP request at ${recordValue}.`;
-      apiError(400, msg, "VALIDATION_UNREACHABLE");
-    }
+    // Reachability, recorded rather than enforced. An agent asks for the name
+    // first and deploys to it second; refusing here made that order impossible
+    // and is the one thing standing in front of the API we are about to list.
+    // services/validation.js carries the reasoning.
+    const reach = await noteReachability(request.log, {
+      recordType,
+      recordValue,
+      subdomain,
+      domain: domainEntry.domain,
+      phase: "create",
+    });
 
     try {
       const newRecord = await createSubdomain(fastify, {
@@ -319,6 +322,10 @@ async function apiV1Routes(fastify, options) {
         // An agent has no mailbox to be reminded at, so the date it has to act
         // on travels in every response it reads.
         expires_at: newRecord.expiresAt,
+        // Added, never substituted: a client reading fqdn/type/value/expires_at
+        // sees exactly what it saw before.
+        reachable: reach.ok,
+        ...(reach.note ? { note: reach.note } : {}),
       });
     } catch (error) {
       if (error.statusCode === 409) {
@@ -382,14 +389,14 @@ async function apiV1Routes(fastify, options) {
     }
     const recordValue = validation.value;
 
-    // Reachability
-    const isReachable = await validateRecord(recordType, recordValue);
-    if (!isReachable) {
-      const msg = recordType === "A"
-        ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
-        : `Nothing answered an HTTP request at ${recordValue}.`;
-      apiError(400, msg, "VALIDATION_UNREACHABLE");
-    }
+    // Reachability, recorded rather than enforced — as on create.
+    const reach = await noteReachability(request.log, {
+      recordType,
+      recordValue,
+      subdomain,
+      domain: domainEntry.domain,
+      phase: "update",
+    });
 
     await updateSubdomain(fastify, {
       recordId: record.id,
@@ -403,6 +410,8 @@ async function apiV1Routes(fastify, options) {
       fqdn: `${subdomain}.${domainEntry.domain}`,
       type: recordType,
       value: recordValue,
+      reachable: reach.ok,
+      ...(reach.note ? { note: reach.note } : {}),
     });
   });
 
