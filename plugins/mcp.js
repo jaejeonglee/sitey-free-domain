@@ -110,14 +110,17 @@ function injectAuthSingle(msg, auth) {
  */
 function createMcpServer(fastify) {
   const server = new McpServer({
-    name: "sitey.one",
+    // 도메인이 아니라 서비스 이름이다. 예전엔 "sitey.one" 이었는데 정본이
+    // sitey.my 로 옮겨간 뒤에도 이 줄만 남아 있었다 — 레지스트리에는
+    // sitey.my 로 올려두고 붙으면 sitey.one 이라고 말하던 상태.
+    name: "sitey",
     version: "1.0.0",
   });
 
   // --- Tool: list_domains ---
   server.tool(
     "list_domains",
-    "List available root domains (e.g. sitey.one, sitey.my) that you can create subdomains under. Call this first to know which domains are available.",
+    "List available root domains (e.g. sitey.my, sitey.one) that you can create subdomains under. Call this first to know which domains are available.",
     {},
     async () => {
       const managedDomains = await getManagedDomains(fastify);
@@ -132,7 +135,7 @@ function createMcpServer(fastify) {
     "Check if a specific subdomain name is available for registration under a given domain. Returns true if the name is free to claim.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
-      domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
+      domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
     },
     async ({ subdomain: rawSubdomain, domain: rawDomain }) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
@@ -167,11 +170,11 @@ function createMcpServer(fastify) {
   // --- Tool: create_subdomain ---
   server.tool(
     "create_subdomain",
-    "Create a new DNS record for a subdomain. Supports A records (IP address) and CNAME records (hostname). Example: create demo.sitey.one pointing to 1.2.3.4. " +
+    "Create a new DNS record for a subdomain. Supports A records (IP address) and CNAME records (hostname). Example: create demo.sitey.my pointing to 1.2.3.4. " +
       "The target does not have to be serving yet: claim the name first and deploy to it second if that is your order. The result carries reachable:false when nothing answered, and the record is created either way.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
-      domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
+      domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
       type: z.enum(["A", "CNAME"]).describe("Record type"),
       value: z.string().describe("Record value (IP for A, hostname for CNAME)"),
     },
@@ -328,7 +331,7 @@ function createMcpServer(fastify) {
     "Extend a subdomain you own before it expires. Subdomains are lent for a period, not given: agent-created records last one month and user records three. Nothing emails an agent, so read expires_at from list_subdomains and call this before that date. One call resets the clock from today. Renewal only opens in the last two weeks before expires_at — an earlier call is refused and tells you the date it opens.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
-      domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
+      domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
     },
     async ({ subdomain: rawSubdomain, domain: rawDomain }, extra) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
@@ -391,11 +394,11 @@ function createMcpServer(fastify) {
   // --- Tool: update_subdomain ---
   server.tool(
     "update_subdomain",
-    "Update the DNS record value of a subdomain you own. For example, change the IP address that demo.sitey.one points to. " +
+    "Update the DNS record value of a subdomain you own. For example, change the IP address that demo.sitey.my points to. " +
       "The new target does not have to be serving yet; the result carries reachable:false when nothing answered, and the record is moved either way.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
-      domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
+      domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
       value: z.string().describe("New record value"),
     },
     async ({ subdomain: rawSubdomain, domain: rawDomain, value }, extra) => {
@@ -427,7 +430,7 @@ function createMcpServer(fastify) {
 
       if (!record) {
         const msg = auth.mode === "ip"
-          ? "Subdomain not found or you don't have permission. If your IP has changed, sign up at sitey.one to manage it."
+          ? "Subdomain not found or you don't have permission. If your IP has changed, sign up at sitey.my to manage it."
           : "Subdomain not found or you do not own this record.";
         return mcpError(msg);
       }
@@ -475,7 +478,7 @@ function createMcpServer(fastify) {
     "Permanently delete a subdomain DNS record you own. The subdomain will stop resolving immediately.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
-      domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
+      domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
     },
     async ({ subdomain: rawSubdomain, domain: rawDomain }, extra) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
@@ -506,7 +509,7 @@ function createMcpServer(fastify) {
 
       if (!record) {
         const msg = auth.mode === "ip"
-          ? "Subdomain not found or you don't have permission. If your IP has changed, sign up at sitey.one to manage it."
+          ? "Subdomain not found or you don't have permission. If your IP has changed, sign up at sitey.my to manage it."
           : "Subdomain not found or you do not own this record.";
         return mcpError(msg);
       }
@@ -538,7 +541,7 @@ function createMcpServer(fastify) {
     "Create or update a TXT record for domain verification. Used for services like Vercel (_vercel) and Netlify that require DNS-based ownership proof. The record is placed at the root domain under the prefix you give (e.g. _vercel.sitey.my), alongside the other owners' values — that is the name Vercel reads for a subdomain of sitey.my.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
-      domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
+      domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
       host_prefix: z.string().describe("TXT record host prefix (e.g. '_vercel' for Vercel verification)"),
       value: z.string().describe("TXT record value (the verification token)"),
       root_level: z.boolean().optional().describe("No longer supported — TXT records are always written at the root domain. Passing true returns an error."),
@@ -645,7 +648,7 @@ function createMcpServer(fastify) {
     "Delete a TXT verification record from a subdomain you own.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
-      domain: z.string().describe("Root domain (e.g. 'sitey.one')"),
+      domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
       host_prefix: z.string().describe("TXT record host prefix (e.g. '_vercel')"),
     },
     async ({ subdomain: rawSubdomain, domain: rawDomain, host_prefix: rawHostPrefix }, extra) => {
