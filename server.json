@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "my.sitey/subdomains",
+  "title": "Sitey — free subdomains",
+  "description": "Claim a working subdomain in one call — A, CNAME and TXT records. No domain to buy, no account.",
+  "version": "1.0.0",
+  "websiteUrl": "https://sitey.my",
+  "repository": {
+    "url": "https://github.com/jaejeonglee/sitey-free-domain",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://sitey.my/mcp"
+    }
+  ]
+}
