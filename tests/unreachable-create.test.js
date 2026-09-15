@@ -145,10 +145,11 @@ function mcpApp() {
 /**
  * One JSON-RPC call over the streamable-HTTP transport, unwrapped.
  *
- * ⚠️ plugins/mcp.js allows an anonymous caller three creates a minute and the
- * counter is module-level, so it is shared by every test in this file. Three
- * create_subdomain calls is the ceiling; a fourth fails on the rate limit and
- * not on anything this file is about.
+ * ⚠️ plugins/mcp.js allows an anonymous caller three creates a minute, counted
+ * per client address (services/anon-create-rate.js). inject() gives every call
+ * in this file the same address, so they share one allowance: three
+ * create_subdomain calls is the ceiling, and a fourth fails on the rate limit
+ * rather than on anything this file is about.
  */
 async function callTool(app, name, args) {
   const res = await app.inject({

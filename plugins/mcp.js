@@ -12,29 +12,12 @@ const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
 const { checkSubdomainQuota } = require("../services/quota");
 const accessLog = require("../services/access-log");
+const anonCreateRate = require("../services/anon-create-rate");
 const { validateHostPrefix, validateTxtValue } = require("../utils/validators");
 
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const IPV4_REGEX = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
 const HOSTNAME_REGEX = /^(?=.{1,253}$)(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z0-9-]{2,63}\.?$/i;
-
-const ANON_CREATE_RATE_WINDOW_MS = 60 * 1000;
-const ANON_CREATE_RATE_MAX = 3;
-
-// Global rate limiter for anonymous MCP creates
-const anonCreateTimestamps = [];
-
-function checkAnonCreateRate() {
-  const now = Date.now();
-  while (anonCreateTimestamps.length > 0 && anonCreateTimestamps[0] < now - ANON_CREATE_RATE_WINDOW_MS) {
-    anonCreateTimestamps.shift();
-  }
-  if (anonCreateTimestamps.length >= ANON_CREATE_RATE_MAX) {
-    return false;
-  }
-  anonCreateTimestamps.push(now);
-  return true;
-}
 
 /**
  * Client IP used as the anonymous ownership key.
@@ -220,8 +203,23 @@ function createMcpServer(fastify) {
       if (!validation.valid) return mcpError(validation.message);
       const recordValue = validation.value;
 
-      if (auth.mode === "ip" && !checkAnonCreateRate()) {
-        return mcpError("Too many anonymous create requests. Please wait a moment.");
+      // Counted per caller, not per process — services/anon-create-rate.js.
+      // The subject is the hashed client IP, the same one the access log puts
+      // in `iph`, so a refusal can be tied back to the request that got it.
+      if (auth.mode === "ip") {
+        const gate = anonCreateRate.check(accessLog.hashIp(auth.ip));
+        if (gate.reason === "capacity") {
+          // Never silent: this is us refusing callers we have no room to
+          // count, which is a different problem from a caller being over the
+          // limit and needs to be visible while it is happening.
+          fastify.log.warn(
+            { evt: "anon_rate", action: "full", subjects: anonCreateRate.subjectCount() },
+            "Anonymous create limiter is full — refusing callers it cannot count."
+          );
+        }
+        if (!gate.ok) {
+          return mcpError("Too many anonymous create requests. Please wait a moment.");
+        }
       }
 
       // How many this caller already holds. An agent is counted and refused on
