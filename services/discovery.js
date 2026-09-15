@@ -52,8 +52,11 @@ function limitNotes() {
         "today, while we find out whether anybody wants more."
   );
   notes.push(
-    `A caller with no API key is identified by its IP address and owns what that address ` +
-      `created; there the ${limit} is enforced.`
+    "A caller with no API key is identified by an owner token. Creating without one mints " +
+      "it and returns it once, so nothing has to be fetched or signed up for first; send it " +
+      "back to manage the record from any address, and note that it cannot be looked up " +
+      "again. Records created before tokens existed are still identified by the IP address " +
+      `that made them. Either way the ${limit} is enforced, per token or per address.`
   );
   notes.push(
     `A name is lent, not given: ${expiry.USER_MONTHS} months for a record owned by an ` +
@@ -121,10 +124,13 @@ function mcpManifest({ origin, domains }) {
     authentication: {
       type: "optional",
       description:
-        "Optional. With no header the caller is identified by its IP address and owns what " +
-        "that address created. `Authorization: Bearer styo_…` — an API key from the " +
-        "dashboard — puts the records under the account instead. A key is an account, not " +
-        "a larger allowance: both hold the same number.",
+        "Optional, and nothing needs fetching first. Call with no header at all and the " +
+        "first record you create returns an owner token (`anon_…`) in its response, " +
+        "once; send that back as `Authorization: Bearer anon_…` over REST, or as the " +
+        "`owner_token` tool argument over MCP, to manage the record from any address. " +
+        "`Authorization: Bearer styo_…` — an API key from the dashboard — puts the records " +
+        "under an account instead. A key is an account, not a larger allowance: both hold " +
+        "the same number.",
     },
     limits: limitNotes().join(" "),
   };
@@ -296,6 +302,20 @@ function operations(origin) {
               description:
                 "Present only when `reachable` is false: which check ran, and what it means.",
             },
+            owner_token: {
+              type: "string",
+              description:
+                "Present only on a create made with no API key and no owner token of its " +
+                "own, which is the ordinary first call. It is the proof of ownership for " +
+                "this record and every later one you create with it, it is returned this " +
+                "once, and only its hash is stored — there is no way to look it up again. " +
+                "Without it the record cannot be changed or deleted from any address, " +
+                "which is what keeps another caller sharing your public address out of it.",
+            },
+            owner_token_note: {
+              type: "string",
+              description: "The same warning in prose, alongside the token itself.",
+            },
           },
           ["fqdn", "type", "value", "expires_at", "reachable"]
         ),
@@ -332,8 +352,9 @@ function operations(origin) {
     "GET /api/v1/subdomains": {
       summary: "What this caller holds",
       description:
-        "An API key lists the account's records. Without one, the records created from this " +
-        "IP address — which is the only identity an anonymous caller has.",
+        "An API key lists the account's records. An owner token lists that token's. With " +
+        "neither, the records created from this IP address before owner tokens existed — " +
+        "which is all the identity those rows have.",
       responses: {
         200: ok("Newest first.", {
           subdomains: { type: "array", items: { $ref: "#/components/schemas/Subdomain" } },
@@ -516,9 +537,10 @@ function openApi({ origin }) {
     },
     servers: [{ url: origin }],
     externalDocs: { description: "Docs", url: `${origin}/docs` },
-    // Both, in this order: no credential at all is a supported way to call
-    // every one of these, and it is how most callers arrive.
-    security: [{}, { apiKey: [] }],
+    // Nothing first, in this order and on purpose: presenting no proof at all
+    // is a supported way to call every one of these, and it is how every caller
+    // arrives the first time.
+    security: [{}, { apiKey: [] }, { ownerToken: [] }],
     paths,
     components: {
       securitySchemes: {
@@ -527,12 +549,21 @@ function openApi({ origin }) {
           scheme: "bearer",
           description:
             "An API key from the dashboard, sent as `Authorization: Bearer styo_…`. It makes " +
-            "the records belong to an account rather than to an address. Anything else after " +
-            "`Bearer ` is refused rather than treated as anonymous.",
+            "the records belong to an account rather than to a token or an address.",
+        },
+        ownerToken: {
+          type: "http",
+          scheme: "bearer",
+          description:
+            "An owner token, sent as `Authorization: Bearer anon_…`. You are not given " +
+            "one in advance and there is nothing to sign up for: create a subdomain with no " +
+            "Authorization header and the response carries one, once. Anything after " +
+            "`Bearer ` that is neither this nor an API key is refused rather than treated as " +
+            "anonymous.",
         },
       },
       responses: {
-        Unauthorized: fail("UNAUTHORIZED — the Authorization header carried something that is not a key of ours."),
+        Unauthorized: fail("UNAUTHORIZED — the Authorization header carried something that is neither an API key nor an owner token of ours. A malformed owner token is refused here rather than quietly demoted to an anonymous caller, which would answer `not found` for your own records."),
         RateLimited: fail("RATE_LIMITED — more than 100 requests in a minute from one address. Wait and repeat."),
         ServerError: fail("INTERNAL_ERROR — ours, not yours. Nothing partial is left behind: a write that cannot finish is rolled back in full."),
       },
@@ -581,9 +612,12 @@ function llmsTxt({ origin, domains }) {
     "",
     `> ${SUMMARY}`,
     "",
-    "No account is needed to create one. A caller with no API key is identified by its",
-    "IP address and owns what that address created; an API key from the dashboard puts the",
-    "records under an account instead.",
+    "No account is needed to create one, and nothing has to be fetched first. Create with no",
+    "Authorization header and the response carries an `owner_token`, once — send it back as",
+    "`Authorization: Bearer <token>` (or the `owner_token` argument over MCP) to manage the",
+    "record from any address. Only its hash is stored, so it cannot be looked up again, and",
+    "a record owned by a token is not reachable without it. An API key from the dashboard",
+    "puts the records under an account instead.",
     "",
     "The name comes first: a record whose target is not serving yet is created all the same,",
     "with `reachable: false` in the response saying so. Claim the address, then deploy to it.",
@@ -602,6 +636,9 @@ function llmsTxt({ origin, domains }) {
     "  -H 'content-type: application/json' \\",
     `  -d '{"subdomain":"demo","domain":"${root}","type":"A","value":"203.0.113.10"}'`,
     "```",
+    "",
+    "The response to that carries `owner_token`. Keep it; every later call about this record",
+    "wants it.",
     "",
     `The roots you may create under are ${domains.join(", ")}. Ask ${origin}/api/v1/domains`,
     "rather than copying that list: which roots are on offer is a table, not a constant.",

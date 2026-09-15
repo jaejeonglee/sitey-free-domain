@@ -10,12 +10,20 @@
 // being survivable on the day we are listed in the MCP registry and strangers
 // start arriving in parallel.
 //
-// The subject is the caller's IP, the same handle everything else anonymous
-// already uses: records are owned by `owner_ip`, the quota counts by
-// `owner_ip`, and the access log writes it as an HMAC. We key on that same
-// HMAC (services/access-log.js `hashIp`), so a refusal here and the `iph` on
-// that request's log line are the same string — and no raw address is held in
-// memory.
+// The subject is whatever the caller is: its owner token when it has one, and
+// its IP when it does not. Either way the string handed in is the one the
+// access log writes — `sub` for a token, `iph` for an address
+// (services/access-log.js) — so a refusal here and that request's log line can
+// be put side by side, and no raw address is ever held in memory.
+//
+// 🔴 A token subject is the weaker of the two as a flood guard, because a token
+// is free to mint and an address is not. That is deliberate and it is not this
+// file's job to make up for it: what this limit is for is fairness between
+// anonymous callers sharing one exit address, which is why it stopped being a
+// single global bucket. The ceilings that actually bound abuse are elsewhere —
+// services/quota.js counts a token that owns nothing yet against its address,
+// and the 100-a-minute @fastify/rate-limit in app.js keys on the address for
+// every request that reaches /mcp.
 //
 // 🔴 The count is per process. pm2 runs this in fork mode with one instance
 // (`pm2 start server.js --name server` — deploy/README.md), so one process is
@@ -68,7 +76,8 @@ function sweep(now) {
 /**
  * May this caller create one more right now?
  *
- * @param {string|null} subject  hashed client IP (access-log `hashIp`)
+ * @param {string|null} subject  what the access log calls this caller: `t:` and
+ *   the head of its token hash, or its hashed IP (services/access-log.js)
  * @returns {{ok: boolean, reason: null|"rate"|"capacity"}}
  *   `capacity` is worth telling apart from `rate`: it says we refused someone
  *   we had no room to count, which is a fact about us, not about them.

@@ -25,12 +25,17 @@ function asZoneValue(recordType, value) {
  * @param {string} params.domain - e.g. "sitey.one"
  * @param {string} params.recordValue
  * @param {string} params.recordType - "A" or "CNAME"
+ * @param {string|null} params.ownerTokenHash - sha256 of the anonymous owner's
+ *   token. Set on every record made without an account; NULL under an account,
+ *   and NULL on the rows that predate tokens (services/anon-token.js). The
+ *   address is still written alongside it, because the quota counts births per
+ *   address even when the record belongs to a token.
  * @returns {{ name: string, content: string, type: string }}
  */
 async function createSubdomain(fastify, params) {
   const {
     userId, domainId, subdomain, domain, recordValue, recordType,
-    ownerType = "user", ownerIp = null,
+    ownerType = "user", ownerIp = null, ownerTokenHash = null,
   } = params;
 
   const connection = await fastify.mysql.getConnection();
@@ -54,8 +59,8 @@ async function createSubdomain(fastify, params) {
     // a default so the row is never briefly immortal.
     const expiresAt = expiryAfter(new Date(), ownerType);
     await connection.execute(
-      "INSERT INTO subdomains (user_id, domain_id, subdomain, record_value, record_type, owner_type, owner_ip, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
-      [userId, domainId, subdomain, recordValue, recordType, ownerType, ownerIp, expiresAt]
+      "INSERT INTO subdomains (user_id, domain_id, subdomain, record_value, record_type, owner_type, owner_ip, owner_token_hash, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+      [userId, domainId, subdomain, recordValue, recordType, ownerType, ownerIp, ownerTokenHash, expiresAt]
     );
 
     // Flag before the call, not after: the most common failures are inside

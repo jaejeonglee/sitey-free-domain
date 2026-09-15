@@ -1,4 +1,5 @@
-// routes/api-v1.js — REST API /api/v1/ (external, API key + anonymous IP auth)
+// routes/api-v1.js — REST API /api/v1/ (external; API key, anonymous owner
+// token, or neither)
 const config = require("../configs/index");
 const accessLog = require("../services/access-log");
 const bindService = require("../services/bind");
@@ -8,6 +9,7 @@ const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
+const anonToken = require("../services/anon-token");
 const { checkSubdomainQuota } = require("../services/quota");
 const credits = require("../services/credits");
 const x402 = require("../services/x402");
@@ -20,12 +22,15 @@ const {
 } = require("../utils/validators");
 
 /**
- * Client IP used as the anonymous ownership key.
+ * Client IP: what an anonymous caller was before tokens, and still the fallback
+ * for the records made back then.
  *
  * `request.ip` is derived by Fastify from the configured trusted proxy list
  * (see configs/index.js). Reading cf-connecting-ip / x-forwarded-for directly
  * meant any caller could pick their own identity with one header and read,
- * change or delete another anonymous user's subdomains.
+ * change or delete another anonymous user's subdomains. An address is a weak
+ * identity even when it is honest — see services/anon-token.js for the NAT
+ * case, which is what tokens are for.
  */
 function getClientIp(request) {
   return request.ip;
@@ -34,8 +39,19 @@ function getClientIp(request) {
 /**
  * Resolve auth context from Authorization header
  * Returns: { mode: "apikey", userId, email, name }
+ *        | { mode: "token", tokenHash, ip }
  *        | { mode: "ip", ip }
  *        | { mode: "invalid_key" }
+ *
+ * The two kinds of Bearer are told apart by prefix and nothing else, which is
+ * why `anon_` was chosen to look nothing like `styo_`. Order matters: the
+ * API key is matched first and the catch-all refusal stays last, so adding a
+ * second kind cannot turn a mistyped key into an anonymous caller.
+ *
+ * The address is kept on the token branch as well. It is not what proves
+ * ownership there — services/anon-token.js sees to that — but the quota counts
+ * a token nobody has used yet against the address it came from, and a new
+ * record writes the address down either way.
  */
 async function resolveAuth(fastify, request) {
   const authHeader = request.headers["authorization"];
@@ -48,8 +64,23 @@ async function resolveAuth(fastify, request) {
     }
     return { mode: "apikey", userId: user.user_id, email: user.email, name: user.name };
   }
+  if (authHeader && authHeader.startsWith(`Bearer ${anonToken.TOKEN_PREFIX}`)) {
+    const rawToken = authHeader.slice(7);
+    // A truncated or mistyped token is refused rather than read as anonymous.
+    // Quietly demoting it would hand the caller a different identity under the
+    // same request, and the first it would hear of that is its own records
+    // having vanished.
+    if (!anonToken.isWellFormed(rawToken)) {
+      return { mode: "invalid_key" };
+    }
+    return {
+      mode: "token",
+      tokenHash: anonToken.hashToken(rawToken),
+      ip: getClientIp(request),
+    };
+  }
   if (authHeader && authHeader.startsWith("Bearer ")) {
-    // Has a Bearer token but not styo_ prefix — invalid
+    // Has a Bearer token but neither prefix — invalid
     return { mode: "invalid_key" };
   }
   return { mode: "ip", ip: getClientIp(request) };
@@ -66,6 +97,9 @@ async function resolveAuth(fastify, request) {
 function limitMessage(quota) {
   if (quota.scope === "account") {
     return `You are holding ${quota.held} subdomains and the limit for this account is ${quota.limit}. Remove one before creating another.`;
+  }
+  if (quota.scope === "token") {
+    return `This owner token is holding ${quota.held} subdomains and may hold ${quota.limit}. Remove one before creating another.`;
   }
   return `Anonymous callers may hold ${quota.limit} subdomains per address and you are holding ${quota.held}. Sign in at sitey.my to hold them under an account.`;
 }
@@ -188,7 +222,11 @@ async function apiV1Routes(fastify, options) {
     if (auth.mode === "invalid_key") {
       return reply.code(401).send({
         error: true,
-        message: "Invalid API key.",
+        // Names both, because the header now carries either: an API key
+        // (`styo_...`) or an anonymous owner token (`anon_...`). A caller
+        // told only "invalid API key" while holding a token looks in the wrong
+        // place.
+        message: "Invalid API key or owner token.",
         code: "UNAUTHORIZED",
       });
     }
@@ -283,7 +321,8 @@ async function apiV1Routes(fastify, options) {
     // abuse guard and has always been enforced. services/quota.js.
     const quota = await checkSubdomainQuota(fastify, {
       userId: auth.mode === "apikey" ? auth.userId : null,
-      ip: auth.mode === "ip" ? auth.ip : null,
+      tokenHash: auth.mode === "token" ? auth.tokenHash : null,
+      ip: auth.mode === "apikey" ? null : auth.ip,
       subject: accessLog.subjectOf(request),
     });
     if (quota.blocked && !(await takePayment(fastify, request, reply, quota))) {
@@ -302,6 +341,14 @@ async function apiV1Routes(fastify, options) {
       phase: "create",
     });
 
+    // 🔴 The one thing this endpoint must never start needing. A create with
+    // no Authorization header at all still succeeds — it is minted a token
+    // here and handed it back below — because "an agent can do this on its own,
+    // with no signup and no key" is the entire reason anybody chooses this
+    // service over the ones in the registry that ask for an API key first.
+    // A token is what you are *given*, never what you must go and get.
+    const issued = auth.mode === "ip" ? anonToken.generateToken() : null;
+
     try {
       const newRecord = await createSubdomain(fastify, {
         userId: auth.mode === "apikey" ? auth.userId : null,
@@ -311,7 +358,10 @@ async function apiV1Routes(fastify, options) {
         recordValue,
         recordType,
         ownerType: auth.mode === "apikey" ? "user" : "agent",
-        ownerIp: auth.mode === "ip" ? auth.ip : null,
+        // Still written for a token owner: it is not what proves the record,
+        // but it is what the quota counts births against (services/quota.js).
+        ownerIp: auth.mode === "apikey" ? null : auth.ip,
+        ownerTokenHash: issued ? issued.hash : (auth.mode === "token" ? auth.tokenHash : null),
       });
 
       reply.code(201);
@@ -326,6 +376,12 @@ async function apiV1Routes(fastify, options) {
         // sees exactly what it saw before.
         reachable: reach.ok,
         ...(reach.note ? { note: reach.note } : {}),
+        // Once, and only on the create that minted it. There is nowhere to
+        // look it up afterwards — only its hash is stored — so the note says
+        // so rather than leaving a caller to find out.
+        ...(issued
+          ? { owner_token: issued.token, owner_token_note: anonToken.TOKEN_NOTE }
+          : {}),
       });
     } catch (error) {
       if (error.statusCode === 409) {
@@ -341,24 +397,17 @@ async function apiV1Routes(fastify, options) {
   fastify.get("/subdomains", async (request, reply) => {
     const auth = request.apiAuth;
 
-    let rows;
-    if (auth.mode === "apikey") {
-      [rows] = await fastify.mysql.execute(
-        "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, " +
-        "s.created_at, s.expires_at " +
-        "FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id " +
-        "WHERE s.user_id = ? ORDER BY s.created_at DESC",
-        [auth.userId]
-      );
-    } else {
-      [rows] = await fastify.mysql.execute(
-        "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, " +
-        "s.created_at, s.expires_at " +
-        "FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id " +
-        "WHERE s.owner_ip = ? AND s.owner_type = 'agent' ORDER BY s.created_at DESC",
-        [auth.ip]
-      );
-    }
+    // One predicate for all three kinds of caller, and the same one the
+    // ownership checks use — a listing that showed a row the caller cannot
+    // then touch, or hid one it can, would be its own bug.
+    const owner = anonToken.ownerPredicate(auth, "s.");
+    const [rows] = await fastify.mysql.execute(
+      "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, " +
+      "s.created_at, s.expires_at " +
+      "FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id " +
+      `WHERE ${owner.sql} ORDER BY s.created_at DESC`,
+      owner.params
+    );
 
     return ok({ subdomains: rows });
   });
@@ -599,18 +648,11 @@ async function apiV1Routes(fastify, options) {
  * Throws 403 FORBIDDEN if not found.
  */
 async function findOwnedRecord(fastify, auth, subdomain, domainEntry) {
-  let rows;
-  if (auth.mode === "apikey") {
-    [rows] = await fastify.mysql.execute(
-      "SELECT id, record_type FROM subdomains WHERE subdomain = ? AND domain_id = ? AND user_id = ?",
-      [subdomain, domainEntry.id, auth.userId]
-    );
-  } else {
-    [rows] = await fastify.mysql.execute(
-      "SELECT id, record_type FROM subdomains WHERE subdomain = ? AND domain_id = ? AND owner_ip = ? AND owner_type = 'agent'",
-      [subdomain, domainEntry.id, auth.ip]
-    );
-  }
+  const owner = anonToken.ownerPredicate(auth);
+  const [rows] = await fastify.mysql.execute(
+    `SELECT id, record_type FROM subdomains WHERE subdomain = ? AND domain_id = ? AND ${owner.sql}`,
+    [subdomain, domainEntry.id, ...owner.params]
+  );
 
   if (!rows[0]) {
     apiError(403, "Subdomain not found or you do not have permission.", "FORBIDDEN");

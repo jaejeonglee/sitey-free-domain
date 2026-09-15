@@ -99,7 +99,7 @@
   "docs.limits.title": "한도와 기한",
   "docs.limits.subtitle": "몇 개까지 쓸 수 있고, 언제까지 유지되는지",
   "docs.limits.free.title": "5개까지 무료",
-  "docs.limits.free.desc": "가입 여부와 상관없이 5개까지 만들 수 있어요. 가입하지 않으면 IP를 기준으로, 가입하면 계정을 기준으로 셉니다.",
+  "docs.limits.free.desc": "가입 여부와 상관없이 5개까지 만들 수 있어요. 가입하지 않으면 처음 만들 때 돌려받는 소유 토큰을 기준으로, 가입하면 계정을 기준으로 셉니다.",
   "docs.limits.user.title": "사람이 만들면 세 달",
   "docs.limits.user.desc": "등록한 날부터 세 달입니다. 만료가 가까워지면 메일로 알려드려요.",
   "docs.limits.agent.title": "에이전트가 만들면 한 달",

@@ -64,12 +64,22 @@ function hashIp(ip) {
 /**
  * Who did this, without saying who they are.
  *
- * Anonymous callers get no subject; their hashed IP is the only handle, which
- * is also what ties a logged-in person's page views to their API calls — page
- * routes never run the auth hook, so `sub` is absent there.
+ * A caller with no account and no token still gets no subject; its hashed IP
+ * is the only handle, which is also what ties a logged-in person's page views
+ * to their API calls — page routes never run the auth hook, so `sub` is absent
+ * there.
+ *
+ * `t:` is an anonymous caller holding an owner token (services/anon-token.js),
+ * and it is a prefix of the stored hash rather than a fresh HMAC. The IP needs
+ * one because an address is guessable — there are four billion of them and
+ * anyone can hash a list. A token is 128 random bits, so sixteen characters of
+ * its sha256 name it without being reversible, and matching a log line to the
+ * `owner_token_hash` on a row is exactly what somebody investigating an abuse
+ * report has to be able to do.
  */
 function subjectOf(request) {
   if (request.apiAuth?.mode === "apikey") return `k:${request.apiAuth.userId}`;
+  if (request.apiAuth?.mode === "token") return `t:${request.apiAuth.tokenHash.slice(0, 16)}`;
   if (request.user?.id) return `u:${request.user.id}`;
   return null;
 }

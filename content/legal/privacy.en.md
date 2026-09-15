@@ -16,7 +16,8 @@ Effective 2026-09-14 · Operated by sitey (sitey.my)
 - The name you chose and which root domain it sits under
 - Where it points: the IP for an A record, the hostname for a CNAME, the value for a TXT record
 - Times of creation and expiry
-- **For records created without an account, the creator's IP address.** With no account this is the only thing that identifies the owner. Records created under an account do not store it
+- **For records created without an account, an irreversible hash of the owner token.** The token is handed back once when the record is created and is never stored; the hash is what proves the record is yours, from any address
+- **For records created without an account, the creator's IP address.** It no longer identifies the owner on its own — the token does — but it is kept to count how many records one address has created. Records made before owner tokens existed are still identified by it. Records created under an account do not store it
 
 **When you issue an API key**
 

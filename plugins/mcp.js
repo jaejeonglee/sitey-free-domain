@@ -1,4 +1,9 @@
-// plugins/mcp.js
+// plugins/mcp.js — the same operations as the REST API, as MCP tools.
+//
+// Auth arrives by two different roads here. An API key is an HTTP header on
+// the POST that wraps the call; an anonymous owner token is a tool *argument*,
+// because one POST may carry a batch of calls and JSON-RPC has nowhere to hang
+// a per-call header. services/anon-token.js is where the token itself lives.
 const { McpServer } = require("@modelcontextprotocol/sdk/server/mcp.js");
 const { StreamableHTTPServerTransport } = require("@modelcontextprotocol/sdk/server/streamableHttp.js");
 const { z } = require("zod");
@@ -10,6 +15,7 @@ const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
+const anonToken = require("../services/anon-token");
 const { checkSubdomainQuota } = require("../services/quota");
 const accessLog = require("../services/access-log");
 const anonCreateRate = require("../services/anon-create-rate");
@@ -20,10 +26,11 @@ const IPV4_REGEX = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{
 const HOSTNAME_REGEX = /^(?=.{1,253}$)(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z0-9-]{2,63}\.?$/i;
 
 /**
- * Client IP used as the anonymous ownership key.
+ * Client IP: the fallback owner, for records made before owner tokens existed.
  *
  * See routes/api-v1.js — `request.ip` respects the trusted proxy list, the raw
- * headers do not.
+ * headers do not. It is a weak identity even when it is honest, which is what
+ * services/anon-token.js is about.
  */
 function getClientIp(request) {
   return request.ip;
@@ -44,6 +51,102 @@ async function resolveAuth(fastify, request) {
     return { mode: "apikey", userId: user.user_id, email: user.email, name: user.name };
   }
   return { mode: "ip", ip: getClientIp(request) };
+}
+
+/** The argument every tool that touches somebody's record now takes. */
+const OWNER_TOKEN_ARG = z
+  .string()
+  .optional()
+  .describe(
+    "The owner token you were given when you created the record (starts with anon_). " +
+      "Omit it only if you have an API key, or if the record predates tokens and was claimed " +
+      "from this same IP address. Creating without one mints a new one and returns it once."
+  );
+
+/**
+ * The caller, once the tool argument has had its say.
+ *
+ * JSON-RPC has nowhere sensible to hang a header of its own — one HTTP POST can
+ * carry a batch of calls for different tools — so an anonymous caller passes
+ * its token as an ordinary argument. An API key still arrives in the
+ * Authorization header of the POST that wraps the call.
+ *
+ * Holding both is refused rather than resolved. They name two different owners,
+ * and picking one silently would mean writing a record under an owner the
+ * caller did not ask for; there is no reading of "here are two identities" that
+ * we can be confident about.
+ *
+ * @returns {{auth: object}|{error: string}}
+ */
+function withOwnerToken(auth, rawToken) {
+  const given = typeof rawToken === "string" && rawToken.length > 0;
+  if (!given) return { auth };
+  if (auth.mode === "apikey") {
+    return {
+      error:
+        "An API key and an owner_token name two different owners. Send one: the key for " +
+        "records under your account, the token for records created without one.",
+    };
+  }
+  if (!anonToken.isWellFormed(rawToken)) {
+    // Refused, not ignored. Falling back to the address would quietly put the
+    // caller somewhere else and answer "not found" for its own records.
+    return {
+      error:
+        "owner_token is not one of ours: it should look like anon_ followed by 32 " +
+        "hex characters, exactly as it was returned by create_subdomain.",
+    };
+  }
+  return {
+    auth: { mode: "token", tokenHash: anonToken.hashToken(rawToken), ip: auth.ip },
+  };
+}
+
+/** Resolve the caller for one tool call, or the error to answer with. */
+function callerFor(extra, rawToken) {
+  const base = extra._meta?.auth;
+  if (!base) return { error: "Internal error: auth context missing." };
+  if (base.mode === "invalid_key") return { error: "Invalid API key." };
+  return withOwnerToken(base, rawToken);
+}
+
+/**
+ * The record this caller owns under that name, or undefined.
+ *
+ * One lookup for all five tools that need one. They each had their own copy of
+ * the SQL, which was survivable while there was a single anonymous branch to
+ * get right and is not now: the address branch has to carry
+ * `owner_token_hash IS NULL` or a caller behind a shared NAT still reaches a
+ * stranger's records, and that condition has to be in one place to stay true.
+ */
+async function findOwned(fastify, auth, subdomain, domainId) {
+  const owner = anonToken.ownerPredicate(auth);
+  const [rows] = await fastify.mysql.execute(
+    `SELECT id, record_type FROM subdomains WHERE subdomain = ? AND domain_id = ? AND ${owner.sql}`,
+    [subdomain, domainId, ...owner.params]
+  );
+  return rows[0];
+}
+
+/**
+ * Why the caller cannot see it — as far as we are willing to say.
+ *
+ * Never "it exists and is somebody else's": that would turn this into a way to
+ * ask who owns a name. What differs is the way *out*, and that depends on what
+ * the caller presented.
+ */
+function notFoundMessage(auth) {
+  if (auth.mode === "token") {
+    return "Subdomain not found, or it does not belong to this owner_token.";
+  }
+  if (auth.mode === "ip") {
+    return (
+      "Subdomain not found, or you don't have permission. If you created it and were given " +
+      "an owner_token, pass that token as owner_token — records are owned by the token, not " +
+      "by the address they were created from."
+    );
+  }
+  return "Subdomain not found or you do not own this record.";
 }
 
 function mcpValidateRecordValue(recordType, value, subdomain, domain) {
@@ -171,21 +274,24 @@ function createMcpServer(fastify) {
   server.tool(
     "create_subdomain",
     "Create a new DNS record for a subdomain. Supports A records (IP address) and CNAME records (hostname). Example: create demo.sitey.my pointing to 1.2.3.4. " +
-      "The target does not have to be serving yet: claim the name first and deploy to it second if that is your order. The result carries reachable:false when nothing answered, and the record is created either way.",
+      "No account, API key or signup is needed. " +
+      "The target does not have to be serving yet: claim the name first and deploy to it second if that is your order. The result carries reachable:false when nothing answered, and the record is created either way. " +
+      "If you send no owner_token, the result carries a new one under 'owner_token' — save it, it is shown once and is the only way to change or delete this record later.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
       type: z.enum(["A", "CNAME"]).describe("Record type"),
       value: z.string().describe("Record value (IP for A, hostname for CNAME)"),
+      owner_token: OWNER_TOKEN_ARG,
     },
-    async ({ subdomain: rawSubdomain, domain: rawDomain, type, value }, extra) => {
+    async ({ subdomain: rawSubdomain, domain: rawDomain, type, value, owner_token: ownerToken }, extra) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
       const domainName = (rawDomain || "").trim().toLowerCase();
       const recordType = type;
 
-      const auth = extra._meta?.auth;
-      if (!auth) return mcpError("Internal error: auth context missing.");
-      if (auth.mode === "invalid_key") return mcpError("Invalid API key.");
+      const caller = callerFor(extra, ownerToken);
+      if (caller.error) return mcpError(caller.error);
+      const auth = caller.auth;
 
       if (!subdomain || !SUBDOMAIN_REGEX.test(subdomain)) {
         return mcpError("Invalid subdomain format.");
@@ -207,10 +313,22 @@ function createMcpServer(fastify) {
       const recordValue = validation.value;
 
       // Counted per caller, not per process — services/anon-create-rate.js.
-      // The subject is the hashed client IP, the same one the access log puts
-      // in `iph`, so a refusal can be tied back to the request that got it.
-      if (auth.mode === "ip") {
-        const gate = anonCreateRate.check(accessLog.hashIp(auth.ip));
+      // The subject is whatever the access log calls this caller: `t:` and the
+      // head of the token hash when it has one, otherwise the hashed IP it
+      // writes as `iph`. Either way a refusal can be tied back to the request
+      // that got it.
+      //
+      // 🔴 A token subject is weaker than an address as a flood guard, because
+      // a token is free to mint and an address is not. What stops that being a
+      // hole is that the pair of limits do different jobs: this one is about
+      // fairness between anonymous callers — the reason it stopped being one
+      // global bucket — while the ceilings that actually bound abuse are the
+      // quota below (an unhatched token is counted against its address, see
+      // services/quota.js) and the 100-a-minute @fastify/rate-limit in app.js,
+      // which keys on the address for every request including these.
+      if (auth.mode === "ip" || auth.mode === "token") {
+        const subject = accessLog.subjectOf({ apiAuth: auth }) || accessLog.hashIp(auth.ip);
+        const gate = anonCreateRate.check(subject);
         if (gate.reason === "capacity") {
           // Never silent: this is us refusing callers we have no room to
           // count, which is a different problem from a caller being over the
@@ -234,7 +352,8 @@ function createMcpServer(fastify) {
       // on the REST endpoint that has a status line to carry it.
       const quota = await checkSubdomainQuota(fastify, {
         userId: auth.mode === "apikey" ? auth.userId : null,
-        ip: auth.mode === "ip" ? auth.ip : null,
+        tokenHash: auth.mode === "token" ? auth.tokenHash : null,
+        ip: auth.mode === "apikey" ? null : auth.ip,
         subject: accessLog.subjectOf({ apiAuth: auth }),
       });
       if (quota.blocked) {
@@ -242,7 +361,9 @@ function createMcpServer(fastify) {
           error:
             quota.scope === "account"
               ? `You are holding ${quota.held} subdomains and the limit for this account is ${quota.limit}. Delete one before creating another.`
-              : `Anonymous callers may hold ${quota.limit} subdomains per address and you are holding ${quota.held}. An API key holds them under an account, on the same limit.`,
+              : quota.scope === "token"
+                ? `This owner_token is holding ${quota.held} subdomains and may hold ${quota.limit}. Delete one before creating another.`
+                : `Anonymous callers may hold ${quota.limit} subdomains per address and you are holding ${quota.held}. An API key holds them under an account, on the same limit.`,
           code: "LIMIT_REACHED",
           held: quota.held,
           limit: quota.limit,
@@ -261,6 +382,12 @@ function createMcpServer(fastify) {
         phase: "create",
       });
 
+      // 🔴 The property this whole tool exists for: a call with no API key and
+      // no owner_token still succeeds, and is handed a token on the way out.
+      // An agent that had to fetch something first could not use this at all —
+      // fetching means a signup page, and a signup page means a person.
+      const issued = auth.mode === "ip" ? anonToken.generateToken() : null;
+
       try {
         const newRecord = await createSubdomain(fastify, {
           userId: auth.mode === "apikey" ? auth.userId : null,
@@ -270,7 +397,10 @@ function createMcpServer(fastify) {
           recordValue,
           recordType,
           ownerType: auth.mode === "apikey" ? "user" : "agent",
-          ownerIp: auth.mode === "ip" ? auth.ip : null,
+          // Written for a token owner too: not as proof, but because the quota
+          // counts how many tokens an address has hatched (services/quota.js).
+          ownerIp: auth.mode === "apikey" ? null : auth.ip,
+          ownerTokenHash: issued ? issued.hash : (auth.mode === "token" ? auth.tokenHash : null),
         });
 
         return mcpSuccess({
@@ -284,6 +414,12 @@ function createMcpServer(fastify) {
           renew_with: "renew_subdomain",
           reachable: reach.ok,
           ...(reach.note ? { note: reach.note } : {}),
+          // Once, on the create that minted it, and never again — only the
+          // hash is kept. The note in the same object says so, because an
+          // agent that drops this has lost the record until it expires.
+          ...(issued
+            ? { owner_token: issued.token, owner_token_note: anonToken.TOKEN_NOTE }
+            : {}),
         });
       } catch (error) {
         if (error.statusCode === 409) {
@@ -298,25 +434,21 @@ function createMcpServer(fastify) {
   // --- Tool: list_subdomains ---
   server.tool(
     "list_subdomains",
-    "List all subdomains you own. Returns subdomain name, domain, record type, value, and creation date. Filtered by your API key or IP address.",
-    {},
-    async (_, extra) => {
-      const auth = extra._meta?.auth;
-      if (!auth) return mcpError("Internal error: auth context missing.");
-      if (auth.mode === "invalid_key") return mcpError("Invalid API key.");
+    "List all subdomains you own. Returns subdomain name, domain, record type, value, and creation date. Filtered by your API key, or by the owner_token you pass, or — for records made before tokens existed — by your IP address.",
+    { owner_token: OWNER_TOKEN_ARG },
+    async ({ owner_token: ownerToken } = {}, extra) => {
+      const caller = callerFor(extra, ownerToken);
+      if (caller.error) return mcpError(caller.error);
+      const auth = caller.auth;
 
-      let rows;
-      if (auth.mode === "apikey") {
-        [rows] = await fastify.mysql.execute(
-          "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, s.created_at, s.expires_at FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id WHERE s.user_id = ? ORDER BY s.created_at DESC",
-          [auth.userId]
-        );
-      } else {
-        [rows] = await fastify.mysql.execute(
-          "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, s.created_at, s.expires_at FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id WHERE s.owner_ip = ? AND s.owner_type = 'agent' ORDER BY s.created_at DESC",
-          [auth.ip]
-        );
-      }
+      // The same predicate the ownership checks use: a listing that showed a
+      // row the caller cannot then touch would be its own bug.
+      const owner = anonToken.ownerPredicate(auth, "s.");
+      const [rows] = await fastify.mysql.execute(
+        "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, s.created_at, s.expires_at FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id " +
+          `WHERE ${owner.sql} ORDER BY s.created_at DESC`,
+        owner.params
+      );
 
       return mcpSuccess({
         subdomains: rows,
@@ -332,36 +464,23 @@ function createMcpServer(fastify) {
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
+      owner_token: OWNER_TOKEN_ARG,
     },
-    async ({ subdomain: rawSubdomain, domain: rawDomain }, extra) => {
+    async ({ subdomain: rawSubdomain, domain: rawDomain, owner_token: ownerToken }, extra) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
       const domainName = (rawDomain || "").trim().toLowerCase();
 
-      const auth = extra._meta?.auth;
-      if (!auth) return mcpError("Internal error: auth context missing.");
-      if (auth.mode === "invalid_key") return mcpError("Invalid API key.");
+      const caller = callerFor(extra, ownerToken);
+      if (caller.error) return mcpError(caller.error);
+      const auth = caller.auth;
 
       const managedDomains = await getManagedDomains(fastify);
       const domainEntry = managedDomains.find((d) => d.normalized === domainName);
       if (!domainEntry) return mcpError("Domain is not managed by this service.");
 
-      let record;
-      if (auth.mode === "apikey") {
-        const [rows] = await fastify.mysql.execute(
-          "SELECT id FROM subdomains WHERE subdomain = ? AND domain_id = ? AND user_id = ?",
-          [subdomain, domainEntry.id, auth.userId]
-        );
-        record = rows[0];
-      } else {
-        const [rows] = await fastify.mysql.execute(
-          "SELECT id FROM subdomains WHERE subdomain = ? AND domain_id = ? AND owner_ip = ? AND owner_type = 'agent'",
-          [subdomain, domainEntry.id, auth.ip]
-        );
-        record = rows[0];
-      }
-
+      const record = await findOwned(fastify, auth, subdomain, domainEntry.id);
       if (!record) {
-        return mcpError("Subdomain not found or you don't have permission.");
+        return mcpError(notFoundMessage(auth));
       }
 
       try {
@@ -400,39 +519,26 @@ function createMcpServer(fastify) {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
       value: z.string().describe("New record value"),
+      owner_token: OWNER_TOKEN_ARG,
     },
-    async ({ subdomain: rawSubdomain, domain: rawDomain, value }, extra) => {
+    async ({ subdomain: rawSubdomain, domain: rawDomain, value, owner_token: ownerToken }, extra) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
       const domainName = (rawDomain || "").trim().toLowerCase();
 
-      const auth = extra._meta?.auth;
-      if (!auth) return mcpError("Internal error: auth context missing.");
-      if (auth.mode === "invalid_key") return mcpError("Invalid API key.");
+      const caller = callerFor(extra, ownerToken);
+      if (caller.error) return mcpError(caller.error);
+      const auth = caller.auth;
 
       const managedDomains = await getManagedDomains(fastify);
       const domainEntry = managedDomains.find((d) => d.normalized === domainName);
       if (!domainEntry) return mcpError("Domain is not managed by this service.");
 
-      let record;
-      if (auth.mode === "apikey") {
-        const [rows] = await fastify.mysql.execute(
-          "SELECT id, record_type FROM subdomains WHERE subdomain = ? AND domain_id = ? AND user_id = ?",
-          [subdomain, domainEntry.id, auth.userId]
-        );
-        record = rows[0];
-      } else {
-        const [rows] = await fastify.mysql.execute(
-          "SELECT id, record_type FROM subdomains WHERE subdomain = ? AND domain_id = ? AND owner_ip = ? AND owner_type = 'agent'",
-          [subdomain, domainEntry.id, auth.ip]
-        );
-        record = rows[0];
-      }
-
+      const record = await findOwned(fastify, auth, subdomain, domainEntry.id);
       if (!record) {
-        const msg = auth.mode === "ip"
-          ? "Subdomain not found or you don't have permission. If your IP has changed, sign up at sitey.my to manage it."
-          : "Subdomain not found or you do not own this record.";
-        return mcpError(msg);
+        // This used to end "If your IP has changed, sign up at sitey.my to
+        // manage it" — advice an agent cannot take, and the clearest admission
+        // that the address was the wrong thing to own a record by.
+        return mcpError(notFoundMessage(auth));
       }
 
       const recordType = bindService.normalizeRecordType(record.record_type);
@@ -479,39 +585,23 @@ function createMcpServer(fastify) {
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
+      owner_token: OWNER_TOKEN_ARG,
     },
-    async ({ subdomain: rawSubdomain, domain: rawDomain }, extra) => {
+    async ({ subdomain: rawSubdomain, domain: rawDomain, owner_token: ownerToken }, extra) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
       const domainName = (rawDomain || "").trim().toLowerCase();
 
-      const auth = extra._meta?.auth;
-      if (!auth) return mcpError("Internal error: auth context missing.");
-      if (auth.mode === "invalid_key") return mcpError("Invalid API key.");
+      const caller = callerFor(extra, ownerToken);
+      if (caller.error) return mcpError(caller.error);
+      const auth = caller.auth;
 
       const managedDomains = await getManagedDomains(fastify);
       const domainEntry = managedDomains.find((d) => d.normalized === domainName);
       if (!domainEntry) return mcpError("Domain is not managed by this service.");
 
-      let record;
-      if (auth.mode === "apikey") {
-        const [rows] = await fastify.mysql.execute(
-          "SELECT id, record_type FROM subdomains WHERE subdomain = ? AND domain_id = ? AND user_id = ?",
-          [subdomain, domainEntry.id, auth.userId]
-        );
-        record = rows[0];
-      } else {
-        const [rows] = await fastify.mysql.execute(
-          "SELECT id, record_type FROM subdomains WHERE subdomain = ? AND domain_id = ? AND owner_ip = ? AND owner_type = 'agent'",
-          [subdomain, domainEntry.id, auth.ip]
-        );
-        record = rows[0];
-      }
-
+      const record = await findOwned(fastify, auth, subdomain, domainEntry.id);
       if (!record) {
-        const msg = auth.mode === "ip"
-          ? "Subdomain not found or you don't have permission. If your IP has changed, sign up at sitey.my to manage it."
-          : "Subdomain not found or you do not own this record.";
-        return mcpError(msg);
+        return mcpError(notFoundMessage(auth));
       }
 
       const recordType = bindService.normalizeRecordType(record.record_type);
@@ -545,37 +635,24 @@ function createMcpServer(fastify) {
       host_prefix: z.string().describe("TXT record host prefix (e.g. '_vercel' for Vercel verification)"),
       value: z.string().describe("TXT record value (the verification token)"),
       root_level: z.boolean().optional().describe("No longer supported — TXT records are always written at the root domain. Passing true returns an error."),
+      owner_token: OWNER_TOKEN_ARG,
     },
-    async ({ subdomain: rawSubdomain, domain: rawDomain, host_prefix: rawHostPrefix, value: txtValue, root_level: rootLevel }, extra) => {
+    async ({ subdomain: rawSubdomain, domain: rawDomain, host_prefix: rawHostPrefix, value: txtValue, root_level: rootLevel, owner_token: ownerToken }, extra) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
       const domainName = (rawDomain || "").trim().toLowerCase();
 
-      const auth = extra._meta?.auth;
-      if (!auth) return mcpError("Internal error: auth context missing.");
-      if (auth.mode === "invalid_key") return mcpError("Invalid API key.");
+      const caller = callerFor(extra, ownerToken);
+      if (caller.error) return mcpError(caller.error);
+      const auth = caller.auth;
 
       const managedDomains = await getManagedDomains(fastify);
       const domainEntry = managedDomains.find((d) => d.normalized === domainName);
       if (!domainEntry) return mcpError("Domain is not managed by this service.");
 
-      // Verify ownership: user must own the subdomain to add TXT
-      let record;
-      if (auth.mode === "apikey") {
-        const [rows] = await fastify.mysql.execute(
-          "SELECT id FROM subdomains WHERE subdomain = ? AND domain_id = ? AND user_id = ?",
-          [subdomain, domainEntry.id, auth.userId]
-        );
-        record = rows[0];
-      } else {
-        const [rows] = await fastify.mysql.execute(
-          "SELECT id FROM subdomains WHERE subdomain = ? AND domain_id = ? AND owner_ip = ? AND owner_type = 'agent'",
-          [subdomain, domainEntry.id, auth.ip]
-        );
-        record = rows[0];
-      }
-
+      // Verify ownership: the caller must own the subdomain to add TXT
+      const record = await findOwned(fastify, auth, subdomain, domainEntry.id);
       if (!record) {
-        return mcpError("You must own the subdomain before adding TXT records. Create the subdomain first.");
+        return mcpError("You must own the subdomain before adding TXT records. Create the subdomain first, and pass the owner_token it returned.");
       }
 
       if (!rawHostPrefix || !txtValue) {
@@ -650,37 +727,24 @@ function createMcpServer(fastify) {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
       host_prefix: z.string().describe("TXT record host prefix (e.g. '_vercel')"),
+      owner_token: OWNER_TOKEN_ARG,
     },
-    async ({ subdomain: rawSubdomain, domain: rawDomain, host_prefix: rawHostPrefix }, extra) => {
+    async ({ subdomain: rawSubdomain, domain: rawDomain, host_prefix: rawHostPrefix, owner_token: ownerToken }, extra) => {
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
       const domainName = (rawDomain || "").trim().toLowerCase();
 
-      const auth = extra._meta?.auth;
-      if (!auth) return mcpError("Internal error: auth context missing.");
-      if (auth.mode === "invalid_key") return mcpError("Invalid API key.");
+      const caller = callerFor(extra, ownerToken);
+      if (caller.error) return mcpError(caller.error);
+      const auth = caller.auth;
 
       const managedDomains = await getManagedDomains(fastify);
       const domainEntry = managedDomains.find((d) => d.normalized === domainName);
       if (!domainEntry) return mcpError("Domain is not managed by this service.");
 
       // Verify ownership
-      let record;
-      if (auth.mode === "apikey") {
-        const [rows] = await fastify.mysql.execute(
-          "SELECT id FROM subdomains WHERE subdomain = ? AND domain_id = ? AND user_id = ?",
-          [subdomain, domainEntry.id, auth.userId]
-        );
-        record = rows[0];
-      } else {
-        const [rows] = await fastify.mysql.execute(
-          "SELECT id FROM subdomains WHERE subdomain = ? AND domain_id = ? AND owner_ip = ? AND owner_type = 'agent'",
-          [subdomain, domainEntry.id, auth.ip]
-        );
-        record = rows[0];
-      }
-
+      const record = await findOwned(fastify, auth, subdomain, domainEntry.id);
       if (!record) {
-        return mcpError("Subdomain not found or you don't have permission.");
+        return mcpError(notFoundMessage(auth));
       }
 
       const prefixValidation = validateHostPrefix(rawHostPrefix);

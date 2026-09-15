@@ -41,11 +41,15 @@ CREATE TABLE IF NOT EXISTS subdomains (
   unreachable_notified_at TIMESTAMP NULL,
   owner_type ENUM('user','agent') DEFAULT 'user',
   owner_ip VARCHAR(45) DEFAULT NULL,
+  -- sha256 of the token an anonymous caller is handed on its first create.
+  -- NULL means the row predates tokens and is proved by owner_ip alone.
+  owner_token_hash VARCHAR(64) DEFAULT NULL,
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
   -- NULL means never expires; the expiry job skips those rows.
   expires_at TIMESTAMP NULL,
   renewal_notice_stage TINYINT NULL,
   UNIQUE INDEX (subdomain, domain_id),
+  INDEX idx_owner_token (owner_token_hash),
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE,
   FOREIGN KEY (domain_id) REFERENCES managed_domains(id) ON DELETE CASCADE
 );
@@ -96,3 +100,5 @@ CREATE TABLE IF NOT EXISTS credit_entries (
 -- deploy/migrations/002-subdomain-expiry.sql     (expires_at, renewal_notice_stage)
 -- deploy/migrations/003-subdomain-limit.sql      (users.subdomain_limit)
 -- deploy/migrations/004-credit-ledger.sql        (credit_entries)
+-- deploy/migrations/005-txt-no-duplicates.sql    (subdomain_txt_records uniq_txt_record)
+-- deploy/migrations/006-anon-owner-token.sql     (subdomains.owner_token_hash)

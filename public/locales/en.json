@@ -99,7 +99,7 @@
   "docs.limits.title": "Limits and expiry",
   "docs.limits.subtitle": "How many you can hold, and how long each one lasts.",
   "docs.limits.free.title": "Five for free",
-  "docs.limits.free.desc": "You can create five, with or without an account. Without one they are counted against your IP address; with one, against the account.",
+  "docs.limits.free.desc": "You can create five, with or without an account. Without one they are counted against the owner token you get back on your first create; with one, against the account.",
   "docs.limits.user.title": "Three months when a person makes it",
   "docs.limits.user.desc": "Three months from the day you registered it. We email you when the date is close.",
   "docs.limits.agent.title": "One month when an agent makes it",

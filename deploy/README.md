@@ -12,6 +12,7 @@
 | `migrations/002-subdomain-expiry.sql` | `expires_at`·`renewal_notice_stage` 추가 + **시행일 기준 백필** — 4절 |
 | `migrations/003-subdomain-limit.sql` | `users.subdomain_limit` 추가 (계정별 한도·예외) — 7절 |
 | `migrations/004-credit-ledger.sql` | `credit_entries` 생성 (결제 기록 = 잔액) — 7절 |
+| `migrations/006-anon-owner-token.sql` | `subdomains.owner_token_hash` 추가 (계정 없는 소유자 = 토큰). 🔴 **앱 재시작 «전»에 적용한다** — 코드가 컬럼 없음을 견디지 않는다. 백필 없음 |
 | `cleanup-unreachable.js` | 지금 죽어 있는 것들의 **일회성** 정리 (dry-run 기본) — 5절 |
 | `preview-emails.js` | 나가는 메일·갱신 화면을 **발송 없이** HTML 파일로 렌더 (환경변수 불필요) — 4절 |
 

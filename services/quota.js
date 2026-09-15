@@ -63,46 +63,83 @@ async function accountLimit(fastify, userId) {
 }
 
 /**
- * How many the subject holds now.
+ * How many the subject holds now, and which kind of subject it turned out to be.
  *
- * Two shapes because there are two kinds of subject. An account is `user_id`,
- * whether the record was made in the browser or with an API key. An anonymous
- * caller has no account at all, so its client IP is the closest thing to one —
- * the same key the records are already owned by.
+ * Three shapes. An account is `user_id`, whether the record was made in the
+ * browser or with an API key. An anonymous caller that has a token is that
+ * token — which is the point of tokens: two callers behind one NAT now have
+ * separate allowances instead of eating each other's.
+ *
+ * 🔴 And then the third, which is the one that keeps this honest. A token
+ * costs nothing to invent: anybody can send a well-formed string they made up,
+ * or simply send none and be given a fresh one. If a brand-new token were its
+ * own subject, every caller would start at zero held, the anonymous ceiling
+ * would bound nothing at all, and an unauthenticated write endpoint would be
+ * open-ended — which services/quota.js exists to prevent.
+ *
+ * So a token that owns nothing yet is not a subject. It is counted against the
+ * address it arrived from, exactly as before. The effect is that an address
+ * can *hatch* as many tokens as it may hold records (the row keeps owner_ip
+ * either way, so births accumulate against it), and each hatched token then
+ * has its own allowance. Bounded, and the bound is visible: limit × limit per
+ * address, rather than limit.
  */
-async function heldBy(fastify, { userId, ip }) {
+async function heldBy(fastify, { userId, tokenHash, ip }) {
   if (userId !== null) {
     const [rows] = await fastify.mysql.execute(
       "SELECT COUNT(*) AS held FROM subdomains WHERE user_id = ?",
       [userId]
     );
-    return Number(rows[0]?.held || 0);
+    return { held: Number(rows[0]?.held || 0), scope: "account" };
   }
+
+  if (tokenHash) {
+    const [rows] = await fastify.mysql.execute(
+      "SELECT COUNT(*) AS held FROM subdomains WHERE owner_token_hash = ? AND owner_type = 'agent'",
+      [tokenHash]
+    );
+    const held = Number(rows[0]?.held || 0);
+    if (held > 0) return { held, scope: "token" };
+  }
+
+  // Deliberately not filtered on owner_token_hash IS NULL, unlike the
+  // ownership lookup in services/anon-token.js. That one asks "may this caller
+  // touch this row" and must not reach a token's records; this one asks "how
+  // much has come out of this address", and a record belonging to a token is
+  // still a record this address created.
   const [rows] = await fastify.mysql.execute(
     "SELECT COUNT(*) AS held FROM subdomains WHERE owner_ip = ? AND owner_type = 'agent'",
     [ip]
   );
-  return Number(rows[0]?.held || 0);
+  return { held: Number(rows[0]?.held || 0), scope: "ip" };
 }
 
 /**
  * May this subject create one more, and what would we have said if not.
  *
  * @param {object} subject
- * @param {number|null} subject.userId  set for a signed-in user or an API key
- * @param {string|null} subject.ip      set for an anonymous caller
- * @param {string|null} subject.subject the access log's `sub`, so a quota line
- *                                      and an http line name the caller the
- *                                      same way and can be counted together
+ * @param {number|null} subject.userId    set for a signed-in user or an API key
+ * @param {string|null} subject.tokenHash set for an anonymous caller that
+ *                                        presented an owner token
+ * @param {string|null} subject.ip        set for any anonymous caller, token or
+ *                                        not: it is what an unhatched token is
+ *                                        counted against
+ * @param {string|null} subject.subject   the access log's `sub`, so a quota line
+ *                                        and an http line name the caller the
+ *                                        same way and can be counted together
  * @returns {{held:number, limit:number, exceeded:boolean, blocked:boolean, scope:string}}
  *   `blocked` is the only thing a caller has to act on: `exceeded` says the
  *   subject is over the line, `blocked` says we are actually refusing.
+ *   `scope` is "account", "token" or "ip" — what the caller was counted as,
+ *   which is what the refusal message has to name.
  */
-async function checkSubdomainQuota(fastify, { userId = null, ip = null, subject = null } = {}) {
-  const scope = userId !== null ? "account" : "ip";
+async function checkSubdomainQuota(
+  fastify,
+  { userId = null, tokenHash = null, ip = null, subject = null } = {}
+) {
+  const { held, scope } = await heldBy(fastify, { userId, tokenHash, ip });
   const base =
     scope === "account" ? await accountLimit(fastify, userId) : config.quota.subdomainLimit;
-  const held = await heldBy(fastify, { userId, ip });
 
   // Only ask about money when the free allowance has run out. An account that
   // has paid for more holds more, whichever door the money came through —
@@ -121,8 +158,9 @@ async function checkSubdomainQuota(fastify, { userId = null, ip = null, subject 
   // The anonymous ceiling is older than this file and is an abuse guard rather
   // than a price: it is the only thing standing between an unauthenticated
   // write endpoint and an unbounded number of records, and there is no account
-  // behind it to grant an exception to. It stays enforced. Observing instead
-  // would not measure demand, it would remove a lock.
+  // behind it to grant an exception to. It stays enforced, for a token subject
+  // as much as for an address. Observing instead would not measure demand, it
+  // would remove a lock.
   const enforced = scope === "account" ? config.quota.enforced : true;
   const blocked = exceeded && enforced;
 
