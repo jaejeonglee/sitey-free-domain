@@ -312,7 +312,10 @@ async function apiV1Routes(fastify, options) {
       domain: domainEntry.domain,
     });
     if (!validation.valid) {
-      apiError(400, validation.message, "INVALID_INPUT");
+      // A REDIRECT refusal names itself — INVALID_REDIRECT_URL for the shape,
+      // REDIRECT_LOOP for a target under one of our own roots
+      // (services/redirect-safety.js). A and CNAME say INVALID_INPUT as before.
+      apiError(400, validation.message, validation.code || "INVALID_INPUT");
     }
     const recordValue = validation.value;
 
@@ -434,7 +437,7 @@ async function apiV1Routes(fastify, options) {
       domain: domainEntry.domain,
     });
     if (!validation.valid) {
-      apiError(400, validation.message, "INVALID_INPUT");
+      apiError(400, validation.message, validation.code || "INVALID_INPUT");
     }
     const recordValue = validation.value;
 

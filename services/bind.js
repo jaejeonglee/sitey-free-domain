@@ -143,22 +143,40 @@ function escapeRegex(input) {
   return input.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
+/** What a caller may ask for. REDIRECT is a database type — see zoneRecordFor. */
+const RECORD_TYPES = ["A", "CNAME", "REDIRECT"];
+
 function normalizeRecordType(recordType = "A") {
   const upper = String(recordType).trim().toUpperCase();
-  if (!["A", "CNAME"].includes(upper)) {
+  if (!RECORD_TYPES.includes(upper)) {
     throw new Error(`Unsupported record type: ${recordType}`);
   }
   return upper;
 }
 
-function formatRecordValue(recordType, value) {
-  const trimmed = String(value).trim();
-  if (recordType === "CNAME") {
-    if (!trimmed.endsWith(".")) {
-      return `${trimmed}.`;
-    }
+/**
+ * The zone file line a record turns into: its type and value as BIND sees them.
+ *
+ * Two of the three types are their own zone type. REDIRECT is not — DNS has no
+ * such record. Its zone line is an A record for this server, and the URL it
+ * carries lives only in the database (plugins/redirect.js answers the request
+ * from there). Every place that compares the zone with the database has to go
+ * through here, or a REDIRECT row reads as an A line with the wrong value every
+ * night: services/subdomain.js compensation and plugins/reconciler.js both do.
+ *
+ * @param {string} recordType - A, CNAME or REDIRECT (already normalized)
+ * @param {string} value - the record value as the database holds it
+ * @returns {{type: "A"|"CNAME", value: string}}
+ */
+function zoneRecordFor(recordType, value) {
+  if (recordType === "REDIRECT") {
+    return { type: "A", value: config.redirect.targetIp };
   }
-  return trimmed;
+  const trimmed = String(value).trim();
+  if (recordType === "CNAME" && !trimmed.endsWith(".")) {
+    return { type: "CNAME", value: `${trimmed}.` };
+  }
+  return { type: recordType, value: trimmed };
 }
 
 /**
@@ -184,7 +202,7 @@ async function findDnsRecord(subdomain, domain, recordType) {
 
   const escapedName = escapeRegex(subdomain);
   const typePattern = recordType
-    ? escapeRegex(normalizeRecordType(recordType))
+    ? escapeRegex(zoneRecordFor(normalizeRecordType(recordType), "").type)
     : "(?:A|CNAME)";
   const regex = new RegExp(`^${escapedName}\\s+IN\\s+${typePattern}\\s+`, "im");
   return regex.test(data);
@@ -196,8 +214,8 @@ async function findDnsRecord(subdomain, domain, recordType) {
 async function createDnsRecord(subdomain, value, domain, recordType = "A") {
   return withDomainLock(domain, async () => {
     const zoneFilePath = getZoneFilePath(domain);
-    const type = normalizeRecordType(recordType);
-    const recordValue = formatRecordValue(type, value);
+    const requested = normalizeRecordType(recordType);
+    const { type, value: recordValue } = zoneRecordFor(requested, value);
     const newRecord = `\n${subdomain}\tIN\t${type}\t${recordValue}`;
 
     if (isBindDevMode) {
@@ -206,7 +224,9 @@ async function createDnsRecord(subdomain, value, domain, recordType = "A") {
       await mutateZoneFile(domain, zoneFilePath, (content) => content + newRecord);
     }
 
-    return { name: `${subdomain}.${domain}`, content: recordValue, type };
+    // `type` is what was asked for; `content` is what the zone holds. For a
+    // REDIRECT those differ, and callers hand `type` back to the caller.
+    return { name: `${subdomain}.${domain}`, content: recordValue, type: requested };
   });
 }
 
@@ -216,12 +236,12 @@ async function createDnsRecord(subdomain, value, domain, recordType = "A") {
 async function updateDnsRecord(subdomain, newValue, domain, recordType = "A") {
   return withDomainLock(domain, async () => {
     const zoneFilePath = getZoneFilePath(domain);
-    const type = normalizeRecordType(recordType);
-    const recordValue = formatRecordValue(type, newValue);
+    const requested = normalizeRecordType(recordType);
+    const { type, value: recordValue } = zoneRecordFor(requested, newValue);
 
     if (isBindDevMode) {
       logger.debug({ op: "updateDnsRecord", subdomain, domain, type }, "BIND_DEV_MODE skip");
-      return { name: `${subdomain}.${domain}`, content: recordValue, type };
+      return { name: `${subdomain}.${domain}`, content: recordValue, type: requested };
     }
 
     const escapedName = escapeRegex(subdomain);
@@ -234,10 +254,13 @@ async function updateDnsRecord(subdomain, newValue, domain, recordType = "A") {
       if (!regex.test(content)) {
         throw new Error(`${type} record not found in zone file.`);
       }
-      return content.replace(regex, `$1${recordValue}`);
+      const next = content.replace(regex, `$1${recordValue}`);
+      // Nothing to write when the line already reads this way — which is every
+      // REDIRECT update, since only the URL in the database changed.
+      return next === content ? null : next;
     });
 
-    return { name: `${subdomain}.${domain}`, content: recordValue, type };
+    return { name: `${subdomain}.${domain}`, content: recordValue, type: requested };
   });
 }
 
@@ -247,7 +270,7 @@ async function updateDnsRecord(subdomain, newValue, domain, recordType = "A") {
 async function deleteDnsRecord(subdomain, domain, recordType = "A") {
   return withDomainLock(domain, async () => {
     const zoneFilePath = getZoneFilePath(domain);
-    const type = normalizeRecordType(recordType);
+    const { type } = zoneRecordFor(normalizeRecordType(recordType), "");
 
     if (isBindDevMode) {
       logger.debug({ op: "deleteDnsRecord", subdomain, domain, type }, "BIND_DEV_MODE skip");
@@ -376,7 +399,8 @@ async function readDnsRecord(subdomain, domain, recordType) {
   }
 
   const escapedName = escapeRegex(subdomain);
-  const type = normalizeRecordType(recordType);
+  // Read as the zone holds it: a REDIRECT is looked up as the A line it wrote.
+  const { type } = zoneRecordFor(normalizeRecordType(recordType), "");
   const regex = new RegExp(`^${escapedName}\\s+IN\\s+${escapeRegex(type)}\\s+(\\S+.*)$`, "im");
   const match = data.match(regex);
   if (!match) {
@@ -527,6 +551,8 @@ module.exports = {
   updateDnsRecord,
   deleteDnsRecord,
   normalizeRecordType,
+  RECORD_TYPES,
+  zoneRecordFor,
   addTxtRecord,
   deleteTxtRecord,
   deleteTxtLine,

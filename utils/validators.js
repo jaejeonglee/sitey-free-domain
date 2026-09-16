@@ -1,4 +1,5 @@
 // utils/validators.js — shared input validation (web + API)
+const { checkRedirectTarget } = require("../services/redirect-safety");
 
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 const IPV4_REGEX =
@@ -70,6 +71,12 @@ function validateRecordValue(recordType, value, { subdomain, domain }) {
   const trimmed = (value || "").trim();
   if (!trimmed) {
     return { valid: false, message: "Record value is required." };
+  }
+
+  if (recordType === "REDIRECT") {
+    // Shape, scheme and self-reference — services/redirect-safety.js holds
+    // the rules, and carries `code` so the API can name the refusal.
+    return checkRedirectTarget(trimmed);
   }
 
   if (recordType === "A") {

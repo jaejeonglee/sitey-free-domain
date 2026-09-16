@@ -51,11 +51,13 @@ function isAliveStatus(status) {
  *   subdomain's own FQDN when we know it, because a CDN routes on that name
  *   and not on the CNAME target we dialled
  * @param {number} params.timeoutMs
+ * @param {string} [params.path="/"] - what to ask for. A REDIRECT target is a
+ *   whole URL, so its path is part of the question.
  * @returns {Promise<{ok: boolean, status: number|null, check: string, detail: string}>}
  *   `status` is null when nothing answered — that is how the caller tells a
  *   refused connection from a server that replied.
  */
-function probeOrigin({ protocol, host, port, hostname, timeoutMs }) {
+function probeOrigin({ protocol, host, port, hostname, timeoutMs, path = "/" }) {
   const client = protocol === "https" ? https : http;
   const presented = hostname || host;
 
@@ -71,7 +73,7 @@ function probeOrigin({ protocol, host, port, hostname, timeoutMs }) {
       {
         host,
         port,
-        path: "/",
+        path,
         method: "GET",
         headers: {
           host: presented,
@@ -161,4 +163,49 @@ async function probeHost({ host, hostname, timeoutMs }) {
   };
 }
 
-module.exports = { DEAD_STATUSES, isAliveStatus, probeOrigin, probeHost };
+/**
+ * The verdict for a REDIRECT target, which is a stricter table than the one
+ * above. There we ask "is a server there" and a 404 means yes; here we ask
+ * "does the page we send people to exist", and a 404 means no. 3xx is alive
+ * without being followed — the target may redirect again, and that is its
+ * business.
+ */
+function isRedirectTargetAlive(status) {
+  return status !== null && status >= 200 && status < 400;
+}
+
+/**
+ * One request to a REDIRECT target: the URL as given, no redirects followed.
+ */
+async function probeUrl({ url, timeoutMs }) {
+  const parsed = new URL(url);
+  const probe = await probeOrigin({
+    protocol: parsed.protocol === "https:" ? "https" : "http",
+    host: parsed.hostname,
+    port: Number(parsed.port) || (parsed.protocol === "https:" ? 443 : 80),
+    hostname: parsed.hostname,
+    path: `${parsed.pathname}${parsed.search}` || "/",
+    timeoutMs,
+  });
+  const ok = isRedirectTargetAlive(probe.status);
+  return {
+    ok,
+    status: probe.status,
+    check: "redirect",
+    detail:
+      probe.status === null
+        ? probe.detail
+        : ok
+          ? `target answered ${probe.status}`
+          : `target answered ${probe.status} — not a page to send people to`,
+  };
+}
+
+module.exports = {
+  DEAD_STATUSES,
+  isAliveStatus,
+  isRedirectTargetAlive,
+  probeOrigin,
+  probeHost,
+  probeUrl,
+};

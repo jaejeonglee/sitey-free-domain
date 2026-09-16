@@ -19,11 +19,13 @@ const anonToken = require("../services/anon-token");
 const { checkSubdomainQuota } = require("../services/quota");
 const accessLog = require("../services/access-log");
 const anonCreateRate = require("../services/anon-create-rate");
-const { validateHostPrefix, validateTxtValue } = require("../utils/validators");
+const {
+  validateHostPrefix,
+  validateTxtValue,
+  validateRecordValue,
+} = require("../utils/validators");
 
 const SUBDOMAIN_REGEX = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
-const IPV4_REGEX = /^(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)(\.(25[0-5]|2[0-4]\d|1\d{2}|[1-9]?\d)){3}$/;
-const HOSTNAME_REGEX = /^(?=.{1,253}$)(?!-)(?:[a-z0-9-]{1,63}\.)+[a-z0-9-]{2,63}\.?$/i;
 
 /**
  * Client IP: the fallback owner, for records made before owner tokens existed.
@@ -149,26 +151,14 @@ function notFoundMessage(auth) {
   return "Subdomain not found or you do not own this record.";
 }
 
+/**
+ * The same rules the REST API applies, from the same function. This used to be
+ * a copy of utils/validators.js validateRecordValue; a third record type with
+ * rules of its own (REDIRECT, services/redirect-safety.js) is not something to
+ * keep in two places.
+ */
 function mcpValidateRecordValue(recordType, value, subdomain, domain) {
-  const trimmed = (value || "").trim();
-  if (!trimmed) {
-    return { valid: false, message: "Record value is required." };
-  }
-  if (recordType === "A") {
-    if (!IPV4_REGEX.test(trimmed)) {
-      return { valid: false, message: "Provide a valid IPv4 address (e.g. 203.0.113.10)." };
-    }
-    return { valid: true, value: trimmed };
-  }
-  const candidate = trimmed.toLowerCase();
-  if (!HOSTNAME_REGEX.test(candidate)) {
-    return { valid: false, message: "Provide a valid hostname (e.g. app.example.com)." };
-  }
-  const fullDomain = `${subdomain}.${domain}`.toLowerCase();
-  if (candidate.replace(/\.$/, "") === fullDomain.replace(/\.$/, "")) {
-    return { valid: false, message: "CNAME target cannot point to itself." };
-  }
-  return { valid: true, value: candidate.replace(/\.$/, "") };
+  return validateRecordValue(recordType, value, { subdomain, domain });
 }
 
 function mcpError(message) {
@@ -273,15 +263,22 @@ function createMcpServer(fastify) {
   // --- Tool: create_subdomain ---
   server.tool(
     "create_subdomain",
-    "Create a new DNS record for a subdomain. Supports A records (IP address) and CNAME records (hostname). Example: create demo.sitey.my pointing to 1.2.3.4. " +
+    "Create a new DNS record for a subdomain. Supports A records (IP address), CNAME records (hostname) and REDIRECT records (an https:// URL — visitors to the name are sent there with a 301). Example: create demo.sitey.my pointing to 1.2.3.4. " +
       "No account, API key or signup is needed. " +
       "The target does not have to be serving yet: claim the name first and deploy to it second if that is your order. The result carries reachable:false when nothing answered, and the record is created either way. " +
       "If you send no owner_token, the result carries a new one under 'owner_token' — save it, it is shown once and is the only way to change or delete this record later.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
-      type: z.enum(["A", "CNAME"]).describe("Record type"),
-      value: z.string().describe("Record value (IP for A, hostname for CNAME)"),
+      type: z
+        .enum(["A", "CNAME", "REDIRECT"])
+        .describe("Record type. REDIRECT answers every visit with a 301 to the URL in value."),
+      value: z
+        .string()
+        .describe(
+          "Record value: an IPv4 address for A, a hostname for CNAME, an absolute https:// URL for REDIRECT " +
+            "(http:// is refused, and so is a URL under one of this service's own roots)."
+        ),
       owner_token: OWNER_TOKEN_ARG,
     },
     async ({ subdomain: rawSubdomain, domain: rawDomain, type, value, owner_token: ownerToken }, extra) => {

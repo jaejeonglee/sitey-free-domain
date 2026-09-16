@@ -1,5 +1,5 @@
 const bindService = require("./bind");
-const { probeHost } = require("./reachability");
+const { probeHost, probeUrl } = require("./reachability");
 const { sendUnreachableNoticeEmail } = require("./email");
 const config = require("../configs/index");
 
@@ -36,6 +36,13 @@ async function probeRecord(recordType, recordValue, options = {}) {
       status: probe.status,
       detail: probe.detail,
     };
+  }
+
+  // A REDIRECT's zone value is this server, which always answers, so the only
+  // question worth asking is whether the *destination* does. The URL itself is
+  // requested, redirects not followed, 2xx/3xx alive (services/reachability.js).
+  if (recordType === "REDIRECT") {
+    return probeUrl({ url: recordValue, timeoutMs: config.validation.httpTimeoutMs });
   }
 
   return {
@@ -105,7 +112,9 @@ function unreachableNote(recordType, recordValue) {
   const what =
     recordType === "A"
       ? `Nothing answered an HTTP request at ${recordValue} on port 80 or 443.`
-      : `Nothing answered an HTTP request at ${recordValue}.`;
+      : recordType === "REDIRECT"
+        ? `The redirect target ${recordValue} did not answer with a page (2xx or 3xx).`
+        : `Nothing answered an HTTP request at ${recordValue}.`;
   return (
     `${what} The record was written anyway, so the name is yours and resolves now — ` +
     "point something at it and it will start working. Nothing is removed for being " +

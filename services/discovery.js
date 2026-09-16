@@ -26,8 +26,8 @@ const x402 = require("./x402");
 
 const SUMMARY =
   "Free subdomains with the DNS behind them: claim a name, point it at an address " +
-  "with an A or CNAME record, and add the TXT record a host asks for. " +
-  "Over REST or MCP, with or without an account.";
+  "with an A or CNAME record, or send its visitors to a URL with a REDIRECT record, " +
+  "and add the TXT record a host asks for. Over REST or MCP, with or without an account.";
 
 /** The host inside an origin, for the places that want a name rather than a URL. */
 function hostOf(origin) {
@@ -205,8 +205,12 @@ function body(properties, required) {
 
 const RECORD_TYPE = {
   type: "string",
-  enum: ["A", "CNAME"],
-  description: "A for an IP address, CNAME for a hostname. Nothing else is written.",
+  enum: ["A", "CNAME", "REDIRECT"],
+  description:
+    "A for an IP address, CNAME for a hostname, REDIRECT for an https:// URL — every visit " +
+    "to the name is answered 301 to that URL, so it needs no server of your own. Nothing " +
+    "else is written. The limit, the lease and the TXT rules apply to a REDIRECT exactly " +
+    "as to an A or CNAME.",
 };
 
 /**
@@ -271,7 +275,10 @@ function operations(origin) {
           value: {
             type: "string",
             example: "203.0.113.10",
-            description: "An IPv4 address for A, a hostname for CNAME. A CNAME may not point at itself.",
+            description:
+              "An IPv4 address for A, a hostname for CNAME, an absolute https:// URL for " +
+              "REDIRECT (at most 2048 characters). A CNAME may not point at itself; a REDIRECT " +
+              "may not point under one of the roots served here, and http:// is refused.",
           },
         },
         ["subdomain", "domain", "value"]
@@ -322,6 +329,8 @@ function operations(origin) {
         400: fail(
           "INVALID_SUBDOMAIN — the label is not one DNS accepts. " +
             "INVALID_INPUT — the value is not an address of the type given. " +
+            "INVALID_REDIRECT_URL — a REDIRECT value that is not an absolute https:// URL, or is too long. " +
+            "REDIRECT_LOOP — a REDIRECT value under one of the roots served here; two of those could chase each other. " +
             "INVALID_DOMAIN — that root is not managed here. " +
             "BLACKLISTED — the name is reserved."
         ),
@@ -391,6 +400,8 @@ function operations(origin) {
         ),
         400: fail(
           "INVALID_INPUT — the value is not an address of this record's type. " +
+            "INVALID_REDIRECT_URL — for a REDIRECT, not an absolute https:// URL or too long. " +
+            "REDIRECT_LOOP — for a REDIRECT, a URL under one of the roots served here. " +
             "INVALID_DOMAIN — that root is not managed here."
         ),
         403: fail("FORBIDDEN — no such record under this caller. Deliberately the same answer as one that exists and belongs to somebody else."),
@@ -621,6 +632,11 @@ function llmsTxt({ origin, domains }) {
     "",
     "The name comes first: a record whose target is not serving yet is created all the same,",
     "with `reachable: false` in the response saying so. Claim the address, then deploy to it.",
+    "",
+    "Three record types: `A` (an IPv4 address), `CNAME` (a hostname), and `REDIRECT` (an",
+    "absolute `https://` URL — every visit to the name is answered 301 to it, so a link can",
+    "have an address without a server behind it). A REDIRECT may not point under a root",
+    "served here, and the limit, the lease and the TXT rules apply to it as to the other two.",
     "",
     "## Calling it",
     "",

@@ -66,6 +66,10 @@ const docs = {
     <p>${t("docs.records.cname.desc")}</p>
     <pre><code>${t("docs.records.cname.example")}</code></pre>
 
+    <h2>${t("docs.records.redirect.title")}</h2>
+    <p>${t("docs.records.redirect.desc")}</p>
+    <pre><code>${t("docs.records.redirect.example")}</code></pre>
+
     <h2>${t("docs.records.txt.title")}</h2>
     <p>${t("docs.records.txt.desc")}</p>
   `,

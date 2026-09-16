@@ -753,3 +753,78 @@ NODE_ENV=production pm2 restart server --update-env
 ```
 
 DNS·존 파일·네임서버·Caddy 는 **건드리지 않았다.** 되돌리기는 `git revert` + 위 DROP.
+
+---
+
+## 8. REDIRECT 레코드 — 서브도메인을 URL 로 301 (2026-09-16)
+
+Jay 「사이티에 리다이렉트 뭐 서비스 넣어줄거없나」 → 「고고」. 세 번째 레코드 종류 `REDIRECT`(값 = `https://` URL).
+존에는 **A + 이 서버 IP**(`REDIRECT_TARGET_IP`, 기본 `139.59.126.52`)가 쓰이고, URL 은 DB 에만 있다.
+방문은 Caddy 가 앱으로 넘기고 `plugins/redirect.js` 가 `301 Location:<url>` 로 답한다.
+
+### 배포 순서 — 이 순서를 지킨다
+
+```bash
+export PATH=/root/.nvm/versions/node/v24.11.0/bin:$PATH
+cd /root/dns-controller
+
+# ① 마이그레이션 먼저 — record_value 를 VARCHAR(2048) 로. 넓히는 것이라 지금 코드에 무해하다
+mysqldump -u <user> -p <db> subdomains > /root/subdomains.bak.$(date +%F).sql
+git pull
+mysql -u <user> -p <db> < deploy/migrations/007-redirect-record-type.sql
+mysql -u <user> -p <db> -e "SHOW COLUMNS FROM subdomains LIKE 'record_value';"   # varchar(2048)
+
+# ② 재시작 — REDIRECT 생성·301 훅이 켜진다 (Caddy 전이라 아직 아무도 못 들어온다)
+NODE_ENV=production pm2 restart server --update-env
+
+# ③ Caddy 와일드카드 — *.sitey.my 를 앱으로. 인증서는 DNS 챌린지
+```
+
+### ③ Caddy — 와일드카드 블록과 DNS 챌린지
+
+⚠️ `deploy/caddy-canonical.snippet` 의 「와일드카드 절대 금지」는 **HTTP 챌린지·on-demand 발급을 전제로 한 경고**다.
+그 경고의 이유는 ①이름마다 인증서를 받으러 다니다 한도에 걸리고 ②남의 A/CNAME 이름 트래픽을 가로챈다는 것이었다.
+이번엔 둘 다 해당하지 않는다 — **인증서는 DNS 챌린지 한 장**(`*.sitey.my`)이고, **이 서버로 오는 것은 REDIRECT 이름뿐**이다
+(A/CNAME 이름은 존에서 각자 서버를 가리키므로 여전히 여기 안 온다).
+
+- `_acme-challenge.sitey.my` TXT 는 **`deploy/acme-txt.js`** 로 넣고 뺀다 — `withDomainLock` + 원자 교체 + `named-checkzone` 을 그대로 탄다.
+  ```bash
+  node deploy/acme-txt.js add sitey.my <토큰>      # 발급 중
+  node deploy/acme-txt.js del sitey.my <토큰>      # 발급 끝나면 지운다
+  ```
+  🔴 이 접두사는 공개 TXT API 가 거부하는 것(`APEX_TXT_PREFIXES`)이라 **CLI 만** 쓴다. 라우트에 노출하지 않는다.
+- Caddy 쪽 DNS 플러그인이 없으면 인증서를 certbot 등으로 받아 `tls <인증서 파일> <키 파일>` 로 박는다. 어느 쪽이든 **자비스가 서버에서 판단·적용**한다.
+- 블록은 정본 블록 **뒤에**, 그리고 정본보다 구체적인 호스트가 우선하도록 Caddy 의 매칭 규칙을 확인한다.
+  ```
+  *.sitey.my {
+      tls { dns <provider> ... }        # 또는 tls <인증서 파일> <키 파일>
+      reverse_proxy 127.0.0.1:3000
+  }
+  ```
+  🔴 `www.sitey.my` 는 이미 정본 리다이렉트 블록에 있으므로 그쪽이 이긴다. 확인: `curl -sSI https://www.sitey.my/ | head -1` → 301 sitey.my.
+
+### 검증
+
+```bash
+# 만들기 (익명) — 응답 type:"REDIRECT", owner_token 보관
+curl -sS -X POST https://sitey.my/api/v1/subdomains -H 'content-type: application/json' \
+  -d '{"subdomain":"jaytest-redirect","domain":"sitey.my","type":"REDIRECT","value":"https://github.com/jaejeonglee"}'
+
+dig +short jaytest-redirect.sitey.my @ns1.sitey.my            # 139.59.126.52
+curl -sSI https://jaytest-redirect.sitey.my/ | grep -iE '^HTTP|^location|^cache-control'
+#   HTTP/2 301 · location: https://github.com/jaejeonglee · cache-control: no-store
+curl -sSI https://sitey.my/ | head -1                          # 200 — 정본은 그대로
+curl -sSI https://nobody.sitey.my/ | head -1                   # (와일드카드 인증서 뒤) 404
+
+# 거절 두 가지
+#   http:// 값 → 400 INVALID_REDIRECT_URL · https://x.sitey.my → 400 REDIRECT_LOOP
+
+# 자정 reconciler 가 조용한지 — 다음 날 아침
+grep '"evt":"reconcile"' /root/.pm2/logs/server-out.log | tail -3     # result:"clean"
+grep '"evt":"redirect"' /root/.pm2/logs/server-out.log | tail -3      # sub/host/to 만, URL 없음
+```
+
+### 되돌리기
+
+코드 `git revert` + `pm2 restart`. Caddy 블록 제거 + reload. 컬럼은 **REDIRECT 행이 255자를 넘지 않을 때만** 좁힌다(007 파일 하단).
+REDIRECT 행이 남아 있으면 그 이름은 우리 IP 를 가리킨 채 앱이 정본 페이지를 낸다 — 지우거나 A/CNAME 으로 다시 만들게 안내.

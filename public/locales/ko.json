@@ -93,6 +93,9 @@
   "docs.records.cname.title": "CNAME 레코드",
   "docs.records.cname.desc": "도메인을 다른 호스트네임에 연결해요. Vercel, Netlify, GitHub Pages처럼 IP 대신 호스트네임을 주는 서비스에 사용하세요.",
   "docs.records.cname.example": "myapp.sitey.my → cname.vercel-dns.com",
+  "docs.records.redirect.title": "리다이렉트 레코드",
+  "docs.records.redirect.desc": "방문자를 지정한 URL로 301 넘겨요. 서버는 없고 링크만 있을 때 쓰세요. 깃허브 저장소, 설문 폼, 프로필 페이지 같은 것들이요. URL은 https://로 시작해야 하고, sitey 주소로 되돌아가는 URL은 안 돼요.",
+  "docs.records.redirect.example": "myapp.sitey.my → 301 → https://github.com/you/myapp",
   "docs.records.txt.title": "TXT 레코드 (Vercel 인증용)",
   "docs.records.txt.desc": "도메인 소유권 확인에 사용돼요. Vercel에 연결할 때 TXT 레코드를 추가해야 할 수 있어요. 대시보드에서 CNAME 레코드를 편집할 때 함께 관리할 수 있어요.",
 

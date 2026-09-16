@@ -238,6 +238,43 @@ module.exports = {
     // stop matching newer ones.
     hashSecret: process.env.ACCESS_LOG_SECRET || process.env.JWT_SECRET,
   },
+  // The third record type, REDIRECT: a name that answers 301 to a URL.
+  //
+  // DNS has no such record. The zone gets an A record for *this* server, the
+  // URL lives in the database, and the app answers the first request with the
+  // Location header — so every REDIRECT name in every zone points at one IP,
+  // and that IP is this one. services/bind.js does the translation;
+  // plugins/redirect.js answers the request.
+  redirect: {
+    // Where a REDIRECT name resolves to in the zone. The server this app runs
+    // on, which Caddy fronts with a wildcard certificate (deploy/README.md §8).
+    targetIp: (process.env.REDIRECT_TARGET_IP || "139.59.126.52").trim(),
+    // Hosts the app itself is served under. A request whose Host is one of
+    // these is the site; anything else is looked up as a REDIRECT name. Caddy
+    // already sends the non-canonical ones to sitey.my, but the app decides
+    // from its own list rather than trusting that it did.
+    canonicalHosts: (
+      process.env.CANONICAL_HOSTS ||
+      "sitey.my,www.sitey.my,sitey.one,www.sitey.one,localhost,127.0.0.1"
+    )
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+    // Roots this service issues names under. A REDIRECT may not point at any
+    // of them or anything beneath them — a.sitey.my → b.sitey.my → a.sitey.my
+    // would send a browser round until it gave up. The list is repeated here
+    // rather than read from managed_domains because validation has to work
+    // without a database in front of it (services/redirect-safety.js).
+    ownDomains: (
+      process.env.OWN_DOMAINS || "sitey.my,sitey.one,officials.my,officials.one"
+    )
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+    // The longest URL accepted as a target. Browsers stop well past this;
+    // the column behind it is VARCHAR(2048) (deploy/migrations/007).
+    maxUrlLength: 2048,
+  },
   txt: {
     // TXT records are written at the root domain under this prefix (see
     // services/bind.js), so the prefix decides what the record *means for the

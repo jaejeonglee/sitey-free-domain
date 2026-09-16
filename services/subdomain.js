@@ -7,10 +7,10 @@ const { expiryAfter } = require("./expiry");
  * without. Normalize before comparing a zone value to a DB value.
  */
 function asZoneValue(recordType, value) {
-  if (recordType === "CNAME" && value && !String(value).endsWith(".")) {
-    return `${value}.`;
-  }
-  return value;
+  if (value === undefined || value === null) return value;
+  // One translation for all three types (a REDIRECT's zone value is this
+  // server's IP, whatever URL the row holds) — see bind.zoneRecordFor.
+  return bindService.zoneRecordFor(recordType, value).value;
 }
 
 /**

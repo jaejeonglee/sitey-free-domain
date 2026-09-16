@@ -35,4 +35,14 @@ export const RECORD_TYPE_UI = {
       "The CNAME record aliases this domain to another hostname. The target must already resolve to the right service.",
     tooltipLabel: "Learn about CNAME records",
   },
+  REDIRECT: {
+    label: "Redirect to URL",
+    placeholder: "https://…",
+    helper: "Sends every visitor to this URL with a 301. No server of your own needed.",
+    inputMode: "url",
+    detailLabel: "Redirect URL",
+    tooltip:
+      "The name resolves to sitey, which answers every visit with a 301 to the URL you give. https:// only.",
+    tooltipLabel: "Learn about redirect records",
+  },
 };

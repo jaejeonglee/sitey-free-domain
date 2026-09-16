@@ -32,6 +32,10 @@ function buildApp(options = {}) {
 
   // --- 1. Register plugins ---
   fastify.register(require("./plugins/db"));
+  // First, so its onRequest hook runs ahead of every route and of the rate
+  // limiter: a request for a REDIRECT name (Host: myapp.sitey.my) is answered
+  // 301 here and never reaches the site. plugins/redirect.js.
+  fastify.register(require("./plugins/redirect"));
   fastify.register(require("./plugins/auth"));
   fastify.register(require("./plugins/validation-scheduler"));
   fastify.register(require("./plugins/expiry-scheduler"));

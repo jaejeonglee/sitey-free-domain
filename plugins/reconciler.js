@@ -72,10 +72,18 @@ function diffRecords({ zoneRecords, zoneTxtLines, dbRows, dbTxtRows }) {
     zoneMap.set(key, rec.value);
   }
 
+  // Keyed by the line the row *writes*, not by the row's own type: a REDIRECT
+  // row is an A line carrying this server's IP, and the URL it holds is never
+  // in the zone at all (bind.zoneRecordFor). Comparing it as "REDIRECT" would
+  // report every one of them missing, every night.
   const dbMap = new Map();
   for (const row of dbRows) {
-    const key = `${row.subdomain}|${row.record_type}`;
-    dbMap.set(key, row.record_value);
+    const zone = bindService.zoneRecordFor(
+      bindService.normalizeRecordType(row.record_type),
+      row.record_value
+    );
+    const key = `${row.subdomain}|${zone.type}`;
+    dbMap.set(key, zone.value);
   }
 
   const issues = [];
@@ -101,13 +109,9 @@ function diffRecords({ zoneRecords, zoneTxtLines, dbRows, dbTxtRows }) {
   for (const [key, dbValue] of dbMap) {
     if (zoneMap.has(key)) {
       const zoneValue = zoneMap.get(key);
-      // Normalize: CNAME zone values end with "."
-      const [, type] = key.split("|");
-      const normalizedDb = type === "CNAME" && !dbValue.endsWith(".")
-        ? dbValue + "."
-        : dbValue;
-      if (zoneValue !== normalizedDb && zoneValue !== dbValue) {
-        const [name] = key.split("|");
+      // dbValue is already in zone form (CNAME with its trailing dot).
+      const [name, type] = key.split("|");
+      if (zoneValue !== dbValue) {
         issues.push({ type: "value-drift", name, recordType: type, zoneValue, dbValue });
       }
     }
