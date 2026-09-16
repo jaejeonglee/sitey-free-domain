@@ -48,6 +48,12 @@
   "dashboard.expires_tomorrow": "expires tomorrow",
   "dashboard.expired": "past due",
   "dashboard.expires_never": "Never expires",
+  "dashboard.hits": "{month} this month · {total} total · last {date}",
+  "dashboard.hits_none": "No visits yet",
+  "dashboard.renew": "Renew",
+  "dashboard.renew_from": "From {date}",
+  "dashboard.renew_from_title": "Renewal opens on {date}.",
+  "dashboard.renew_success": "{domain} renewed — it now runs to {date}.",
 
   "docs.nav.quickstart": "Quick Start",
   "docs.nav.vercel": "Vercel Setup",

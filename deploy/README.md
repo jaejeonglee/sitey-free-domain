@@ -828,3 +828,59 @@ grep '"evt":"redirect"' /root/.pm2/logs/server-out.log | tail -3      # sub/host
 
 코드 `git revert` + `pm2 restart`. Caddy 블록 제거 + reload. 컬럼은 **REDIRECT 행이 255자를 넘지 않을 때만** 좁힌다(007 파일 하단).
 REDIRECT 행이 남아 있으면 그 이름은 우리 IP 를 가리킨 채 앱이 정본 페이지를 낸다 — 지우거나 A/CNAME 으로 다시 만들게 안내.
+
+---
+
+## 9. REDIRECT 클릭 수 + 마이페이지 펴기·갱신 버튼 (2026-09-16 저녁)
+
+Jay 「응 카운팅을 하자. 마이페이지에서도 확인할 수 있게. 근데 마이페이지에서 지금 레코드를 바꾸거나 이런건 안되네?」
+
+세 가지가 한 덩어리다.
+- **클릭 수** — 301 을 낸 횟수를 `redirect_hits`(하루 한 줄)에 쌓는다. 응답을 먼저 보내고 세고,
+  요청마다 쓰지 않고 **메모리에 모았다가 10초마다 한 번**(`REDIRECT_HIT_FLUSH_MS`) 반영한다.
+  → **프로세스가 죽으면 마지막 10초가 날아간다.** 과금이 아니라 화면에 보여주는 숫자라 그 쪽을 택했다.
+  400일(`REDIRECT_HIT_RETENTION_DAYS`)이 지난 날짜 줄은 자정 작업이 지운다.
+- **마이페이지 아코디언 제거** — 값 칸·저장·삭제가 늘 보인다. 기능은 원래 있었고 접혀 있었을 뿐이다.
+- **갱신 버튼** — `POST /api/subdomains/:subdomain/renew`(웹 로그인). 만료 14일 전부터 열리고
+  그 전에는 **비활성 + 「9월 24일부터」**로 보인다. 규칙은 `services/expiry.js` `renewalWindow()` 한 곳 그대로.
+
+### 배포 순서
+
+```bash
+export PATH=/root/.nvm/versions/node/v24.11.0/bin:$PATH
+cd /root/dns-controller
+
+# ① 마이그레이션 먼저 — 없으면 세는 쪽만 실패한다(301 은 나간다). 적용 전에 파일 상단의 확인 명령부터
+mysqldump -u <user> -p <db> subdomains > /root/subdomains.bak.$(date +%F).sql
+git pull
+mysql -u <user> -p <db> -e "SHOW CREATE TABLE subdomains\G"          # id 타입·엔진·charset 확인 (007 교훈)
+mysql -u <user> -p <db> < deploy/migrations/008-redirect-hits.sql
+mysql -u <user> -p <db> -e "SHOW CREATE TABLE redirect_hits\G"
+
+# ② 재시작
+NODE_ENV=production pm2 restart server --update-env
+```
+
+### 검증
+
+```bash
+# 301 은 그대로 (먼저 확인 — 세는 것이 이걸 막으면 안 된다)
+curl -sI https://<redirect이름>.sitey.my | head -3        # 301 · location · no-store
+
+# 10초 안에 줄이 생긴다
+mysql -u <user> -p <db> -e "SELECT s.subdomain, h.hit_day, h.hits, h.last_hit_at \
+  FROM redirect_hits h JOIN subdomains s ON s.id = h.subdomain_id;"
+
+# API 에 실려 나오는지 — REDIRECT 에만 hits 가 붙고 A/CNAME 에는 없다
+curl -s https://sitey.my/api/v1/subdomains -H "Authorization: Bearer <token>" | jq '.data.subdomains'
+
+# 세는 쪽이 실패하고 있으면 여기 찍힌다 (warn, 한 번에 한 줄)
+grep '"evt":"redirect_hits"' /root/.pm2/logs/server-*.log | tail -5
+
+# 마이페이지 — 로그인해서 레코드 줄에 값 칸·저장·삭제·갱신이 «누르지 않아도» 보이는지
+```
+
+### 되돌리기
+
+코드 `git revert` + `pm2 restart`. 테이블은 **코드를 되돌린 뒤** 지운다(안 지워도 동작에는 지장 없다).
+`DROP TABLE redirect_hits;` — 세는 쪽의 실패 경로가 「경고만 남기고 넘어간다」라 순서를 틀려도 서비스는 살아 있다.

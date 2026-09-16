@@ -11,6 +11,7 @@ const { isBlacklisted } = require("../services/blacklist");
 const { hashKey, validateKey } = require("../services/api-key");
 const anonToken = require("../services/anon-token");
 const { checkSubdomainQuota } = require("../services/quota");
+const redirectHits = require("../services/redirect-hits");
 const credits = require("../services/credits");
 const x402 = require("../services/x402");
 const alertService = require("../services/alert");
@@ -405,14 +406,14 @@ async function apiV1Routes(fastify, options) {
     // then touch, or hid one it can, would be its own bug.
     const owner = anonToken.ownerPredicate(auth, "s.");
     const [rows] = await fastify.mysql.execute(
-      "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, " +
+      "SELECT s.id, s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, " +
       "s.created_at, s.expires_at " +
       "FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id " +
       `WHERE ${owner.sql} ORDER BY s.created_at DESC`,
       owner.params
     );
 
-    return ok({ subdomains: rows });
+    return ok({ subdomains: await withHits(fastify, rows) });
   });
 
   // -------------------------------------------------------
@@ -644,6 +645,27 @@ async function apiV1Routes(fastify, options) {
       zone_record_removed: removed.deleted === true,
     });
   });
+}
+
+/**
+ * Add `hits` to the REDIRECT rows of a listing, and to nothing else.
+ *
+ * A and CNAME are not visited through us — the browser goes straight to the
+ * address DNS gave it and we never see the request — so a count there would
+ * always be zero and would read as "nobody came", which is a lie we would be
+ * telling in every response. The field is absent for them on purpose.
+ *
+ * `id` is dropped on the way out: it is the join key, not part of the API, and
+ * the rest of v1 addresses a record by (subdomain, domain).
+ */
+async function withHits(fastify, rows) {
+  const byId = await redirectHits.hitsFor(
+    fastify,
+    rows.filter((row) => row.type === "REDIRECT").map((row) => row.id)
+  );
+  return rows.map(({ id, ...rest }) =>
+    byId.has(id) ? { ...rest, hits: byId.get(id) } : rest
+  );
 }
 
 /**

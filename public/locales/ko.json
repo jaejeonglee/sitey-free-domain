@@ -48,6 +48,12 @@
   "dashboard.expires_tomorrow": "내일 만료",
   "dashboard.expired": "기한 지남",
   "dashboard.expires_never": "만료 없음",
+  "dashboard.hits": "이번 달 {month} · 전체 {total} · 마지막 {date}",
+  "dashboard.hits_none": "아직 눌린 적 없어요",
+  "dashboard.renew": "갱신",
+  "dashboard.renew_from": "{date}부터",
+  "dashboard.renew_from_title": "{date}부터 갱신할 수 있어요.",
+  "dashboard.renew_success": "{domain} 갱신 완료 — {date}까지예요.",
 
   "docs.nav.quickstart": "빠른 시작",
   "docs.nav.vercel": "Vercel 연결",

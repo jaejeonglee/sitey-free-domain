@@ -4,6 +4,7 @@ const bindService = require("../services/bind");
 const alertService = require("../services/alert");
 const { getManagedDomains } = require("../services/managedDomain");
 const { liveTxtRows } = require("../services/txt-records");
+const redirectHits = require("../services/redirect-hits");
 const config = require("../configs/index");
 
 const RECONCILE_INTERVAL_MS = 24 * 60 * 60 * 1000; // 24 hours
@@ -426,9 +427,18 @@ async function reconcilerPlugin(fastify) {
     fastify.log.info({ delayMs, delayHours: (delayMs / 3600000).toFixed(1) },
       "Reconciler: scheduling first run at next midnight KST");
 
-    initialTimeoutId = setTimeout(() => {
+    // Two jobs, one timer. The nightly pass also drops redirect day rows past
+    // their retention window (services/redirect-hits.js) — kept out of
+    // reconcile() itself, which is about the zone and the database agreeing
+    // and has nothing to say about visit counts.
+    const nightly = () => {
       reconcile(fastify);
-      intervalId = setInterval(() => reconcile(fastify), RECONCILE_INTERVAL_MS);
+      redirectHits.prune(fastify);
+    };
+
+    initialTimeoutId = setTimeout(() => {
+      nightly();
+      intervalId = setInterval(nightly, RECONCILE_INTERVAL_MS);
     }, delayMs);
   });
 

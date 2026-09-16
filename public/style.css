@@ -580,6 +580,7 @@ button:hover:not(:disabled),
   color: var(--paper);
 }
 
+button.small,
 .primary-button.small { padding: 6px 13px; font-size: 13px; }
 
 .danger-button { color: var(--bad); }
@@ -682,7 +683,8 @@ input::placeholder { color: var(--ink-3); }
 /* ============================================
    8. Dashboard
 
-   목록이다. 한 줄에 주소·값·만료가 있고, 펼치면 고치는 자리가 열린다.
+   목록이다. 한 줄에 주소·만료·클릭수가 있고, 그 아래 값 칸과 버튼이 늘 나와 있다.
+   접지 않는다 — 접었더니 «바꾸는 게 안 된다»로 읽혔다(2026-09-16).
    ============================================ */
 .dashboard-section { max-width: 760px; margin: 0 auto; padding-top: 48px; }
 .dashboard-section h1 { font-size: 26px; margin-bottom: 4px; }
@@ -692,16 +694,12 @@ input::placeholder { color: var(--ink-3); }
 
 .dashboard-item { border-bottom: 1px solid var(--rule-2); min-width: 0; }
 
-.dashboard-item-header {
-  display: flex;
-  align-items: center;
-  gap: 12px;
-  padding: 14px 4px;
-  cursor: pointer;
+/* Nothing folds any more (2026-09-16). The head is what the record is; the
+   detail below is what you can do to it, and both are always on screen. */
+.dashboard-item-head {
+  padding: 14px 4px 8px;
   min-width: 0;
 }
-
-.dashboard-item-title { flex: 1; min-width: 0; }
 
 .dashboard-item-domain { display: flex; align-items: center; gap: 8px; min-width: 0; }
 
@@ -723,14 +721,6 @@ input::placeholder { color: var(--ink-3); }
   padding: 1px 6px;
 }
 
-.dashboard-item .record-value {
-  display: block;
-  color: var(--ink-2);
-  font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
-  font-size: 13px;
-  overflow-wrap: anywhere;
-}
-
 /* When it runs out, under where it points. Quiet by default — it is only
    news for a fortnight of every three months. */
 .dashboard-item .record-expiry {
@@ -743,28 +733,34 @@ input::placeholder { color: var(--ink-3); }
    alarm colour, the same red the delete button and error text already use. */
 .dashboard-item .record-expiry.soon { color: var(--bad); font-weight: 700; }
 
-.dashboard-item-chevron {
-  flex: none;
-  width: 8px; height: 8px;
-  border-right: 1.6px solid var(--ink-3);
-  border-bottom: 1.6px solid var(--ink-3);
-  transform: rotate(45deg);
-  margin-bottom: 3px;
-}
-
-.dashboard-item.expanded .dashboard-item-chevron {
-  transform: rotate(225deg);
-  margin: 3px 0 0;
+/* How many visits a REDIRECT has answered. Same weight as the expiry line —
+   it is news, not a headline. Only REDIRECT rows have one. */
+.dashboard-item .record-hits {
+  display: block;
+  color: var(--ink-3);
+  font-size: 12.5px;
 }
 
 .dashboard-item-detail {
-  padding: 4px 4px 20px;
+  padding: 0 4px 16px;
   min-width: 0;
 }
 
-.dashboard-item-detail[hidden] { display: none; }
+/* 🔴 The value and its buttons on one line, and this is the reason: a hundred
+   records is inside the rules, and a stacked label-input-buttons block per
+   record turns that into a page nobody can find anything in. One line per
+   record keeps forty of them on three screens. */
+.dashboard-item-line {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
 
-.dashboard-item-field { margin-bottom: 14px; min-width: 0; }
+.dashboard-item-line .dashboard-record-input { flex: 1 1 auto; min-width: 0; }
+.dashboard-item-line button { flex: none; }
+
+.dashboard-item-field { margin-top: 10px; min-width: 0; }
 .dashboard-item-field label {
   display: block;
   font-size: 14px;
@@ -773,7 +769,12 @@ input::placeholder { color: var(--ink-3); }
 }
 .dashboard-item-field input { width: 100%; }
 
-.dashboard-item-actions { display: flex; flex-wrap: wrap; gap: 8px; }
+/* Narrow: the box takes the width and the buttons drop under it, rather than
+   three buttons squeezing a redirect URL into a peephole. */
+@media (max-width: 640px) {
+  .dashboard-item-line { flex-wrap: wrap; }
+  .dashboard-item-line .dashboard-record-input { flex: 1 1 100%; }
+}
 
 /* ============================================
    9. Docs

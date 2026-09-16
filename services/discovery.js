@@ -363,7 +363,9 @@ function operations(origin) {
       description:
         "An API key lists the account's records. An owner token lists that token's. With " +
         "neither, the records created from this IP address before owner tokens existed — " +
-        "which is all the identity those rows have.",
+        "which is all the identity those rows have. A REDIRECT record also carries `hits`: " +
+        "how many visits it has answered in total, how many this month, and when the last " +
+        "one was.",
       responses: {
         200: ok("Newest first.", {
           subdomains: { type: "array", items: { $ref: "#/components/schemas/Subdomain" } },
@@ -598,6 +600,28 @@ function openApi({ origin }) {
             value: { type: "string", example: "203.0.113.10" },
             created_at: { type: "string", format: "date-time" },
             expires_at: { type: "string", format: "date-time" },
+            hits: {
+              type: "object",
+              description:
+                "REDIRECT records only. A and CNAME name a destination the visitor " +
+                "reaches straight from DNS, so no request of theirs passes through this " +
+                "service and there is nothing here to count — the field is absent rather " +
+                "than zero, because zero would read as nobody having come. Counts are " +
+                "batched in memory for a few seconds before being written, so the newest " +
+                "visits may not be in the number yet.",
+              properties: {
+                total: { type: "integer", description: "Every visit since counting began." },
+                this_month: {
+                  type: "integer",
+                  description: "Visits since the 1st of the current calendar month, server time.",
+                },
+                last_at: {
+                  type: ["string", "null"],
+                  format: "date-time",
+                  description: "The most recent visit, or null if there has not been one.",
+                },
+              },
+            },
           },
         },
       },
@@ -637,6 +661,10 @@ function llmsTxt({ origin, domains }) {
     "absolute `https://` URL — every visit to the name is answered 301 to it, so a link can",
     "have an address without a server behind it). A REDIRECT may not point under a root",
     "served here, and the limit, the lease and the TXT rules apply to it as to the other two.",
+    "",
+    "Only a REDIRECT is counted. Its visits pass through this service, so listing it returns",
+    "a `hits` object — `total`, `this_month`, `last_at`. An A or CNAME is reached straight",
+    "from DNS and never seen here, so it carries no such field rather than a misleading zero.",
     "",
     "## Calling it",
     "",

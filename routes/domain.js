@@ -6,6 +6,8 @@ const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../servic
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { checkSubdomainQuota } = require("../services/quota");
+const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
+const redirectHits = require("../services/redirect-hits");
 const { isValidSubdomain, validateRecordValue, validateTxtValue } = require("../utils/validators");
 
 function normalizeRecordType(recordType = "A") {
@@ -168,7 +170,23 @@ async function domainRoutes(fastify, options) {
           [userId]
         );
 
-        return reply.send(groupBySubdomain(rows));
+        const items = groupBySubdomain(rows);
+
+        // REDIRECT rows carry their visit counts; A and CNAME do not, because
+        // nothing of theirs comes through this server to be counted. Same rule
+        // as routes/api-v1.js withHits() — the dashboard draws the field only
+        // where it means something.
+        const byId = await redirectHits.hitsFor(
+          fastify,
+          items
+            .filter((item) => normalizeRecordType(item.record_type) === "REDIRECT")
+            .map((item) => item.id)
+        );
+        for (const item of items) {
+          if (byId.has(item.id)) item.hits = byId.get(item.id);
+        }
+
+        return reply.send(items);
       } catch (error) {
         fastify.log.error(error, "Failed to fetch user domains");
         return reply.code(500).send({ error: "Error fetching your domains" });
@@ -457,6 +475,80 @@ async function domainRoutes(fastify, options) {
           .code(500)
           .send({ error: "Server error during domain deletion" });
       }
+    }
+  );
+
+  // POST /api/subdomains/:subdomain/renew
+  //
+  // The fourth door onto services/expiry.js renewSubdomain(), and the only one
+  // a signed-in person could not reach: the mail has a link, an agent has REST
+  // and MCP, and the dashboard had nothing — docs.limits.tip has been promising
+  // "one press and it counts again" to people with no button to press.
+  //
+  // The rule itself is not repeated here. renewSubdomain() decides whether the
+  // window is open, and this only turns its answer into a status code.
+  fastify.post(
+    "/subdomains/:subdomain/renew",
+    {
+      preHandler: [fastify.authenticate],
+    },
+    async (request, reply) => {
+      const { subdomain: rawSubdomain } = request.params;
+      const { domain } = request.body || {};
+      const subdomain = (rawSubdomain || "").trim().toLowerCase();
+      const domainName = (domain || "").trim().toLowerCase();
+      const userId = request.user.id;
+
+      if (!domainName) {
+        request.outcome = "INVALID_INPUT";
+        return reply.code(400).send({ error: "domain is required" });
+      }
+
+      const managedDomains = await getManagedDomains(fastify);
+      const domainEntry = managedDomains.find(
+        (item) => item.normalized === domainName
+      );
+      if (!domainEntry) {
+        request.outcome = "INVALID_DOMAIN";
+        return reply.code(400).send({
+          error: "Requested domain is not managed by this service.",
+        });
+      }
+
+      // Ownership in the WHERE, as everywhere else on this file: the same 404
+      // whether the record belongs to somebody else or does not exist.
+      const [rows] = await fastify.mysql.execute(
+        "SELECT id FROM subdomains WHERE subdomain = ? AND domain_id = ? AND user_id = ?",
+        [subdomain, domainEntry.id, userId]
+      );
+      if (!rows[0]) {
+        request.outcome = "NOT_OWNED";
+        return reply.code(404).send({
+          error: "Domain not found or you do not own this record.",
+        });
+      }
+
+      const renewal = await renewSubdomain(fastify, rows[0].id);
+      if (!renewal.renewed) {
+        if (renewal.reason === "not_found") {
+          request.outcome = "NOT_FOUND";
+          return reply.code(404).send({ error: "Domain not found." });
+        }
+        // 409, and the date: the screen disables its own button until then,
+        // but a stale page can still ask and has to be told when to come back.
+        request.outcome = "RENEWAL_NOT_DUE";
+        return reply.code(409).send({
+          error: renewalNotDueMessage(renewal),
+          code: "RENEWAL_NOT_DUE",
+          renew_from: renewal.opensAt,
+        });
+      }
+
+      return reply.send({
+        success: true,
+        domain: `${subdomain}.${domainEntry.domain}`,
+        expires_at: renewal.expiresAt,
+      });
     }
   );
 

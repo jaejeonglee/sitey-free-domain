@@ -274,6 +274,18 @@ module.exports = {
     // The longest URL accepted as a target. Browsers stop well past this;
     // the column behind it is VARCHAR(2048) (deploy/migrations/007).
     maxUrlLength: 2048,
+    // How long visits sit in memory before being written as one batch.
+    //
+    // 🔴 This is also how much is lost if the process dies: ten seconds of
+    // counts, for a number shown on a dashboard. Lowering it costs a database
+    // write per busy link per interval and buys back seconds of a figure
+    // nobody is billed on. services/redirect-hits.js.
+    hitFlushMs: parseIntEnv("REDIRECT_HIT_FLUSH_MS", 10000),
+    // How long the day-by-day rows are kept. Slightly over a year on purpose:
+    // comparing a month with the same month last year needs more than 365
+    // days, and the slack means a nightly job missed over a holiday does not
+    // eat into it.
+    hitRetentionDays: parseIntEnv("REDIRECT_HIT_RETENTION_DAYS", 400),
   },
   txt: {
     // TXT records are written at the root domain under this prefix (see

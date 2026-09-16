@@ -13,6 +13,7 @@
 const fp = require("fastify-plugin");
 const config = require("../configs/index");
 const { getManagedDomains } = require("../services/managedDomain");
+const redirectHits = require("../services/redirect-hits");
 const { SUBDOMAIN_REGEX } = require("../utils/validators");
 
 /** The host a request arrived at, without port and case. */
@@ -52,12 +53,14 @@ async function targetFor(fastify, host) {
   const split = splitHost(host, managedDomains);
   if (!split) return null;
 
+  // `id` comes back too: it is what a visit is counted against
+  // (services/redirect-hits.js), and this is the only query on the path.
   const [rows] = await fastify.mysql.execute(
-    "SELECT record_value FROM subdomains WHERE subdomain = ? AND domain_id = ? AND record_type = 'REDIRECT' LIMIT 1",
+    "SELECT id, record_value FROM subdomains WHERE subdomain = ? AND domain_id = ? AND record_type = 'REDIRECT' LIMIT 1",
     [split.subdomain, split.entry.id]
   );
   if (!rows[0]?.record_value) return null;
-  return { subdomain: split.subdomain, url: rows[0].record_value };
+  return { id: rows[0].id, subdomain: split.subdomain, url: rows[0].record_value };
 }
 
 async function redirectPlugin(fastify) {
@@ -90,7 +93,33 @@ async function redirectPlugin(fastify) {
       .header("location", target.url)
       .header("cache-control", "no-store")
       .send();
+
+    // 🔴 After the answer, and inside a try. Counting is the least important
+    // thing this hook does — a visitor whose link stopped working because a
+    // number could not be incremented would be the worst bug this file could
+    // have. The call itself only touches a Map; the database write happens on
+    // a timer (services/redirect-hits.js).
+    try {
+      redirectHits.record(target.id);
+    } catch (err) {
+      request.log.warn(
+        { evt: "redirect_hits", sub: target.subdomain, err },
+        "Redirect counted nothing; the redirect itself went out"
+      );
+    }
     return reply;
+  });
+
+  // The batch writer. onReady rather than here so tests that build the plugin
+  // and never call ready() do not leave a timer behind; onClose flushes what
+  // is left, so a clean restart loses nothing.
+  fastify.addHook("onReady", async () => {
+    redirectHits.start(fastify);
+  });
+
+  fastify.addHook("onClose", async () => {
+    redirectHits.stop();
+    await redirectHits.flush(fastify);
   });
 }
 

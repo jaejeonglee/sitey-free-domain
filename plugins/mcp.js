@@ -19,6 +19,7 @@ const anonToken = require("../services/anon-token");
 const { checkSubdomainQuota } = require("../services/quota");
 const accessLog = require("../services/access-log");
 const anonCreateRate = require("../services/anon-create-rate");
+const redirectHits = require("../services/redirect-hits");
 const {
   validateHostPrefix,
   validateTxtValue,
@@ -431,7 +432,7 @@ function createMcpServer(fastify) {
   // --- Tool: list_subdomains ---
   server.tool(
     "list_subdomains",
-    "List all subdomains you own. Returns subdomain name, domain, record type, value, and creation date. Filtered by your API key, or by the owner_token you pass, or — for records made before tokens existed — by your IP address.",
+    "List all subdomains you own. Returns subdomain name, domain, record type, value, and creation date. A REDIRECT record also carries hits: how many visits it has answered in total, how many this calendar month, and when the last one was. Filtered by your API key, or by the owner_token you pass, or — for records made before tokens existed — by your IP address.",
     { owner_token: OWNER_TOKEN_ARG },
     async ({ owner_token: ownerToken } = {}, extra) => {
       const caller = callerFor(extra, ownerToken);
@@ -442,13 +443,24 @@ function createMcpServer(fastify) {
       // row the caller cannot then touch would be its own bug.
       const owner = anonToken.ownerPredicate(auth, "s.");
       const [rows] = await fastify.mysql.execute(
-        "SELECT s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, s.created_at, s.expires_at FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id " +
+        "SELECT s.id, s.subdomain, m.domain_name AS domain, s.record_type AS type, s.record_value AS value, s.created_at, s.expires_at FROM subdomains s JOIN managed_domains m ON s.domain_id = m.id " +
           `WHERE ${owner.sql} ORDER BY s.created_at DESC`,
         owner.params
       );
 
+      // Only REDIRECT rows get `hits` — the other two are visited straight
+      // from DNS and we never see the request, so a zero there would read as
+      // "nobody came" rather than "we cannot know". routes/api-v1.js says the
+      // same in withHits(); the id is dropped for the same reason.
+      const byId = await redirectHits.hitsFor(
+        fastify,
+        rows.filter((row) => row.type === "REDIRECT").map((row) => row.id)
+      );
+
       return mcpSuccess({
-        subdomains: rows,
+        subdomains: rows.map(({ id, ...rest }) =>
+          byId.has(id) ? { ...rest, hits: byId.get(id) } : rest
+        ),
         hint: "expires_at is when each record is released. Call renew_subdomain before then to reset it.",
       });
     }
