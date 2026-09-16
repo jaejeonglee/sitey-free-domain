@@ -27,6 +27,13 @@
 ALTER TABLE subdomains
   MODIFY COLUMN record_value VARCHAR(2048) NOT NULL;
 
+-- 🔴 2026-09-16 운영 적용 중 발견 — 위 주석과 달리 운영 DB 의 record_type 은
+-- ENUM('A','CNAME') 이었다. 첫 REDIRECT INSERT 가 "Data truncated for column
+-- 'record_type'" 으로 실패했고, 존·DB 에는 아무것도 남지 않았다. 아래 한 줄을
+-- 손으로 적용해 해결(18:12). 새 환경에서는 이 파일 그대로 돌리면 된다.
+ALTER TABLE subdomains
+  MODIFY COLUMN record_type ENUM('A','CNAME','REDIRECT') NOT NULL DEFAULT 'A';
+
 -- ---------------------------------------------------------------------------
 -- Check before leaving
 -- ---------------------------------------------------------------------------
