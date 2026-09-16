@@ -5,7 +5,7 @@ const { marked } = require("marked");
 
 const BLOG_DIR = path.join(__dirname, "..", "content", "blog");
 const SUPPORTED_LANGS = ["en", "ko"];
-const DEFAULT_LANG = "ko";
+const DEFAULT_LANG = "en";
 
 // In-memory cache
 const cache = new Map();

@@ -43,6 +43,12 @@ const DEFAULT_DESCRIPTION =
 // front of crawlers.
 /**
  * @returns {"ko"|"en"} the language to render markdown in.
+ *
+ * English unless something asks for Korean. The service is in English and so
+ * is the reader that matters most — an agent following a search result — and
+ * it sends no cookie and often no Accept-Language at all. Korean is the toggle,
+ * not the default: ?lang=ko, the cookie the language buttons write, or a
+ * browser that asks for it first.
  */
 function pickLang(request) {
   const asked = request.query?.lang;
@@ -51,13 +57,13 @@ function pickLang(request) {
   const cookie = request.cookies?.["sitey-lang"];
   if (cookie === "ko" || cookie === "en") return cookie;
 
-  // "en-GB,en;q=0.9,ko;q=0.8" — first tag wins, the rest is preference order
+  // "ko-KR,ko;q=0.9,en;q=0.8" — first tag wins, the rest is preference order
   // we do not need: only two languages exist here.
   const header = request.headers?.["accept-language"] || "";
   const first = header.split(",")[0]?.trim().slice(0, 2).toLowerCase();
-  if (first === "en") return "en";
+  if (first === "ko") return "ko";
 
-  return "ko";
+  return "en";
 }
 
 const PAGES = {
@@ -218,7 +224,7 @@ async function pageRoutes(fastify, options) {
   fastify.get("/blog", async (request, reply) => {
     let body = "";
     try {
-      body = blogListBody(blogTemplate, await listPosts());
+      body = blogListBody(blogTemplate, await listPosts(pickLang(request)));
     } catch (error) {
       fastify.log.error(error, "Failed to render the blog index body");
     }
@@ -230,7 +236,7 @@ async function pageRoutes(fastify, options) {
     const { slug } = request.params;
     let post;
     try {
-      post = await loadPost(slug);
+      post = await loadPost(slug, pickLang(request));
     } catch (error) {
       if (error.statusCode === 404 || error.statusCode === 400) {
         return sendNotFound(reply);

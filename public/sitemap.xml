@@ -38,6 +38,31 @@
     <priority>0.8</priority>
   </url>
   <url>
+    <loc>https://sitey.my/blog/when-your-subdomain-does-not-connect</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://sitey.my/blog/how-to-pick-a-subdomain-name</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://sitey.my/blog/dns-basics-for-deployers</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://sitey.my/blog/github-pages-custom-subdomain</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
+    <loc>https://sitey.my/blog/free-subdomain-without-signup</loc>
+    <changefreq>monthly</changefreq>
+    <priority>0.8</priority>
+  </url>
+  <url>
     <loc>https://sitey.my/about</loc>
     <changefreq>monthly</changefreq>
     <priority>0.6</priority>

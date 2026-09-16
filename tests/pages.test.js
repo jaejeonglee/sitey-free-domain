@@ -164,13 +164,63 @@ describe("per-path canonical and Open Graph tags", () => {
       ["/", "The agent you already use can work with it too."],
       ["/docs", "Three steps and you're done."],
       ["/guide", "1. Check availability"],
-      ["/blog", "AI 에이전트가 서브도메인을 만들 수 있게 되었어요 (MCP 지원)"],
-      ["/blog/mcp-support", "MCP가 뭔가요"],
+      ["/blog", "Let your AI agent create a subdomain (MCP support)"],
+      ["/blog/mcp-support", "What MCP is, in one paragraph"],
     ])("%s carries %j without JavaScript", async (url, text) => {
       const res = await app.inject({ method: "GET", url });
 
       expect(res.statusCode).toBe(200);
       expect(appRootOf(res.body)).toContain(text);
+    });
+
+    // English unless asked otherwise. The reader this is for — an agent that
+    // arrived from a search — sends no cookie and usually no Accept-Language,
+    // and it used to be handed Korean. Korean is still one query string, one
+    // cookie or one browser preference away.
+    describe("language", () => {
+      it("is English with no signal at all", async () => {
+        const res = await app.inject({ method: "GET", url: "/blog/mcp-support" });
+        expect(titleOf(res.body)).toBe("Let your AI agent create a subdomain (MCP support) — Sitey");
+        expect(appRootOf(res.body)).not.toContain("MCP가 뭔가요");
+      });
+
+      it("is Korean with ?lang=ko", async () => {
+        const post = await app.inject({ method: "GET", url: "/blog/mcp-support?lang=ko" });
+        expect(appRootOf(post.body)).toContain("MCP가 뭔가요");
+
+        const list = await app.inject({ method: "GET", url: "/blog?lang=ko" });
+        expect(appRootOf(list.body)).toContain(
+          "AI 에이전트가 서브도메인을 만들 수 있게 되었어요 (MCP 지원)"
+        );
+      });
+
+      it("is Korean when the browser asks for it first", async () => {
+        const res = await app.inject({
+          method: "GET",
+          url: "/blog/mcp-support",
+          headers: { "accept-language": "ko-KR,ko;q=0.9,en;q=0.8" },
+        });
+        expect(appRootOf(res.body)).toContain("MCP가 뭔가요");
+      });
+
+      it("stays English when the browser prefers English", async () => {
+        const res = await app.inject({
+          method: "GET",
+          url: "/blog/mcp-support",
+          headers: { "accept-language": "en-GB,en;q=0.9,ko;q=0.8" },
+        });
+        expect(appRootOf(res.body)).toContain("What MCP is, in one paragraph");
+      });
+
+      // Every post has both languages; the fallback is for the day one does not.
+      it("lists the same slugs in both languages", async () => {
+        const en = await app.inject({ method: "GET", url: "/blog" });
+        const ko = await app.inject({ method: "GET", url: "/blog?lang=ko" });
+        const slugsOf = (html) =>
+          [...appRootOf(html).matchAll(/href="\/blog\/([^"]+)"/g)].map((m) => m[1]).sort();
+        expect(slugsOf(ko.body)).toEqual(slugsOf(en.body));
+        expect(slugsOf(en.body).length).toBeGreaterThanOrEqual(9);
+      });
     });
 
     it("links every post from the blog index", async () => {
