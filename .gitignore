@@ -140,5 +140,8 @@ vite.config.ts.timestamp-*
 .claude
 CLAUDE.md
 
+# 헤드리스로 화면을 확인한 흔적. 로컬에서 눈으로 보는 것이고 저장소에 둘 것은 아니다.
+.screenshots/
+
 scripts/*
 !scripts/*.sql

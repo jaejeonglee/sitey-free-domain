@@ -18,6 +18,7 @@
   "home.placeholder": "Check a name first — no sign-up needed",
   "home.select_label": "Domain to check first",
   "home.hint.bad": "Lowercase letters, numbers, and inner hyphens only.",
+  "home.claim_unavailable": "{name} — not free to take right now. The line below shows where it stands.",
   "home.point.fast.title": "Fast",
   "home.point.fast.desc": "Register the address you want, with no paperwork.",
   "home.point.simple.title": "Simple",

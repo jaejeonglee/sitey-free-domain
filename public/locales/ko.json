@@ -18,6 +18,7 @@
   "home.placeholder": "가입 없이 원하는 이름부터 확인해 보세요",
   "home.select_label": "먼저 볼 도메인",
   "home.hint.bad": "영문 소문자와 숫자, 가운데 하이픈만 쓸 수 있어요.",
+  "home.claim_unavailable": "{name} — 지금은 가져갈 수 없어요. 아래 줄에서 상태를 확인해 주세요.",
   "home.point.fast.title": "빠르게",
   "home.point.fast.desc": "원하는 도메인을 복잡한 절차 없이 등록할 수 있어요.",
   "home.point.simple.title": "간편하게",

@@ -3,6 +3,7 @@ import { navigateTo } from "./router.js";
 import { showMessage, setButtonLoading, clearButtonLoading, showLoader, hideLoader, setHidden, clearChildren, resetMessage } from "./ui.js";
 import { normalizeRecordType, validateRecordValue } from "./util.js";
 import { SUBDOMAIN_REGEX, RECORD_TYPE_UI } from "./constants.js";
+import { savePendingClaim, takeHeldClaim } from "./pending-claim.js";
 import { t } from "./i18n.js";
 
 // 350ms — 한 글자 칠 때마다 묻지 않을 만큼 길고, 멈췄다는 걸 사람이 느끼기
@@ -65,6 +66,13 @@ export function initializeLandingPage() {
     resultsContainer.appendChild(fragment);
   }
 
+  /**
+   * Ask, and draw the answer.
+   *
+   * @returns the rows drawn, or null when nothing was — a stale answer, an
+   *   error, an empty list. The caller resuming a claim needs the difference:
+   *   "we could not ask" must not be reported as "somebody took it".
+   */
   async function runSearch(name) {
     // Debounced requests can land out of order — a slow answer for "ja" must
     // not overwrite a fresh one for "jay". Only the newest token may draw.
@@ -76,17 +84,19 @@ export function initializeLandingPage() {
         method: "POST",
         body: { subdomain: name },
       });
-      if (token !== latestRequest) return;
+      if (token !== latestRequest) return null;
 
       const results = Array.isArray(data?.results) ? data.results : [];
       if (!results.length) {
         showHint(t("validation.no_data"));
-        return;
+        return null;
       }
       renderResults(results);
+      return results;
     } catch (error) {
-      if (token !== latestRequest) return;
+      if (token !== latestRequest) return null;
       showHint(error.message);
+      return null;
     } finally {
       if (token === latestRequest) setSearching(false);
     }
@@ -135,17 +145,9 @@ export function initializeLandingPage() {
     scheduleSearch(true);
   });
 
-  loadDomainOptions(domainSelect).then(() => {
+  const domainsReady = loadDomainOptions(domainSelect).then(() => {
     if (lastResults.length) renderResults(lastResults);
   });
-
-  // Pre-fill from ?check= query param (e.g. from blog domain chip click)
-  const params = new URLSearchParams(window.location.search);
-  const prefill = params.get("check");
-  if (prefill && SUBDOMAIN_REGEX.test(prefill)) {
-    subdomainInput.value = prefill;
-    scheduleSearch(true);
-  }
 
   const createModal = document.getElementById("create-modal");
   const createModalDomain = document.getElementById("create-modal-domain");
@@ -253,6 +255,9 @@ export function initializeLandingPage() {
       }
 
       if (!getCurrentUser()) {
+        // Leave the name where the sign-in can find it on the way back
+        // (public/modules/pending-claim.js). Then login, as before.
+        savePendingClaim(subdomain, domain);
         navigateTo("/login");
         return;
       }
@@ -325,6 +330,9 @@ export function initializeLandingPage() {
       if (!activeCreateContext) return;
 
       if (!getCurrentUser()) {
+        // The session went while the form was open. Same deal: the name is
+        // kept and they are put back in front of it once they are signed in.
+        savePendingClaim(activeCreateContext.subdomain, activeCreateContext.domain);
         closeCreateModal();
         navigateTo("/login");
         return;
@@ -387,6 +395,60 @@ export function initializeLandingPage() {
         hideLoader();
       }
     });
+  }
+
+  /* ============================================
+     Arriving, and arriving back
+
+     ?check= fills the box — the blog's domain chips hand a name over that way
+     and so does script.js after a sign-in, which is why the address is worth
+     writing to: a reload shows the same search rather than an empty page.
+
+     A held claim is the second case only. It carries the two things the
+     address does not — which root was chosen, and that the form should open —
+     and it does one thing a prefill does not: it asks about the name again.
+     Signing in takes long enough for somebody else to have taken it, and the
+     worst ending here is a form that submits into an error nobody caused.
+     ============================================ */
+
+  const claim = takeHeldClaim();
+  const prefill = new URLSearchParams(window.location.search).get("check");
+
+  if (claim) {
+    resumeClaim(claim);
+  } else if (prefill && SUBDOMAIN_REGEX.test(prefill)) {
+    subdomainInput.value = prefill;
+    scheduleSearch(true);
+  }
+
+  async function resumeClaim({ subdomain, domain }) {
+    subdomainInput.value = subdomain;
+    await domainsReady;
+
+    // The stored root has to still be one we hand out. If it is not, the claim
+    // cannot be honoured and there is nothing useful to say about it — the
+    // dashboard is where this sign-in was going before we interfered.
+    const known = [...domainSelect.options].some((option) => option.value === domain);
+    if (!known) {
+      navigateTo("/dashboard");
+      return;
+    }
+    domainSelect.value = domain;
+
+    const results = await runSearch(subdomain);
+    // Null means the question did not get answered; the hint on screen says so
+    // already, and inventing a verdict on top of it would be worse than quiet.
+    if (!results) return;
+
+    const row = results.find((result) => result.domain === domain);
+    if (row?.isAvailable === true) {
+      openCreateModal({ subdomain, domain });
+      return;
+    }
+
+    // Taken while they were away, or a zone we could not read just now. The
+    // row on screen says which of the two; this says why no form opened.
+    showMessage(t("home.claim_unavailable", { name: `${subdomain}.${domain}` }), "error");
   }
 }
 
