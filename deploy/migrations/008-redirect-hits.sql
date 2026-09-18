@@ -59,6 +59,16 @@ CREATE TABLE IF NOT EXISTS redirect_hits (
   -- name has no page to show these numbers on, and an orphan row would keep a
   -- stranger's visit count alive under an id that gets reused.
   subdomain_id INT NOT NULL,
+  -- 🔴 2026-09-18 — the paragraph below is how this started and no longer how
+  -- it works. CURDATE() is the *database server's* day, and @@global.time_zone
+  -- here is SYSTEM = UTC, so "today" on a dashboard read in Seoul began at
+  -- 09:00 and visits between midnight and nine on the 1st landed in the month
+  -- before. The application now sends the Asia/Seoul day as a parameter
+  -- (services/redirect-hits.js, kstDay). Rows written before that date hold
+  -- UTC days and were left alone — a row is a day's total, not the visits
+  -- inside it, so re-cutting one would mean inventing where they fell.
+  -- ⚠️ Nothing to re-run: this file's SQL is unchanged, only these comments.
+  --
   -- The server's date, written by MySQL (CURDATE()) rather than by Node, so
   -- "what day is it" has one answer even if the two disagree about timezone.
   -- Named hit_day, not `day`: DAY() is a function and an unquoted `day` reads

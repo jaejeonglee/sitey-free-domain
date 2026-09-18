@@ -613,7 +613,9 @@ function openApi({ origin }) {
                 total: { type: "integer", description: "Every visit since counting began." },
                 this_month: {
                   type: "integer",
-                  description: "Visits since the 1st of the current calendar month, server time.",
+                  description:
+                    "Visits since the 1st of the current calendar month in Asia/Seoul, " +
+                    "which is the timezone every day here is counted in.",
                 },
                 last_at: {
                   type: ["string", "null"],

@@ -18,11 +18,43 @@
 // against anybody. A count that is a few visits light is worth less than a
 // redirect that was slow, and far less than one that failed.
 //
-// Dates are MySQL's (CURDATE() / NOW()), never Node's: one clock decides what
-// day a visit belongs to, so the app and the database cannot disagree about
-// where a month starts. A batch that straddles midnight lands on the day it
-// was flushed, which is off by at most one interval.
+// The day a visit belongs to is Seoul's, and it is worked out here rather than
+// asked of MySQL. CURDATE() reads the server's `time_zone`, which is SYSTEM =
+// UTC on this machine: "today" on somebody's dashboard began at nine in the
+// morning, and every visit between midnight and 09:00 on the 1st was counted
+// against the month before. Nine hours is not a rounding error on a number
+// somebody reads to see whether their link works.
+//
+// kstDay() does it from a UTC instant plus a fixed offset — Korea has no
+// daylight saving — so the answer depends on neither the database's timezone
+// nor the process's, and one function answers "what day is it" for the write,
+// for "this month" and for the nightly delete. A batch that straddles midnight
+// lands on the day it was flushed, which is off by at most one interval.
+//
+// 🔴 Rows written before 2026-09-18 hold UTC days and are left as they are.
+// A row is a total, not the visits inside it, so re-cutting one along the
+// nine-hour seam would mean inventing where within the day those visits fell.
+// Two days of counting (the table was created 2026-09-16) have a blurred
+// boundary; everything from here on is the day it says it is.
 const config = require("../configs/index");
+
+// KST is UTC+9 the whole year round.
+const KST_OFFSET_MS = 9 * 60 * 60 * 1000;
+
+/**
+ * The calendar day in Seoul, shaped as MySQL wants a DATE: "2026-09-18".
+ *
+ * Exported for the test that pins the boundary — 2026-08-31T15:30Z is already
+ * September in Seoul, and that is the case the old code got wrong.
+ */
+function kstDay(at = new Date()) {
+  return new Date(at.getTime() + KST_OFFSET_MS).toISOString().slice(0, 10);
+}
+
+/** The 1st of the Seoul month `at` falls in. What "this month" counts from. */
+function kstMonthStart(at = new Date()) {
+  return `${kstDay(at).slice(0, 7)}-01`;
+}
 
 /** subdomain_id → visits counted since the last successful flush. */
 const pending = new Map();
@@ -60,6 +92,12 @@ function clear() {
  * 43 names' counts down with it. Failures are counted and reported in one warn
  * line — one per name would turn a database outage into a log flood.
  *
+ * `last_hit_at` is a Date rather than NOW(): mysql2 converts a Date on the way
+ * in and back out through the same connection timezone, so the instant that
+ * comes back is the instant that went in whatever the two clocks are set to.
+ * It is a moment, not a day — the dashboard renders it in the reader's own
+ * timezone — so it is not shifted to Seoul the way `hit_day` is.
+ *
  * @returns {Promise<{written: number, failed: number}>}
  */
 async function flush(fastify) {
@@ -67,6 +105,12 @@ async function flush(fastify) {
 
   const batch = [...pending.entries()];
   pending.clear();
+
+  // One day and one instant for the whole batch: these visits were counted
+  // within one flush interval of each other, and asking twice inside the loop
+  // would let a batch that crosses midnight land on two different days.
+  const day = kstDay();
+  const at = new Date();
 
   let written = 0;
   let failed = 0;
@@ -76,9 +120,9 @@ async function flush(fastify) {
     try {
       await fastify.mysql.execute(
         "INSERT INTO redirect_hits (subdomain_id, hit_day, hits, last_hit_at) " +
-          "VALUES (?, CURDATE(), ?, NOW()) " +
+          "VALUES (?, ?, ?, ?) " +
           "ON DUPLICATE KEY UPDATE hits = hits + VALUES(hits), last_hit_at = VALUES(last_hit_at)",
-        [subdomainId, hits]
+        [subdomainId, day, hits, at]
       );
       written += 1;
     } catch (err) {
@@ -131,10 +175,14 @@ function stop() {
  */
 async function prune(fastify) {
   const days = config.redirect.hitRetentionDays;
+  // The cutoff is a Seoul day like the rows it is compared against. Left to
+  // DATE_SUB(CURDATE(), …) it would be a UTC one, and a day-wide disagreement
+  // at the far end of a 400-day window is how "one clock" quietly becomes two.
+  const before = kstDay(new Date(Date.now() - days * 24 * 60 * 60 * 1000));
   try {
     const [result] = await fastify.mysql.execute(
-      "DELETE FROM redirect_hits WHERE hit_day < DATE_SUB(CURDATE(), INTERVAL ? DAY)",
-      [days]
+      "DELETE FROM redirect_hits WHERE hit_day < ?",
+      [before]
     );
     const removed = result?.affectedRows ?? 0;
     if (removed > 0) {
@@ -163,9 +211,9 @@ async function prune(fastify) {
  * "nobody has clicked it", and those are different things to say to somebody
  * who just made a link.
  *
- * "This month" is the calendar month by the database's clock, computed in the
- * same statement as the total so the two cannot be read a millisecond apart
- * across a month boundary.
+ * "This month" is the calendar month in Seoul — the same reckoning the rows
+ * were written under — and it is computed in the same statement as the total
+ * so the two cannot be read a millisecond apart across a month boundary.
  *
  * @returns {Promise<Map<number, {total:number, this_month:number, last_at:Date|null}>>}
  */
@@ -178,10 +226,10 @@ async function hitsFor(fastify, subdomainIds) {
     const placeholders = ids.map(() => "?").join(", ");
     const [rows] = await fastify.mysql.execute(
       "SELECT subdomain_id, SUM(hits) AS total, " +
-        "SUM(CASE WHEN hit_day >= DATE_FORMAT(CURDATE(), '%Y-%m-01') THEN hits ELSE 0 END) AS this_month, " +
+        "SUM(CASE WHEN hit_day >= ? THEN hits ELSE 0 END) AS this_month, " +
         "MAX(last_hit_at) AS last_at " +
         `FROM redirect_hits WHERE subdomain_id IN (${placeholders}) GROUP BY subdomain_id`,
-      ids
+      [kstMonthStart(), ...ids]
     );
     for (const row of rows) {
       // SUM over BIGINT comes back from mysql2 as a string; a JSON number is
@@ -205,6 +253,7 @@ async function hitsFor(fastify, subdomainIds) {
 }
 
 module.exports = {
+  kstDay,
   record,
   flush,
   start,

@@ -40,6 +40,27 @@ afterEach(() => {
   redirectHits.clear();
 });
 
+describe("what day a visit belongs to", () => {
+  // The bug this replaced: CURDATE() is the database server's day, and that
+  // server runs on UTC. Somebody in Seoul visiting a link at 1am on the 1st
+  // was counted into the previous month, and the dashboard's "this month"
+  // was nine hours behind the calendar on every page of it.
+  it("reads the clock in Seoul, not in UTC", () => {
+    // 00:30 on the 1st in Seoul is still 15:30 on the 31st in UTC
+    expect(redirectHits.kstDay(new Date("2026-08-31T15:30:00Z"))).toBe("2026-09-01");
+    // and the last minute of the Seoul day is mid-afternoon the same day UTC
+    expect(redirectHits.kstDay(new Date("2026-09-18T14:59:00Z"))).toBe("2026-09-18");
+    expect(redirectHits.kstDay(new Date("2026-09-18T15:00:00Z"))).toBe("2026-09-19");
+  });
+
+  it("does not move with the process timezone either", () => {
+    // Korea has no daylight saving, so a fixed offset off a UTC instant is the
+    // whole of it — midwinter and midsummer answer the same way.
+    expect(redirectHits.kstDay(new Date("2026-01-01T15:00:00Z"))).toBe("2026-01-02");
+    expect(redirectHits.kstDay(new Date("2026-07-01T15:00:00Z"))).toBe("2026-07-02");
+  });
+});
+
 describe("visits are gathered, not written one at a time", () => {
   it("turns many visits into one statement per name", async () => {
     const calls = [];
@@ -54,16 +75,24 @@ describe("visits are gathered, not written one at a time", () => {
 
     const result = await redirectHits.flush(app);
 
+    const today = redirectHits.kstDay();
+
     expect(result).toEqual({ written: 2, failed: 0 });
     expect(calls).toHaveLength(2);
     expect(calls.every((c) => c.sql.startsWith("INSERT INTO redirect_hits"))).toBe(true);
     // ten visits, one row, ten added to the day's total
-    expect(calls.find((c) => c.params[0] === 7).params).toEqual([7, 10]);
-    expect(calls.find((c) => c.params[0] === 9).params).toEqual([9, 1]);
-    // the day and the time come from MySQL, so the two clocks cannot disagree
-    expect(calls[0].sql).toContain("CURDATE()");
-    expect(calls[0].sql).toContain("NOW()");
+    expect(calls.find((c) => c.params[0] === 7).params.slice(0, 3)).toEqual([7, today, 10]);
+    expect(calls.find((c) => c.params[0] === 9).params.slice(0, 3)).toEqual([9, today, 1]);
+    // the day is Seoul's and it is ours, not the database's — CURDATE() there
+    // reads the server's time_zone, which is UTC, and put nine hours of every
+    // evening on the wrong day
+    expect(calls[0].sql).not.toContain("CURDATE()");
+    expect(calls[0].sql).not.toContain("NOW()");
+    // the moment is a Date, so mysql2 converts it out the way it converted it in
+    expect(calls[0].params[3]).toBeInstanceOf(Date);
     expect(calls[0].sql).toContain("hits = hits + VALUES(hits)");
+    // one day for the whole batch, not one per statement
+    expect(calls[0].params[1]).toBe(calls[1].params[1]);
   });
 
   it("empties the buffer before writing, so a visit mid-flush is not lost or doubled", async () => {
@@ -89,7 +118,8 @@ describe("visits are gathered, not written one at a time", () => {
       return [{ affectedRows: 1 }];
     });
     await redirectHits.flush(second);
-    expect(calls).toEqual([[7, 1]]);
+    expect(calls).toHaveLength(1);
+    expect(calls[0].slice(0, 3)).toEqual([7, redirectHits.kstDay(), 1]);
   });
 
   it("writes nothing and says nothing when there is nothing to write", async () => {
@@ -144,8 +174,11 @@ describe("old day rows are removed", () => {
 
     expect(await redirectHits.prune(app)).toBe(12);
     expect(calls[0].sql).toContain("DELETE FROM redirect_hits");
-    expect(calls[0].sql).toContain("DATE_SUB(CURDATE(), INTERVAL ? DAY)");
-    expect(calls[0].params).toEqual([config.redirect.hitRetentionDays]);
+    // the cutoff is a Seoul day, the same reckoning the rows were written with
+    const expected = redirectHits.kstDay(
+      new Date(Date.now() - config.redirect.hitRetentionDays * 24 * 60 * 60 * 1000)
+    );
+    expect(calls[0].params).toEqual([expected]);
   });
 
   it("keeps a little over a year, so a year-on-year comparison has something to compare", () => {
@@ -195,7 +228,7 @@ describe("reading the counts back", () => {
     expect(app.warnings[0][0]).toMatchObject({ action: "read_failed" });
   });
 
-  it("counts this month from the 1st, by the database's clock", async () => {
+  it("counts this month from the 1st in Seoul, not the 1st in UTC", async () => {
     const calls = [];
     await redirectHits.hitsFor(
       harness(async (sql, params) => {
@@ -204,9 +237,10 @@ describe("reading the counts back", () => {
       }),
       [1, 2]
     );
-    expect(calls[0].sql).toContain("DATE_FORMAT(CURDATE(), '%Y-%m-01')");
+    expect(calls[0].sql).toContain("hit_day >= ?");
     expect(calls[0].sql).toContain("IN (?, ?)");
-    expect(calls[0].params).toEqual([1, 2]);
+    // the month boundary comes first in the statement, so it comes first here
+    expect(calls[0].params).toEqual([`${redirectHits.kstDay().slice(0, 7)}-01`, 1, 2]);
   });
 });
 
@@ -249,7 +283,8 @@ describe("the 301 comes first", () => {
           return [{ affectedRows: 1 }];
         })
       );
-      expect(calls).toEqual([[55, 10]]);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].slice(0, 3)).toEqual([55, redirectHits.kstDay(), 10]);
     } finally {
       redirectHits.clear();
       await app.close();
