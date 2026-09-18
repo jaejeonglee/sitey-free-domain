@@ -614,6 +614,11 @@ describe("the renew button on the dashboard", () => {
     ({ createDashboardItem } = await installBrowser("en"));
   });
 
+  // A second of slack on top of the days, because the clock is read twice: once
+  // here to build the date and again inside renewState(). Exactly `days * DAY_MS`
+  // makes the floor() in there land on `days` only when both reads fall in the
+  // same millisecond, so the boundary case below failed whenever the machine was
+  // a hair slower. The slack is far smaller than the day it must not cross.
   const rowExpiringIn = (days) =>
     createDashboardItem(
       {
@@ -621,7 +626,7 @@ describe("the renew button on the dashboard", () => {
         domain_name: "sitey.my",
         record_type: "A",
         record_value: "203.0.113.10",
-        expires_at: new Date(Date.now() + days * DAY_MS).toISOString(),
+        expires_at: new Date(Date.now() + days * DAY_MS + 1000).toISOString(),
       },
       0
     );
