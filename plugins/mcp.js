@@ -22,6 +22,7 @@ const anonCreateRate = require("../services/anon-create-rate");
 const redirectHits = require("../services/redirect-hits");
 const {
   validateHostPrefix,
+  checkTxtRecordName,
   validateTxtValue,
   validateRecordValue,
 } = require("../utils/validators");
@@ -684,6 +685,15 @@ function createMcpServer(fastify) {
         return mcpError(prefixValidation.message);
       }
       const hostPrefix = prefixValidation.value;
+
+      // Widening host_prefix to accept "@" reached this tool too, so the rule
+      // that goes with it has to: a TXT on the subdomain's own name cannot sit
+      // beside a CNAME, and BIND refuses the whole zone rather than that one
+      // line. Same check, same wording, as REST and the dashboard.
+      const nameCheck = checkTxtRecordName(hostPrefix, record.record_type);
+      if (!nameCheck.valid) {
+        return mcpError(nameCheck.message);
+      }
 
       // The value is written as `"<value>"` into the zone file; REST already
       // rejects quotes/newlines/control characters, MCP did not.

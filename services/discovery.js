@@ -23,6 +23,7 @@
 const config = require("../configs/index");
 const expiry = require("./expiry");
 const x402 = require("./x402");
+const { TXT_SELF_NAME } = require("../utils/validators");
 
 const SUMMARY =
   "Free subdomains with the DNS behind them: claim a name, point it at an address " +
@@ -225,6 +226,9 @@ function operations(origin) {
   const host = hostOf(origin);
   const fqdn = `demo.${host}`;
   const prefixes = config.txt.apexPrefixes;
+  // What `host_prefix` will accept. The apex prefixes first, because the
+  // examples below are built from prefixes[0] and `@.sitey.my` is not a name.
+  const prefixOptions = [...prefixes, TXT_SELF_NAME];
 
   return {
     "GET /api/v1/domains": {
@@ -449,14 +453,19 @@ function operations(origin) {
     "POST /api/v1/subdomains/{subdomain}/{domain}/txt": {
       summary: "Add the TXT record a host asks for",
       description:
-        `Only ${prefixes.map((p) => `\`${p}\``).join(", ")} may be used as a prefix, and the ` +
-        "record is written at the root domain, which is where verification services look for " +
-        "it. Calling this twice with different values replaces this subdomain's own line and " +
+        "Two places a TXT record can go, and `host_prefix` picks. " +
+        `${prefixes.map((p) => `\`${p}\``).join(", ")} writes it at the root domain, which is ` +
+        "where a verification service looks when the root is not on the Public Suffix List; " +
+        "that name is shared with every other subdomain, so the values sit side by side. " +
+        "`@` writes it on the subdomain's own name instead — `demo.example IN TXT` — which is " +
+        "where a reader given that one hostname looks. `@` is refused on a CNAME record: DNS " +
+        "allows no other data beside a CNAME, so there is nowhere to put it. " +
+        "Calling this twice with different values replaces this subdomain's own line and " +
         "leaves everybody else's alone.",
       parameters: pathParams("subdomain", "domain"),
       requestBody: body(
         {
-          host_prefix: { type: "string", enum: prefixes, example: prefixes[0] },
+          host_prefix: { type: "string", enum: prefixOptions, example: prefixes[0] },
           value: {
             type: "string",
             maxLength: 512,
@@ -475,6 +484,9 @@ function operations(origin) {
           "INVALID_INPUT — the value is empty, too long, or carries a character a zone file " +
             "cannot hold. " +
             "INVALID_HOST_PREFIX — not one of the prefixes above. " +
+            "CNAME_CANNOT_HOLD_TXT — `@` was asked for on a record that is a CNAME. Nothing " +
+            "can share a name with a CNAME, so change the record to an A record or use a " +
+            "prefix, which is a name of its own. " +
             "INVALID_DOMAIN — that root is not managed here. " +
             "ROOT_LEVEL_FORBIDDEN — the `root_level` flag is gone; every TXT record is written " +
             "at the root now, so the flag selects nothing. Omit it."
@@ -486,8 +498,9 @@ function operations(origin) {
     "DELETE /api/v1/subdomains/{subdomain}/{domain}/txt/{hostPrefix}": {
       summary: "Take that TXT record away",
       description:
-        "Removes this subdomain's own line. The name is shared with every other subdomain of " +
-        "the root, so the stored value is what identifies which line is yours.",
+        "Removes this subdomain's own line. A root prefix is shared with every other " +
+        "subdomain of the root, so the stored value is what identifies which line is yours. " +
+        "`@` in the path means the record on the subdomain's own name, url-encoded as `%40`.",
       parameters: pathParams("subdomain", "domain", "hostPrefix"),
       responses: {
         200: ok(

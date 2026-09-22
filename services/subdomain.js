@@ -1,6 +1,27 @@
 const bindService = require("./bind");
 const alertService = require("./alert");
 const { expiryAfter } = require("./expiry");
+const { TXT_SELF_NAME } = require("../utils/validators");
+
+/**
+ * Where this record's one TXT value belongs, decided by what the record is.
+ *
+ * A CNAME keeps the apex prefix it has always had: `_vercel.sitey.my`, the
+ * only name Vercel reads for a subdomain of a domain that is not on the Public
+ * Suffix List. That is what 28 owners are verifying against right now and it
+ * does not move (.claude/docs/decisions/0001-txt-record-naming.md).
+ *
+ * Everything else gets the subdomain's own name — `test.sitey.my IN TXT` —
+ * which is where a reader handed that one hostname looks. A CNAME cannot have
+ * it: DNS allows no other data beside a CNAME, and BIND fails the whole zone
+ * over it, which is exactly why the type chooses rather than the caller.
+ *
+ * REDIRECT lands here too and is fine: its zone line is an A record for this
+ * server (bind.zoneRecordFor), and A and TXT share a name happily.
+ */
+function txtPrefixFor(recordType) {
+  return recordType === "CNAME" ? "_vercel" : TXT_SELF_NAME;
+}
 
 /**
  * Zone files store CNAME targets with a trailing dot; the DB stores them
@@ -115,11 +136,15 @@ async function createSubdomain(fastify, params) {
  * @param {string} params.domain
  * @param {string} params.recordValue
  * @param {string} params.recordType
- * @param {string|undefined} params.txtValue - TXT value for CNAME verification
+ * @param {string|undefined} params.txtValue - the record's one TXT value;
+ *   undefined leaves it alone, "" removes it. Which name it is written at is
+ *   decided here, from the record type — see txtPrefixFor.
  */
 async function updateSubdomain(fastify, params) {
   const { recordId, subdomain, domain, recordValue, recordType, txtValue } =
     params;
+  const txtHostPrefix = txtPrefixFor(recordType);
+  const txtRequested = typeof txtValue !== "undefined";
 
   const connection = await fastify.mysql.getConnection();
   let bindUpdated = false;
@@ -137,10 +162,10 @@ async function updateSubdomain(fastify, params) {
     oldRecordValue = oldRows[0]?.record_value;
 
     // Fetch old TXT value if applicable
-    if (recordType === "CNAME" && typeof txtValue !== "undefined") {
+    if (txtRequested) {
       const [oldTxtRows] = await connection.execute(
         "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
-        [recordId, "_vercel"]
+        [recordId, txtHostPrefix]
       );
       oldTxtValue = oldTxtRows[0]?.txt_value || null;
     }
@@ -152,8 +177,8 @@ async function updateSubdomain(fastify, params) {
     );
 
     // Handle TXT record in DB
-    if (recordType === "CNAME" && typeof txtValue !== "undefined") {
-      const hostPrefix = "_vercel";
+    if (txtRequested) {
+      const hostPrefix = txtHostPrefix;
       if (txtValue) {
         await connection.execute(
           "INSERT INTO subdomain_txt_records (subdomain_id, host_prefix, txt_value) VALUES (?, ?, ?) ON DUPLICATE KEY UPDATE txt_value = VALUES(txt_value)",
@@ -172,8 +197,8 @@ async function updateSubdomain(fastify, params) {
     await bindService.updateDnsRecord(subdomain, recordValue, domain, recordType);
 
     // BIND9: handle TXT record
-    if (recordType === "CNAME" && typeof txtValue !== "undefined") {
-      const hostPrefix = "_vercel";
+    if (txtRequested) {
+      const hostPrefix = txtHostPrefix;
       txtTouched = true;
       if (txtValue) {
         // The old value is handed over so the append drops it in the same
@@ -232,7 +257,7 @@ async function updateSubdomain(fastify, params) {
     }
     if (txtTouched) {
       try {
-        const hostPrefix = "_vercel";
+        const hostPrefix = txtHostPrefix;
         // Undo our own write: put the old value back and take out the one we
         // just added, or remove it outright if there was nothing before.
         if (oldTxtValue) {
@@ -372,4 +397,9 @@ module.exports = {
   createSubdomain,
   updateSubdomain,
   deleteSubdomain,
+  // routes/domain.js needs it to answer "which value does this record's one
+  // TXT box hold" when it folds the listing. Both callers asking the same
+  // function is the point: the box the screen draws and the row the server
+  // writes have to be the same record.
+  txtPrefixFor,
 };

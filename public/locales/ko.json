@@ -43,6 +43,8 @@
   "dashboard.delete_success": "{domain} 삭제 완료.",
   "dashboard.load_error": "도메인을 불러오지 못했어요. 잠시 후 다시 시도해주세요.",
   "dashboard.txt_label": "Vercel TXT 인증",
+  "dashboard.self_txt_label": "{fqdn} 자체에 붙는 TXT",
+  "dashboard.self_txt_cname": "CNAME 이름에는 다른 걸 같이 둘 수 없어서, A 레코드에서만 쓸 수 있어요.",
   "dashboard.expires": "{date} · {left}",
   "dashboard.expires_days": "{days}일 남음",
   "dashboard.expires_today": "오늘 만료",

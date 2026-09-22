@@ -121,6 +121,53 @@ function applyRenewState(button, expiresAt) {
 }
 
 /**
+ * A labelled TXT box under the record's line.
+ *
+ * Two of these can appear on one record and they write to different names, so
+ * neither goes without a label — a second box with no word beside it is a
+ * guess, which is why the Vercel one has had one from the start.
+ *
+ * `note` is the reason the box is shut, and a shut box needs one: a disabled
+ * field with nothing beside it reads as broken rather than as not applicable.
+ * It is tied to the input by id, because a disabled input is out of the tab
+ * order and a screen reader would otherwise reach the sentence separately from
+ * the thing it is about.
+ */
+function txtField({ id, label, value, placeholder, inputClass, note }) {
+  const field = document.createElement("div");
+  field.className = "dashboard-item-field";
+
+  const labelElement = document.createElement("label");
+  labelElement.setAttribute("for", id);
+  labelElement.textContent = label;
+
+  const input = document.createElement("input");
+  input.type = "text";
+  input.id = id;
+  input.className = inputClass;
+  input.value = value || "";
+  input.autocomplete = "off";
+  input.autocapitalize = "none";
+  input.spellcheck = false;
+  input.placeholder = note ? "" : placeholder;
+  input.disabled = Boolean(note);
+
+  field.appendChild(labelElement);
+  field.appendChild(input);
+
+  if (note) {
+    const why = document.createElement("p");
+    why.className = "dashboard-field-note";
+    why.id = `${id}-note`;
+    why.textContent = note;
+    input.setAttribute("aria-describedby", why.id);
+    field.appendChild(why);
+  }
+
+  return field;
+}
+
+/**
  * One record, open.
  *
  * 🔴 Nothing folds. Every row shows its value in an editable box with Save,
@@ -229,31 +276,41 @@ export function createDashboardItem(item, index) {
 
   detail.appendChild(line);
 
+  // Two names a TXT record can go on, and the record type decides which of
+  // them this record may use.
+  //
+  // A CNAME keeps the box it has always had: the value goes to `_vercel` at
+  // the root domain, which is the only name a verification service reads for a
+  // subdomain of a root that is not on the Public Suffix List.
   if (recordType === "CNAME") {
-    // The one field that does need a label of its own: a second box with no
-    // word beside it is a guess.
-    const txtField = document.createElement("div");
-    txtField.className = "dashboard-item-field";
-
-    const txtLabel = document.createElement("label");
-    const txtInputId = `dashboard-txt-${index}`;
-    txtLabel.setAttribute("for", txtInputId);
-    txtLabel.textContent = t("dashboard.txt_label");
-
-    const txtInput = document.createElement("input");
-    txtInput.type = "text";
-    txtInput.id = txtInputId;
-    txtInput.className = "dashboard-txt-input";
-    txtInput.value = item.txt_value || "";
-    txtInput.placeholder = "e.g. vc-domain-verify=...";
-    txtInput.autocomplete = "off";
-    txtInput.autocapitalize = "none";
-    txtInput.spellcheck = false;
-
-    txtField.appendChild(txtLabel);
-    txtField.appendChild(txtInput);
-    detail.appendChild(txtField);
+    detail.appendChild(
+      txtField({
+        id: `dashboard-txt-${index}`,
+        label: t("dashboard.txt_label"),
+        value: item.txt_value || "",
+        placeholder: "e.g. vc-domain-verify=...",
+        inputClass: "dashboard-txt-input",
+      })
+    );
   }
+
+  // ...and everything else gets the record's own name, which is where a reader
+  // handed that one hostname looks. Drawn on a CNAME too, shut, with the
+  // reason in the space: leaving it out would make a CNAME owner think the
+  // feature does not exist, and drawing it open would hand them a refusal they
+  // could have been spared. DNS allows nothing beside a CNAME.
+  detail.appendChild(
+    txtField({
+      id: `dashboard-self-txt-${index}`,
+      label: t("dashboard.self_txt_label", {
+        fqdn: `${item.subdomain}.${item.domain_name}`,
+      }),
+      value: recordType === "CNAME" ? "" : item.txt_value || "",
+      placeholder: "e.g. v=MCPv1; k=ed25519; p=...",
+      inputClass: "dashboard-self-txt-input",
+      note: recordType === "CNAME" ? t("dashboard.self_txt_cname") : null,
+    })
+  );
 
   wrapper.appendChild(header);
   wrapper.appendChild(detail);
@@ -334,9 +391,16 @@ export function initializeDashboardPage() {
 
     const body = { value: recordValue, domain };
 
-    if (recordType === "CNAME") {
-      const txtInput = item.querySelector(".dashboard-txt-input");
-      body.txtValue = txtInput ? txtInput.value.trim() : "";
+    // One box per record. Which name the server writes it to follows from the
+    // record type and is decided there, not here (services/subdomain.js
+    // txtPrefixFor) — so the screen sends the value and nothing about where it
+    // goes. An empty box clears the record, which is how it has always worked.
+    // The shut box on a CNAME is skipped: it is a sentence, not an input.
+    const txtInput = item.querySelector(
+      recordType === "CNAME" ? ".dashboard-txt-input" : ".dashboard-self-txt-input"
+    );
+    if (txtInput && !txtInput.disabled) {
+      body.txtValue = txtInput.value.trim();
     }
 
     setButtonLoading(button, "Updating…");

@@ -2,6 +2,7 @@ const fs = require("fs").promises;
 const util = require("util");
 const execFile = util.promisify(require("child_process").execFile);
 const config = require("../configs/index");
+const { TXT_SELF_NAME } = require("../utils/validators");
 
 let logger = { info: () => {}, warn: () => {}, error: () => {}, debug: () => {}, fatal: () => {} };
 function setLogger(l) { logger = l; }
@@ -296,9 +297,18 @@ async function deleteDnsRecord(subdomain, domain, recordType = "A") {
 }
 
 /**
- * Build the zone file line name for a TXT record.
+ * Build the zone file line name for a TXT record. Two names are possible and
+ * the prefix is what chooses between them.
  *
- * The name is the bare prefix at the zone apex — `_vercel`, not
+ * **`@` (TXT_SELF_NAME) — the subdomain's own name.** `test IN TXT "..."`:
+ * the record sits on `test.sitey.my` itself, where a reader who was given that
+ * hostname and nothing else will look for it. Nothing is claimed about the root
+ * domain, because the caller already owns this name — which is why the apex
+ * allow-list in configs/index.js does not gate it. A CNAME at the same name
+ * makes this illegal in DNS; utils/validators.js checkTxtRecordName refuses it
+ * before any caller gets here, because BIND fails the *whole zone* over it.
+ *
+ * **Anything else — the bare prefix at the zone apex.** `_vercel`, not
  * `_vercel.<subdomain>`. Vercel asks for the verification TXT under the
  * *registrable* domain and works out what that is from the Public Suffix List.
  * `sitey.my` is not on that list, so Vercel reads `demo.sitey.my` as a host
@@ -306,13 +316,16 @@ async function deleteDnsRecord(subdomain, domain, recordType = "A") {
  * is `_vercel.sitey.my`. Measured 2026-09-07: 28 of 28 TXT records sit there,
  * and the one subdomain that currently verifies is verified from that name.
  *
- * `subdomain` is deliberately unused. Once sitey.my is on the Public Suffix
- * List, Vercel starts asking for `_vercel.<subdomain>.sitey.my`, and this
- * function is the single line that has to change — every caller already hands
- * over the subdomain it owns. See
+ * Once sitey.my is on the Public Suffix List, Vercel starts asking for
+ * `_vercel.<subdomain>.sitey.my`, and the apex branch below is still the single
+ * line that has to change — every caller already hands over the subdomain it
+ * owns, and the `@` branch is unaffected by any of it. See
  * .claude/docs/decisions/0001-txt-record-naming.md.
  */
 function txtRecordName(subdomain, hostPrefix) {
+  if (hostPrefix === TXT_SELF_NAME) {
+    return subdomain;
+  }
   return hostPrefix;
 }
 

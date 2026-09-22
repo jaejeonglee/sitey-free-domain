@@ -768,6 +768,22 @@ input::placeholder { color: var(--ink-3); }
   margin-bottom: 6px;
 }
 .dashboard-item-field input { width: 100%; }
+/* A shut box and the sentence saying why. Shown rather than hidden: a CNAME
+   owner who cannot see the field concludes the feature is not there. It has to
+   read as shut at a glance, though — an empty box that merely will not take
+   focus reads as broken, so the border goes dashed and the fill goes flat. */
+.dashboard-item-field input:disabled {
+  color: var(--ink-3);
+  background: var(--rule);
+  border-style: dashed;
+  cursor: not-allowed;
+}
+.dashboard-field-note {
+  margin: 6px 0 0;
+  font-size: 13.5px;
+  line-height: 1.5;
+  color: var(--ink-3);
+}
 
 /* Narrow: the box takes the width and the buttons drop under it, rather than
    three buttons squeezing a redirect URL into a peephole. */

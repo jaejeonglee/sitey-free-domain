@@ -20,6 +20,11 @@ const { diffRecords } = reconciler;
 const config = require2("../configs/index.js");
 
 const VERCEL = "_vercel";
+const { TXT_SELF_NAME: SELF } = require2("../utils/validators.js");
+// The value Jay asked for, verbatim: semicolons and "=" and spaces are all
+// legal inside the quoted field, and none of them is what a zone file reads
+// as a separator.
+const MCP_VALUE = "v=MCPv1; k=ed25519; p=G72mfmBr3XwUBjR0G3ehT4un5XxkVO9gnaMHTr3Kpnk=";
 const tokenFor = (sub) => `vc-domain-verify=${sub}.example.com,tok-${sub}`;
 
 function diff({ zoneRecords = [], zoneTxtLines = [], dbRows = [], dbTxtRows = [] }) {
@@ -206,6 +211,105 @@ describe("TXT reconciliation", () => {
     });
 
     expect(issues).toEqual([]);
+  });
+
+  // ---------------------------------------------------------------------
+  // "@" — a TXT on the subdomain's own name (2026-09-22)
+  //
+  // Two ways to get this wrong and both are silent. Warn about a record that
+  // is exactly where it should be and the nightly alert becomes noise nobody
+  // reads; stop looking at the name altogether and a verification can go
+  // missing for months, which is the hole this reconciler was built to close.
+  // ---------------------------------------------------------------------
+
+  it("says nothing about a self-named record that is where it belongs", () => {
+    const issues = diff({
+      zoneRecords: [{ name: "test", type: "A", value: "1.2.3.4" }],
+      zoneTxtLines: [txtLine("test", MCP_VALUE)],
+      dbRows: [{ subdomain: "test", record_type: "A", record_value: "1.2.3.4" }],
+      dbTxtRows: [txtRow("test", MCP_VALUE, SELF)],
+    });
+
+    expect(issues).toEqual([]);
+  });
+
+  it("still reports a self-named record the zone lost", () => {
+    // The other half. A row saying `test.example.com IN TXT` with nothing in
+    // the zone means whatever reads that name is getting NXDOMAIN right now,
+    // and this is the level the reconciler logs as an error.
+    const issues = diff({
+      zoneRecords: [{ name: "test", type: "A", value: "1.2.3.4" }],
+      zoneTxtLines: [],
+      dbRows: [{ subdomain: "test", record_type: "A", record_value: "1.2.3.4" }],
+      dbTxtRows: [txtRow("test", MCP_VALUE, SELF)],
+    });
+
+    expect(issues).toEqual([
+      {
+        type: "txt-db-only",
+        name: "test",
+        recordType: "TXT",
+        subdomain: "test",
+        dbValue: MCP_VALUE,
+      },
+    ]);
+  });
+
+  it("reports a changed value at a self-named record as drift", () => {
+    // One row owns this name and one line sits under it, which is the case
+    // `_vercel` can never be in — so here a changed value can be named as
+    // drift rather than reported as one record missing and one stray.
+    const issues = diff({
+      zoneTxtLines: [txtLine("test", "v=MCPv1; p=old")],
+      dbTxtRows: [txtRow("test", MCP_VALUE, SELF)],
+    });
+
+    expect(issues).toEqual([
+      {
+        type: "txt-value-drift",
+        name: "test",
+        recordType: "TXT",
+        subdomain: "test",
+        zoneValue: "v=MCPv1; p=old",
+        dbValue: MCP_VALUE,
+      },
+    ]);
+  });
+
+  it("leaves a self-named line alone when no row ever claimed that name", () => {
+    // A TXT the operator put on a subdomain by hand. The app has never written
+    // there, so it is not the app's to judge — the same rule that keeps SPF out
+    // of the alert. This is why the record Jay placed by hand needs the row in
+    // deploy/migrations/009 before the reconciler watches over it.
+    const issues = diff({
+      zoneTxtLines: [txtLine("other", "hand-placed"), txtLine(VERCEL, tokenFor("demo"))],
+      dbTxtRows: [txtRow("demo", tokenFor("demo"))],
+    });
+
+    expect(issues).toEqual([]);
+  });
+
+  // 🔴 "@" is a marker in the database and the zone's apex is also written
+  // "@". They must never be read as the same thing: the apex TXT is the
+  // operator's SPF and the domain's own verification, and claiming it would
+  // report it as an orphan every night.
+  it("does not read the database marker @ as the zone's apex", () => {
+    const state = {
+      zoneTxtLines: [txtLine("@", "v=spf1 -all"), txtLine("test", MCP_VALUE)],
+      dbTxtRows: [txtRow("test", MCP_VALUE, SELF)],
+    };
+
+    expect(diff(state)).toEqual([]);
+
+    // ...and not only because "@" is on the operator's ignore list. That list
+    // is an env var; take it away and the apex must still not be ours.
+    const savedInfra = config.infraRecords;
+    try {
+      config.infraRecords = ["ns1", "ns2"];
+      expect(diff(state)).toEqual([]);
+    } finally {
+      config.infraRecords = savedInfra;
+    }
   });
 
   it("still compares A and CNAME records", () => {

@@ -2,13 +2,25 @@
 const accessLog = require("../services/access-log");
 const bindService = require("../services/bind");
 const { noteReachability } = require("../services/validation");
-const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../services/subdomain");
+const {
+  createSubdomain,
+  updateSubdomain,
+  deleteSubdomain,
+  txtPrefixFor,
+} = require("../services/subdomain");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
 const { checkSubdomainQuota } = require("../services/quota");
 const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
 const redirectHits = require("../services/redirect-hits");
-const { isValidSubdomain, validateRecordValue, validateTxtValue } = require("../utils/validators");
+const {
+  isValidSubdomain,
+  validateRecordValue,
+  validateTxtValue,
+  validateHostPrefix,
+  checkTxtRecordName,
+} = require("../utils/validators");
+const config = require("../configs/index");
 
 function normalizeRecordType(recordType = "A") {
   return bindService.normalizeRecordType(recordType);
@@ -30,27 +42,42 @@ function normalizeRecordType(recordType = "A") {
  * string it cannot split back apart.
  *
  * `txt_value` stays a single value because the dashboard has one input for it,
- * and it is the newest — rows arrive ordered by t.id, so the last one wins.
+ * and it is the value at the name that input writes to — `_vercel` for a
+ * CNAME, the record's own name for anything else (services/subdomain.js
+ * txtPrefixFor). It used to be simply the newest row of any prefix, which said
+ * the same thing while `_vercel` was the only prefix there was, and would
+ * start showing a CNAME its neighbour's value the moment it is not.
+ * `host_prefix` says which name that is, so the answer is not inferred twice.
+ *
  * `txt_values` carries the whole set for anything that needs it; a subdomain
  * really can hold more than one verification token, and dropping the rest here
  * would hide that a record exists.
  */
 function groupBySubdomain(rows) {
   const bySubdomain = new Map();
+  /** subdomain id -> { host_prefix: newest value } */
+  const byPrefix = new Map();
 
   for (const row of rows) {
-    const existing = bySubdomain.get(row.id);
+    let existing = bySubdomain.get(row.id);
     if (!existing) {
-      bySubdomain.set(row.id, {
-        ...row,
-        txt_values: row.txt_value ? [row.txt_value] : [],
-      });
-      continue;
+      existing = { ...row, txt_values: [] };
+      bySubdomain.set(row.id, existing);
+      byPrefix.set(row.id, new Map());
     }
-    if (!row.txt_value || existing.txt_values.includes(row.txt_value)) continue;
-    existing.txt_values.push(row.txt_value);
-    existing.txt_value = row.txt_value;
-    existing.host_prefix = row.host_prefix;
+    if (!row.txt_value) continue;
+    if (!existing.txt_values.includes(row.txt_value)) {
+      existing.txt_values.push(row.txt_value);
+    }
+    // Last row of a prefix wins, as before: rows arrive ordered by t.id, and a
+    // repeated request left a second row rather than updating the first.
+    if (row.host_prefix) byPrefix.get(row.id).set(row.host_prefix, row.txt_value);
+  }
+
+  for (const [id, item] of bySubdomain) {
+    const prefix = txtPrefixFor(normalizeRecordType(item.record_type));
+    item.host_prefix = prefix;
+    item.txt_value = byPrefix.get(id).get(prefix) ?? null;
   }
 
   return [...bySubdomain.values()];
@@ -380,9 +407,13 @@ async function domainRoutes(fastify, options) {
           phase: "update",
         });
 
-        // Validate TXT if provided
+        // Validate TXT if provided. No CNAME check here: the name is derived
+        // from the record type rather than given, and a CNAME derives the apex
+        // prefix, which is a different name and can never collide. The check
+        // belongs where a caller names the prefix — POST .../txt below, REST
+        // and MCP.
         let sanitizedTxt;
-        if (recordType === "CNAME" && txtValue) {
+        if (txtValue) {
           const txtValidation = validateTxtValue(txtValue);
           if (!txtValidation.valid) {
             return reply.code(400).send({ error: txtValidation.message });
@@ -560,11 +591,10 @@ async function domainRoutes(fastify, options) {
     },
     async (request, reply) => {
       const { subdomain: rawSubdomain } = request.params;
-      const { domain, txtValue } = request.body || {};
+      const { domain, txtValue, hostPrefix: rawHostPrefix } = request.body || {};
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
       const userId = request.user.id;
       const domainName = (domain || "").trim().toLowerCase();
-      const hostPrefix = "_vercel"; // As requested
 
       if (!domainName || !txtValue) {
         request.outcome = "INVALID_INPUT";
@@ -572,6 +602,19 @@ async function domainRoutes(fastify, options) {
           .code(400)
           .send({ error: "Domain and TXT value are required" });
       }
+
+      // `_vercel` when the caller says nothing, which is what this route wrote
+      // before there was anything else to write. "@" puts the record on the
+      // subdomain's own name and is exempt from the apex list — it claims
+      // nothing about the root domain (utils/validators.js).
+      const prefixValidation = validateHostPrefix(rawHostPrefix ?? "_vercel", {
+        allowed: config.txt.apexPrefixes,
+      });
+      if (!prefixValidation.valid) {
+        request.outcome = "INVALID_HOST_PREFIX";
+        return reply.code(400).send({ error: prefixValidation.message });
+      }
+      const hostPrefix = prefixValidation.value;
 
       const txtValidation = validateTxtValue(txtValue);
       if (!txtValidation.valid) {
@@ -594,7 +637,7 @@ async function domainRoutes(fastify, options) {
 
         // Verify ownership
         const [rows] = await fastify.mysql.execute(
-          "SELECT id FROM subdomains WHERE subdomain = ? AND domain_id = ? AND user_id = ?",
+          "SELECT id, record_type FROM subdomains WHERE subdomain = ? AND domain_id = ? AND user_id = ?",
           [subdomain, domainEntry.id, userId]
         );
         const record = rows[0];
@@ -607,9 +650,22 @@ async function domainRoutes(fastify, options) {
         }
         const subdomainId = record.id;
 
-        // The value this user had before, if any. TXT records all share the
-        // `_vercel` name, so this is the only way the zone write can tell
-        // which of the lines under that name is this user's to replace.
+        // A TXT on the subdomain's own name cannot sit beside a CNAME. Caught
+        // here so the answer is a sentence about the record rather than the
+        // 500 that named-checkzone refusing the zone would produce.
+        const nameCheck = checkTxtRecordName(hostPrefix, record.record_type);
+        if (!nameCheck.valid) {
+          request.outcome = nameCheck.code;
+          return reply
+            .code(400)
+            .send({ error: nameCheck.message, code: nameCheck.code });
+        }
+
+        // The value this user had before, if any. Under an apex prefix the
+        // name is shared by the whole domain, so this is the only way the zone
+        // write can tell which of the lines under it is this user's to
+        // replace; under "@" the name is theirs alone and this simply keeps
+        // the append from leaving the old value behind.
         const [prevRows] = await fastify.mysql.execute(
           "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
           [subdomainId, hostPrefix]

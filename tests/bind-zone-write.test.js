@@ -308,6 +308,55 @@ describe("zone file writes (BIND_DEV_MODE=false)", () => {
       expect(disk[ZONE_PATH]).toContain('_vercel.stock    IN  TXT  "vc-domain-verify=stale"');
     });
 
+    // -----------------------------------------------------------------------
+    // "@" — the record goes on the subdomain's own name (2026-09-22)
+    // -----------------------------------------------------------------------
+
+    it("writes @ on the subdomain's own name", async () => {
+      const value = "v=MCPv1; k=ed25519; p=G72mfmBr3XwUBjR0G3ehT4un5XxkVO9gnaMHTr3Kpnk=";
+
+      const result = await bind.addTxtRecord("www", "example.com", "@", value);
+
+      expect(result.name).toBe("www.example.com");
+      expect(disk[ZONE_PATH]).toContain(`www\tIN\tTXT\t"${value}"`);
+    });
+
+    // The whole reason "@" is safe to accept: it is a marker in the database,
+    // never a name in the zone. Written literally it would be the zone apex —
+    // the operator's SPF and the domain's own verification.
+    it("never writes the literal @ as a name", async () => {
+      await bind.addTxtRecord("www", "example.com", "@", "token");
+
+      expect(bind.txtRecordName("www", "@")).toBe("www");
+      expect(disk[ZONE_PATH]).not.toMatch(/^@\s+IN\s+TXT/im);
+    });
+
+    it("deletes a self-named record by its own name", async () => {
+      await bind.addTxtRecord("www", "example.com", "@", "token");
+
+      const result = await bind.deleteTxtRecord("www", "example.com", "@", "token");
+
+      expect(result).toEqual({ name: "www.example.com", deleted: true });
+      expect(disk[ZONE_PATH]).not.toContain('"token"');
+      // and the shared apex line is untouched
+      expect(disk[ZONE_PATH]).toContain(DEMO_TOKEN);
+    });
+
+    // Two records under two names do not see each other. This is what keeps
+    // the 28 owners on `_vercel` out of the way of a self-named TXT.
+    it("keeps a self-named record and an apex record apart", async () => {
+      await bind.addTxtRecord("www", "example.com", "@", "self-token");
+      await bind.addTxtRecord("www", "example.com", "_vercel", "apex-token");
+
+      expect(disk[ZONE_PATH]).toContain('www\tIN\tTXT\t"self-token"');
+      expect(disk[ZONE_PATH]).toContain('_vercel\tIN\tTXT\t"apex-token"');
+
+      await bind.deleteTxtRecord("www", "example.com", "@", "self-token");
+
+      expect(disk[ZONE_PATH]).not.toContain("self-token");
+      expect(disk[ZONE_PATH]).toContain('_vercel\tIN\tTXT\t"apex-token"');
+    });
+
     it("treats a missing zone file as nothing to delete", async () => {
       delete disk[ZONE_PATH];
       const result = await bind.deleteTxtRecord("shop", "example.com", "_vercel", "token-shop");

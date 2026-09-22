@@ -47,6 +47,7 @@ require2.cache[dbPath] = {
 delete require2.cache[require2.resolve("../app.js")];
 const { buildApp } = require2("../app.js");
 const config = require2("../configs/index.js");
+const { TXT_SELF_NAME } = require2("../utils/validators.js");
 const expiry = require2("../services/expiry.js");
 const discovery = require2("../services/discovery.js");
 
@@ -235,7 +236,13 @@ describe("/openapi.json", () => {
         "application/json"
       ].schema;
 
-    expect(schema.properties.host_prefix.enum).toEqual(config.txt.apexPrefixes);
+    // The apex prefixes and "@", which is not one of them: it is the
+    // subdomain's own name, and it is accepted whatever the apex list says
+    // because it claims nothing about the root domain.
+    expect(schema.properties.host_prefix.enum).toEqual([
+      ...config.txt.apexPrefixes,
+      TXT_SELF_NAME,
+    ]);
   });
 });
 

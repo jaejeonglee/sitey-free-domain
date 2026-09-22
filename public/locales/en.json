@@ -43,6 +43,8 @@
   "dashboard.delete_success": "{type} record for {domain} deleted successfully.",
   "dashboard.load_error": "Could not load your domains.",
   "dashboard.txt_label": "Vercel TXT Verification",
+  "dashboard.self_txt_label": "TXT on {fqdn} itself",
+  "dashboard.self_txt_cname": "A CNAME name cannot hold anything beside it, so this is only available on an A record.",
   "dashboard.expires": "{date} · {left}",
   "dashboard.expires_days": "{days} days left",
   "dashboard.expires_today": "expires today",

@@ -16,7 +16,7 @@ const DOMAIN_ID = 1;
 // BIND_DEV_MODE=true (vitest env) keeps services/bind.js from touching a disk.
 // ---------------------------------------------------------------------------
 
-function buildHarness({ ownedBy = null, existingTxt = [] } = {}) {
+function buildHarness({ ownedBy = null, existingTxt = [], recordType = "CNAME" } = {}) {
   const queries = [];
 
   const execute = vi.fn(async (sql, params = []) => {
@@ -31,7 +31,7 @@ function buildHarness({ ownedBy = null, existingTxt = [] } = {}) {
     if (sql.startsWith("SELECT id, record_type FROM subdomains")) {
       // ownership lookup: anonymous mode matches on owner_ip (last param)
       const owner = params[2];
-      return [owner === ownedBy ? [{ id: 42, record_type: "CNAME" }] : []];
+      return [owner === ownedBy ? [{ id: 42, record_type: recordType }] : []];
     }
     if (sql.includes("FROM subdomains s JOIN managed_domains")) {
       return [[]];
@@ -183,7 +183,8 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
     ["a name that appends its own records", "_vercel\tIN\tA\t1.2.3.4\n@"],
     ["a newline", "_vercel\n@ IN A 6.6.6.6"],
     ["a zone directive", "$ORIGIN evil.com."],
-    ["the apex", "@"],
+    // "the apex", "@" was here until 2026-09-22: it now names the subdomain
+    // itself rather than the zone apex, and has its own tests below.
     ["a wildcard", "*"],
     ["a space", "_vercel ; x"],
   ])("rejects %s as host_prefix", async (_label, hostPrefix) => {
@@ -243,6 +244,99 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
     expect(res.statusCode).toBe(400);
     expect(res.json().code).toBe("INVALID_HOST_PREFIX");
     expect(txtCalls).toHaveLength(0);
+    await app.close();
+  });
+
+  // -------------------------------------------------------------------------
+  // "@" — the TXT goes on the subdomain's own name (2026-09-22)
+  // -------------------------------------------------------------------------
+
+  it("writes @ on the subdomain's own name, not at the root", async () => {
+    const { app } = buildHarness({ ownedBy: OWNER_IP, recordType: "A" });
+
+    const res = await post(app, {
+      host_prefix: "@",
+      value: "v=MCPv1; k=ed25519; p=G72mfmBr3XwUBjR0G3ehT4un5XxkVO9gnaMHTr3Kpnk=",
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(txtCalls).toEqual([
+      {
+        op: "add",
+        subdomain: "demo",
+        domain: DOMAIN,
+        hostPrefix: "@",
+        value: "v=MCPv1; k=ed25519; p=G72mfmBr3XwUBjR0G3ehT4un5XxkVO9gnaMHTr3Kpnk=",
+        previousValue: null,
+      },
+    ]);
+    await app.close();
+  });
+
+  it("stores @ as the host_prefix so the record can be found again", async () => {
+    const { app, queries } = buildHarness({ ownedBy: OWNER_IP, recordType: "A" });
+
+    await post(app, { host_prefix: "@", value: "token" });
+
+    expect(paramsOf(queries, "INSERT INTO subdomain_txt_records")).toEqual([42, "@", "token"]);
+    await app.close();
+  });
+
+  // 🔴 The one that matters. DNS allows no other data beside a CNAME, and BIND
+  // refuses the *whole zone* over it — named-checkzone says "CNAME and other
+  // data" and every name in the file stops resolving. bind.js validates before
+  // it swaps the file in so the live zone survives, but the caller would get a
+  // 500 with nothing in it. 23 of the 32 records in the live zone are CNAME.
+  it("refuses @ on a CNAME record, before anything is written", async () => {
+    const { app } = buildHarness({ ownedBy: OWNER_IP, recordType: "CNAME" });
+
+    const res = await post(app, { host_prefix: "@", value: "token" });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.json().code).toBe("CNAME_CANNOT_HOLD_TXT");
+    expect(res.json().message).toMatch(/A record/);
+    // nothing reached the zone
+    expect(txtCalls).toHaveLength(0);
+    await app.close();
+  });
+
+  it("still takes an apex prefix on a CNAME record", async () => {
+    const { app } = buildHarness({ ownedBy: OWNER_IP, recordType: "CNAME" });
+
+    const res = await post(app, { host_prefix: "_vercel", value: "vc-domain-verify=mine" });
+
+    expect(res.statusCode).toBe(200);
+    expect(txtCalls[0].hostPrefix).toBe("_vercel");
+    await app.close();
+  });
+
+  it("accepts @ on a REDIRECT, whose zone line is an A record", async () => {
+    const { app } = buildHarness({ ownedBy: OWNER_IP, recordType: "REDIRECT" });
+
+    const res = await post(app, { host_prefix: "@", value: "token" });
+
+    expect(res.statusCode).toBe(200);
+    expect(txtCalls[0].hostPrefix).toBe("@");
+    await app.close();
+  });
+
+  it("deletes a self-named record addressed as %40", async () => {
+    const { app } = buildHarness({
+      ownedBy: OWNER_IP,
+      recordType: "A",
+      existingTxt: [{ txt_value: "token" }],
+    });
+
+    const res = await app.inject({
+      method: "DELETE",
+      url: `/api/v1/subdomains/demo/${DOMAIN}/txt/%40`,
+      remoteAddress: OWNER_IP,
+    });
+
+    expect(res.statusCode).toBe(200);
+    expect(txtCalls).toEqual([
+      { op: "delete", subdomain: "demo", domain: DOMAIN, hostPrefix: "@", value: "token" },
+    ]);
     await app.close();
   });
 

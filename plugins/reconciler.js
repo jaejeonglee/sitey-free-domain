@@ -4,6 +4,7 @@ const bindService = require("../services/bind");
 const alertService = require("../services/alert");
 const { getManagedDomains } = require("../services/managedDomain");
 const { liveTxtRows } = require("../services/txt-records");
+const { TXT_SELF_NAME } = require("../utils/validators");
 const redirectHits = require("../services/redirect-hits");
 const config = require("../configs/index");
 
@@ -150,13 +151,39 @@ function diffTxt(zoneTxtLines, dbTxtRows) {
   const prefixes = [
     ...new Set([
       ...(config.txt.apexPrefixes || []),
-      ...dbTxtRows.map((row) => String(row.host_prefix).toLowerCase()),
+      ...dbTxtRows
+        .map((row) => String(row.host_prefix).toLowerCase())
+        // `@` is a marker in the database, not a prefix and not a name: it says
+        // the record sits on the subdomain itself, and bind.txtRecordName turns
+        // it into that subdomain. Left in this list it would read as the
+        // literal zone name `@`, which is the apex — and the apex TXT is the
+        // operator's SPF and site verification. `@` is on the infra list today
+        // so those are skipped before they reach here, but that list is an env
+        // var, and the honest reason they are not ours has nothing to do with
+        // it. Take it out here rather than depend on a setting.
+        .filter((prefix) => prefix !== TXT_SELF_NAME),
     ]),
   ];
+  // A self-named record has no prefix to match on, so the names it writes are
+  // collected directly. Every row counts, superseded or not, for the same
+  // reason as the prefixes above: a name this app has ever written stays ours.
+  //
+  // ⚠️ A subdomain whose name is on the infra list (`send`, `rsend`) is
+  // skipped before this is asked, so a self-named TXT there would go
+  // unreconciled. Those names are the operator's by convention and `www`,
+  // `ns1`, `ns2` are blacklisted outright; `send` is not, which is the one
+  // gap, and it costs a warning rather than data.
+  const selfNames = new Set(
+    dbTxtRows
+      .filter((row) => String(row.host_prefix).toLowerCase() === TXT_SELF_NAME)
+      .map((row) => String(row.subdomain).toLowerCase())
+  );
   // `_vercel` is ours, and so is `_vercel.stock` — the fossil name the old code
-  // wrote before it moved to the apex.
+  // wrote before it moved to the apex. `test` is ours when a row says a TXT
+  // sits on `test` itself.
   const isOurs = (name) => {
     const lower = name.toLowerCase();
+    if (selfNames.has(lower)) return true;
     return prefixes.some((p) => lower === p || lower.startsWith(`${p}.`));
   };
 

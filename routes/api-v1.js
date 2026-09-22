@@ -18,6 +18,7 @@ const alertService = require("../services/alert");
 const {
   isValidSubdomain,
   validateHostPrefix,
+  checkTxtRecordName,
   validateRecordValue,
   validateTxtValue,
 } = require("../utils/validators");
@@ -562,9 +563,21 @@ async function apiV1Routes(fastify, options) {
     // Ownership of parent subdomain
     const record = await findOwnedRecord(fastify, auth, subdomain, domainEntry);
 
-    // The caller's own previous value, so the zone write can drop it: every
-    // subdomain's token lives under the same name, and the value is the only
-    // thing that identifies a line.
+    // A TXT on the subdomain's own name cannot sit beside a CNAME — the
+    // refusal names itself, CNAME_CANNOT_HOLD_TXT. Asked here
+    // rather than inside the zone write because the answer is the record's
+    // type, which is a database row, and because the caller deserves to be
+    // told what to change — named-checkzone would refuse the whole zone and
+    // leave them a 500.
+    const nameCheck = checkTxtRecordName(hostPrefix, record.record_type);
+    if (!nameCheck.valid) {
+      apiError(400, nameCheck.message, nameCheck.code);
+    }
+
+    // The caller's own previous value, so the zone write can drop it. Under an
+    // apex prefix every subdomain's token lives under the one name and the
+    // value is the only thing that identifies a line; under "@" the name is
+    // the caller's alone, and this is what stops the append stacking values.
     const [prevRows] = await fastify.mysql.execute(
       "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
       [record.id, hostPrefix]
