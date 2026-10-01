@@ -28,14 +28,14 @@
       href="https://fonts.googleapis.com/css2?family=Gothic+A1:wght@300;400;500;700&family=Inter:wght@400;500;600;700&display=swap"
     />
 
-    <title>Sitey - free domain</title>
+    <title>Sitey — your AI-built site, on your own address</title>
     <meta
       name="description"
-      content="Get a free subdomain in seconds. Create A, CNAME and TXT records and manage them from a simple dashboard."
+      content="Put the site you built with AI on your own address in 30 seconds. No sign-up. Point a name at Vercel, Netlify, GitHub Pages, Lovable or your server — or let your agent do it over MCP."
     />
     <meta
       name="keywords"
-      content="sitey.my, sitey.one, free subdomain, domain, dns management, free domain, domain checker"
+      content="custom address for vercel app, address for ai-built site, lovable custom domain, netlify custom domain, mcp dns, agent subdomain, sitey.my"
     />
     <meta name="author" content="Sitey" />
     <meta name="theme-color" content="#ffffff" media="(prefers-color-scheme: light)" />
@@ -43,16 +43,16 @@
 
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
-    <meta property="og:title" content="Sitey - Free Domain for Developers" />
-    <meta property="og:description" content="Get a free subdomain in seconds. Create DNS records and manage them from a simple dashboard." />
+    <meta property="og:title" content="Sitey — your AI-built site, on your own address" />
+    <meta property="og:description" content="30 seconds. No sign-up. Agents welcome. Point a name at Vercel, Netlify, GitHub Pages, Lovable or your server." />
     <meta property="og:url" content="https://sitey.my/" />
     <meta property="og:image" content="https://sitey.my/sitey_logo.png" />
     <meta property="og:site_name" content="Sitey" />
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary" />
-    <meta name="twitter:title" content="Sitey - Free Domain for Developers" />
-    <meta name="twitter:description" content="Get a free subdomain in seconds. Create DNS records and manage them from a simple dashboard." />
+    <meta name="twitter:title" content="Sitey — your AI-built site, on your own address" />
+    <meta name="twitter:description" content="30 seconds. No sign-up. Agents welcome. Point a name at Vercel, Netlify, GitHub Pages, Lovable or your server." />
     <meta name="twitter:image" content="https://sitey.my/sitey_logo.png" />
 
     <!-- JSON-LD Structured Data -->
@@ -62,7 +62,7 @@
       "@type": "WebApplication",
       "name": "Sitey",
       "url": "https://sitey.my",
-      "description": "Free subdomain service for developers. Create DNS records and manage domains from a simple dashboard.",
+      "description": "Puts a site built with AI on its own address in 30 seconds, without sign-up. People and their agents (over MCP) point a name at Vercel, Netlify, GitHub Pages, Lovable or a server.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Any",
       "offers": {
@@ -95,9 +95,10 @@
     <header id="navbar"></header>
     <main id="app-root"></main>
 
-    <!-- The footer is markup, not a render: the Buy Me a Coffee widget draws
-         itself where its own <script> sits, and appending it later leaves an
-         empty row. Static also means a crawler sees these two links. -->
+    <!-- The footer is markup, not a render: static means a crawler sees
+         these links. The coffee link used to be the official yellow widget,
+         and it was the loudest thing on the first screen (2026-10-01) — a
+         small text link says the same without looking like a hobby page. -->
     <footer>
       <a
         href="https://t.me/+yvrIFDbssJ0wNDJl"
@@ -109,21 +110,14 @@
       <a href="/blog" data-i18n="nav.blog">Blog</a>
       <a href="/about" data-i18n="nav.about">About</a>
       <a href="/privacy" data-i18n="nav.privacy">Privacy</a>
-      <span class="bmc">
-        <script
-          type="text/javascript"
-          src="https://cdnjs.buymeacoffee.com/1.0.0/button.prod.min.js"
-          data-name="bmc-button"
-          data-slug="helpmeup"
-          data-color="#FFDD00"
-          data-emoji="☕"
-          data-font="Cookie"
-          data-text="Buy me a coffee"
-          data-outline-color="#000000"
-          data-font-color="#000000"
-          data-coffee-color="#ffffff"
-        ></script>
-      </span>
+      <a
+        class="footer-end"
+        href="https://www.buymeacoffee.com/helpmeup"
+        target="_blank"
+        rel="noopener noreferrer"
+        data-i18n="nav.coffee"
+        >Buy me a coffee</a
+      >
     </footer>
 
     <div id="toast-container" class="toast-container"></div>
@@ -241,9 +235,12 @@
       <div class="stage">
         <!-- 히어로는 판이다: 파란 면 위에 이름과 검색이 올라간다. -->
         <div class="hero-panel">
-        <!-- The name is the page's heading. A second, smaller copy of it in
-             the header would say the same thing twice on one screen. -->
-        <h1 class="wordmark">sitey</h1>
+        <!-- The name is a mark, not the heading. The heading is what the
+             service does — a first-time visitor saw a logo and an input box
+             and had to guess (2026-10-01). -->
+        <p class="wordmark">sitey</p>
+        <h1 class="hero-title" data-i18n="home.title">Your AI-built site, on your own address.</h1>
+        <p class="hero-sub" data-i18n="home.subtitle">30 seconds. No sign-up. Agents welcome.</p>
 
         <!-- No Check button: typing is the whole gesture, and the one thing
              left to press is the button that actually registers a name.
@@ -277,47 +274,73 @@
 
         <div id="availability-results" class="results" aria-live="polite"></div>
 
-        <!-- 카드마다 «그 카드가 말하는 일이 실제로 일어나는 장면»을 작게 넣는다.
+        <!-- The line an agent user needs: what to paste, and where the server
+             is. Text, not a picture of text, so it can be copied. -->
+        <div class="agent-line">
+          <div class="agent-text">
+            <p class="agent-label" data-i18n="home.agent.label">Paste into Claude or Cursor</p>
+            <div class="agent-copy">
+              <code id="agent-prompt" data-i18n="home.agent.prompt">Use the sitey MCP to point myapp.sitey.my at my Vercel project</code>
+              <button type="button" class="agent-copy-btn" id="agent-copy" data-i18n="home.agent.copy">Copy</button>
+            </div>
+            <p class="agent-links">
+              <span data-i18n="home.agent.server">MCP server</span>
+              <code>https://sitey.my/mcp</code>
+              <a href="/.well-known/mcp.json">mcp.json</a>
+              <a href="/llms.txt">llms.txt</a>
+              <a href="/docs" data-i18n="nav.docs">Docs</a>
+            </p>
+          </div>
+          <div class="mock mock-agent" aria-hidden="true">
+            <p class="mock-said" data-i18n="home.mock.ask">Get me an address</p>
+            <div class="mock-call">
+              <span class="mock-chip">MCP</span>
+              <span class="mock-host">create_subdomain</span>
+            </div>
+            <p class="mock-said mock-said-back"><span class="mock-host">demo.sitey.my</span></p>
+          </div>
+        </div>
+
+        <!-- 카드마다 «그 단계에서 실제로 보이는 화면»을 작게 넣는다.
              삽화가 아니라 사이티 자기 화면의 축소판이고, 그림 파일이 아니라
              CSS 로 그려서 첫 화면 무게가 늘지 않는다. -->
-        <div class="points">
-          <div>
+        <h2 class="steps-title" data-i18n="home.how.title">How it works</h2>
+        <ol class="points">
+          <li>
             <div class="mock mock-find" aria-hidden="true">
               <div class="mock-input"><span class="mock-host">myapp</span><span class="mock-caret"></span></div>
               <div class="mock-hit"><span class="mock-host">myapp.sitey.my</span><span class="mock-tick"></span></div>
-              <div class="mock-hit"><span class="mock-host">myapp.sitey.one</span><span class="mock-tick"></span></div>
             </div>
-            <h2 data-i18n="home.point.fast.title">Fast</h2>
-            <p data-i18n="home.point.fast.desc">Register the address you want, with no paperwork.</p>
-          </div>
-          <div>
+            <h3 data-i18n="home.how.pick.title">1. Pick a name</h3>
+            <p data-i18n="home.how.pick.desc">Type it. If it's free, it's yours — no account needed to look.</p>
+          </li>
+          <li>
             <div class="mock mock-record" aria-hidden="true">
               <div class="mock-head">
-                <span class="mock-host">blog.sitey.my</span>
+                <span class="mock-host">myapp.sitey.my</span>
                 <span class="mock-chip">CNAME</span>
               </div>
               <div class="mock-target"><span class="mock-arrow">&#8594;</span> cname.vercel-dns.com</div>
+              <div class="mock-hosts">
+                <span>Vercel</span><span>Netlify</span><span>GitHub Pages</span><span>Lovable</span><span data-i18n="home.how.where.server">your server</span>
+              </div>
+            </div>
+            <h3 data-i18n="home.how.where.title">2. Tell us where it's hosted</h3>
+            <p data-i18n="home.how.where.desc">Paste the address your host gave you — Vercel, Netlify, GitHub Pages, Lovable, or your own server's IP.</p>
+          </li>
+          <li>
+            <div class="mock mock-done" aria-hidden="true">
+              <div class="mock-bar"><span class="mock-lock"></span><span class="mock-host">https://myapp.sitey.my</span></div>
               <div class="mock-foot">
                 <span class="mock-dot"></span>
-                <span data-i18n="home.mock.until">Renews 2027-03-12</span>
+                <span data-i18n="home.mock.live">Live</span>
               </div>
             </div>
-            <h2 data-i18n="home.point.simple.title">Simple</h2>
-            <p data-i18n="home.point.simple.desc">Change every setting from a single dashboard.</p>
-          </div>
-          <div>
-            <div class="mock mock-agent" aria-hidden="true">
-              <p class="mock-said" data-i18n="home.mock.ask">Get me an address</p>
-              <div class="mock-call">
-                <span class="mock-chip">MCP</span>
-                <span class="mock-host">create_subdomain</span>
-              </div>
-              <p class="mock-said mock-said-back"><span class="mock-host">demo.sitey.my</span></p>
-            </div>
-            <h2 data-i18n="home.point.mcp.title">MCP</h2>
-            <p data-i18n="home.point.mcp.desc">The agent you already use can work with it too.</p>
-          </div>
-        </div>
+            <h3 data-i18n="home.how.done.title">3. Done</h3>
+            <p data-i18n="home.how.done.desc">Your site answers on the new address, usually within a minute.</p>
+          </li>
+        </ol>
+
       </div>
     </template>
 

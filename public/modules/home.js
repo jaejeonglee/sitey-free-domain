@@ -56,13 +56,28 @@ export function initializeLandingPage() {
     ];
   }
 
+  /**
+   * One row for the domain in the select (sitey.my unless changed), and the
+   * rest folded under it. Four rows at once stopped a first-time visitor at
+   * "what is officials?" before they had looked at the one they came for
+   * (2026-10-01). The others are still a click away and still issued.
+   */
   function renderResults(results) {
     lastResults = results;
     clearChildren(resultsContainer);
+    const [first, ...others] = inPreferredOrder(results);
     const fragment = document.createDocumentFragment();
-    inPreferredOrder(results).forEach((result) => {
-      fragment.appendChild(createAvailabilityRow(result));
-    });
+    fragment.appendChild(createAvailabilityRow(first));
+
+    if (others.length) {
+      const more = document.createElement("details");
+      more.className = "more-domains";
+      const summary = document.createElement("summary");
+      summary.textContent = t("home.other_domains", { count: others.length });
+      more.appendChild(summary);
+      others.forEach((result) => more.appendChild(createAvailabilityRow(result)));
+      fragment.appendChild(more);
+    }
     resultsContainer.appendChild(fragment);
   }
 
@@ -144,6 +159,8 @@ export function initializeLandingPage() {
     event.preventDefault();
     scheduleSearch(true);
   });
+
+  wireAgentCopy();
 
   const domainsReady = loadDomainOptions(domainSelect).then(() => {
     if (lastResults.length) renderResults(lastResults);
@@ -493,32 +510,49 @@ function createAvailabilityRow(result) {
     return row;
   }
 
-  // 「비어 있음」을 따로 쓰지 않는다. 쉬고 있는 버튼이 「사용 가능」이라고
-  // 이미 말하고 있어서, 옆에 또 쓰면 같은 말이 둘이 된다.
-  const rest = t("availability.available");
-  const hover = t("availability.take");
-
+  // 버튼은 늘 행동을 말한다(「Get it」). 예전엔 쉴 때 「Available」이고 손을
+  // 얹어야 「Get it」으로 굴렀는데, 터치 화면엔 손을 얹는 순간이 없어서 폰에선
+  // 누르는 버튼으로 영영 안 보였다(2026-10-01). 상태는 왼쪽 점의 색이 말한다.
   const button = document.createElement("button");
   button.type = "button";
   button.className = "take";
   button.dataset.action = "open-create";
   button.dataset.subdomain = result.subdomain;
   button.dataset.domain = result.domain;
-  // 읽어주는 프로그램에는 굴러가는 두 판이 안 보인다. 상태와 행동을 한 줄에.
-  button.setAttribute("aria-label", `${fqdn} ${rest}, ${hover}`);
+  button.setAttribute(
+    "aria-label",
+    `${fqdn} ${t("availability.available")}, ${t("availability.take")}`
+  );
+  button.textContent = t("availability.take");
 
-  const roll = document.createElement("span");
-  roll.className = "roll";
-  roll.dataset.rest = rest;
-  roll.dataset.hover = hover;
-  // 판 두 장은 둘 다 절대 배치라 폭을 만들지 않는다. 상자 폭을 정하는 것은
-  // 이 투명한 진짜 글자이므로 «긴 쪽»을 넣는다 — 짧은 쪽을 넣으면 굴러갈 때
-  // 긴 쪽이 눌린다. 한국어는 「사용 가능」이 길고 영어는 Available 이 길다.
-  roll.textContent = rest.length >= hover.length ? rest : hover;
-
-  button.appendChild(roll);
   row.appendChild(button);
   return row;
+}
+
+/** The copy button beside the prompt an agent user pastes. */
+function wireAgentCopy() {
+  const button = document.getElementById("agent-copy");
+  const prompt = document.getElementById("agent-prompt");
+  if (!button || !prompt) return;
+
+  button.addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(prompt.textContent.trim());
+    } catch {
+      // No clipboard (an http page, an old browser): select the text so a
+      // long-press or Ctrl+C finishes the job, and say nothing false.
+      const range = document.createRange();
+      range.selectNodeContents(prompt);
+      const selection = window.getSelection();
+      selection.removeAllRanges();
+      selection.addRange(range);
+      return;
+    }
+    button.textContent = t("home.agent.copied");
+    setTimeout(() => {
+      button.textContent = t("home.agent.copy");
+    }, 1600);
+  });
 }
 
 /**

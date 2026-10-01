@@ -11,8 +11,8 @@ import { getCurrentUser } from './api.js';
 const SERVER_RENDERED = new Set(["/privacy", "/about"]);
 
 const routes = {
-    "/": { templateId: "template-home", init: initializeLandingPage, title: "Sitey - free domain" },
-    "/index.html": { templateId: "template-home", init: initializeLandingPage, title: "Sitey - free domain" },
+    "/": { templateId: "template-home", init: initializeLandingPage, title: "Sitey — your AI-built site, on your own address" },
+    "/index.html": { templateId: "template-home", init: initializeLandingPage, title: "Sitey — your AI-built site, on your own address" },
     "/login": { templateId: "template-login", init: initializeLoginPage, title: "Login - Sitey" },
     "/signup": { templateId: "template-login", init: initializeLoginPage, title: "Login - Sitey" },
     "/dashboard": { templateId: "template-dashboard", init: initializeDashboardPage, title: "Dashboard - Sitey", auth: true },

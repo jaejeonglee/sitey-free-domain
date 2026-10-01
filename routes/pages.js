@@ -31,7 +31,7 @@ const INDEX_PATH = path.join(__dirname, "..", "public", "index.html");
 
 const SITE_TITLE_SUFFIX = "Sitey";
 const DEFAULT_DESCRIPTION =
-  "Get a free subdomain in seconds. Create A, CNAME and TXT records and manage them from a simple dashboard.";
+  "Put the site you built with AI on your own address in 30 seconds. No sign-up. Point a name at Vercel, Netlify, GitHub Pages, Lovable or your server — or let your agent do it over MCP.";
 
 // Mirrors the client router in public/modules/router.js. Anything not listed
 // here is a real 404 — the old handler answered every unknown URL with the home
@@ -68,7 +68,7 @@ function pickLang(request) {
 
 const PAGES = {
   "/": {
-    title: "Sitey — free subdomains for developers",
+    title: "Sitey — your AI-built site, on your own address",
     description: DEFAULT_DESCRIPTION,
     template: "template-home",
   },
