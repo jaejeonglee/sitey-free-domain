@@ -387,6 +387,16 @@
       </div>
     </template>
 
+    <!-- /admin. The server sends this shell only to ADMIN_EMAILS and a 404 to
+         everyone else (routes/admin.js); modules/admin.js fills it from
+         /admin/api/stats. Read-only — there is nothing to press here. -->
+    <template id="template-admin">
+      <div class="admin" id="admin-root">
+        <h1>Admin</h1>
+        <p class="admin-meta" id="admin-meta">Loading…</p>
+      </div>
+    </template>
+
     <template id="template-blog">
       <article class="blog-article" id="blog-content">
         <!-- Rendered by modules/blog.js -->

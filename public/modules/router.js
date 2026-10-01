@@ -3,6 +3,7 @@ import { initializeLoginPage } from './auth.js';
 import { initializeDashboardPage } from './dashboard.js';
 import { initializeDocsPage } from './docs.js';
 import { initializeBlogPage } from './blog.js';
+import { initializeAdminPage } from './admin.js';
 import { renderNavbar } from './ui.js';
 import { applyTranslations, loadLang, getLang } from './i18n.js';
 import { getCurrentUser } from './api.js';
@@ -19,6 +20,8 @@ const routes = {
     "/docs": { templateId: "template-docs", init: initializeDocsPage, title: "Docs - Sitey" },
     "/guide": { templateId: "template-docs", init: initializeDocsPage, title: "Docs - Sitey" },
     "/blog": { templateId: "template-blog", init: initializeBlogPage, title: "Domain Name Ideas - Sitey" },
+    // Reached by typing the address; the server 404s it for everyone else.
+    "/admin": { templateId: "template-admin", init: initializeAdminPage, title: "Admin - Sitey" },
 };
 
 /**

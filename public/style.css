@@ -1080,6 +1080,9 @@ footer a:hover { color: var(--ink-2); text-decoration: underline; }
 @media (max-width: 640px) {
   header { padding: 16px 18px; gap: 14px; }
   header nav { gap: 14px; }
+  /* 로그인하면 «내 도메인»·«로그아웃»이 붙어 390px 에 안 들어갔다 —
+     헤더가 화면 밖으로 밀렸다(2026-10-01 실측). 넘치면 두 줄로 접는다. */
+  #navbar nav { flex-wrap: wrap; justify-content: flex-end; row-gap: 10px; }
   main { padding: 0 18px 56px; }
   footer { padding: 18px; gap: 14px; flex-wrap: wrap; }
 
@@ -1560,4 +1563,120 @@ textarea { border-radius: var(--r-input); }
   color: var(--hero-ink);
   padding: 7px 13px;
   border-radius: 11px;
+}
+
+/* ============================================
+   Admin (/admin) — 읽기 전용 숫자판
+
+   같은 부품 규칙을 따른다: 잔선으로 칸을 나누고 색은 토큰만.
+   목록은 표가 아니라 줄이다 — 폰에서 표는 가로로 넘친다.
+   ============================================ */
+.admin { padding: 40px 0 24px; min-width: 0; }
+.admin h1 { font-size: 28px; margin: 0 0 4px; }
+.admin-meta { color: var(--ink-3); font-size: 13.5px; margin: 0 0 28px; }
+
+.admin-tiles {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 14px;
+}
+.admin-tile {
+  background: var(--rule-2);
+  border-radius: var(--r-card);
+  padding: 20px 22px;
+  min-width: 0;
+}
+.admin-tile-label { font-size: 13px; color: var(--ink-2); margin: 0 0 6px; }
+.admin-tile-value { font-size: 30px; font-weight: 700; line-height: 1.1; margin: 0 0 6px; letter-spacing: -0.03em; }
+.admin-tile-sub { font-size: 12.5px; color: var(--ink-3); margin: 0; }
+
+.admin-section { margin-top: 40px; min-width: 0; }
+.admin-section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 14px;
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--rule);
+}
+.admin-section-head h2 { font-size: 17px; margin: 0; }
+.admin-note { font-size: 13px; color: var(--ink-3); }
+
+.admin-callout {
+  margin: 12px 0 0;
+  padding: 10px 14px;
+  border-left: 2px solid var(--bad);
+  color: var(--ink-2);
+  font-size: 13.5px;
+}
+
+.admin-callout.is-info { border-left-color: var(--rule); }
+
+.admin-chart { margin-top: 16px; }
+.admin-chart svg { display: block; width: 100%; height: 160px; }
+.admin-chart-grid { stroke: var(--rule); stroke-width: 1; vector-effect: non-scaling-stroke; }
+.admin-line-people,
+.admin-line-anon {
+  fill: none;
+  stroke-width: 2;
+  stroke-linejoin: round;
+  vector-effect: non-scaling-stroke;
+}
+.admin-line-people { stroke: var(--go); }
+.admin-line-anon { stroke: var(--ink-2); stroke-dasharray: 5 4; }
+.admin-chart-axis {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--ink-3);
+  margin-top: 6px;
+}
+.admin-legend { display: flex; flex-wrap: wrap; gap: 6px 18px; margin-top: 10px; font-size: 13px; color: var(--ink-2); }
+.admin-legend i { display: inline-block; width: 16px; height: 0; margin-right: 6px; vertical-align: middle; }
+.admin-key-people { border-top: 2px solid var(--go); }
+.admin-key-anon { border-top: 2px dashed var(--ink-2); }
+
+.admin-bars { margin-top: 14px; display: grid; gap: 10px; }
+.admin-bar {
+  display: grid;
+  grid-template-columns: 90px minmax(0, 1fr) 96px;
+  align-items: center;
+  gap: 12px;
+  font-size: 13.5px;
+}
+.admin-bar-track { height: 10px; background: var(--rule-2); border-radius: 5px; overflow: hidden; }
+.admin-bar-track i { display: block; height: 100%; background: var(--go); border-radius: 5px; }
+.admin-bar-value { color: var(--ink-2); text-align: right; }
+
+.admin-list { min-width: 0; }
+.admin-row {
+  display: flex;
+  align-items: baseline;
+  gap: 4px 18px;
+  padding: 11px 2px;
+  border-bottom: 1px solid var(--rule-2);
+  min-width: 0;
+}
+.admin-row-name { flex: 0 1 300px; min-width: 0; font-size: 14px; overflow-wrap: anywhere; }
+.admin-row.is-bad .admin-row-name { color: var(--bad); }
+.admin-row-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 2px 16px;
+  font-size: 13px;
+  color: var(--ink-2);
+}
+.admin-row-meta span { min-width: 0; overflow-wrap: anywhere; }
+.admin-empty { padding: 14px 2px; color: var(--ink-3); font-size: 13.5px; }
+
+@media (max-width: 720px) {
+  .admin { padding-top: 28px; }
+  .admin-tiles { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .admin-tile { padding: 16px; }
+  .admin-tile-value { font-size: 24px; }
+  .admin-row { flex-direction: column; gap: 4px; }
+  .admin-row-name { flex: none; }
+  .admin-bar { grid-template-columns: 64px minmax(0, 1fr) 76px; gap: 8px; }
 }

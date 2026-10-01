@@ -61,6 +61,9 @@ function buildApp(options = {}) {
   // robots.txt disallows /api/ — a document a crawler is told not to read is no
   // use for being found. See routes/discovery.js.
   fastify.register(require("./routes/discovery"));
+  // /admin — read-only numbers for whoever is on ADMIN_EMAILS, a plain 404 for
+  // everyone else. Needs the pages plugin above for that 404.
+  fastify.register(require("./routes/admin"));
   fastify.register(require("@fastify/static"), {
     root: path.join(__dirname, "public"),
     prefix: "/",

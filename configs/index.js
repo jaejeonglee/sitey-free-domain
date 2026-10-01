@@ -327,6 +327,14 @@ module.exports = {
     .split(",")
     .map((s) => s.trim().toLowerCase())
     .filter(Boolean),
+  // Who may open /admin. Anyone else — signed in or not — gets the same 404 an
+  // unknown URL gets, so the page does not announce that it exists.
+  admin: {
+    emails: (process.env.ADMIN_EMAILS || "ljj5256@gmail.com")
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  },
   server: {
     port: process.env.PORT || 3000,
     host: "0.0.0.0",
