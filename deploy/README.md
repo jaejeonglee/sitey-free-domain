@@ -13,6 +13,7 @@
 | `migrations/003-subdomain-limit.sql` | `users.subdomain_limit` 추가 (계정별 한도·예외) — 7절 |
 | `migrations/004-credit-ledger.sql` | `credit_entries` 생성 (결제 기록 = 잔액) — 7절 |
 | `migrations/006-anon-owner-token.sql` | `subdomains.owner_token_hash` 추가 (계정 없는 소유자 = 토큰). 🔴 **앱 재시작 «전»에 적용한다** — 코드가 컬럼 없음을 견디지 않는다. 백필 없음 |
+| `migrations/010-blocklist-abuse-reports.sql` | `blocklist`(이름·토큰·IP 차단) + `abuse_reports`(신고) 생성, catikteam·IP 둘 시드. 🔴 **앱 재시작 «전»에 적용한다** — 차단 검사가 fail-close 라 테이블이 없으면 생성·수정·TXT 가 전부 500 — 10절 |
 | `cleanup-unreachable.js` | 지금 죽어 있는 것들의 **일회성** 정리 (dry-run 기본) — 5절 |
 | `preview-emails.js` | 나가는 메일·갱신 화면을 **발송 없이** HTML 파일로 렌더 (환경변수 불필요) — 4절 |
 
@@ -895,3 +896,61 @@ grep '"evt":"redirect_hits"' /root/.pm2/logs/server-*.log | tail -5
 
 코드 `git revert` + `pm2 restart`. 테이블은 **코드를 되돌린 뒤** 지운다(안 지워도 동작에는 지장 없다).
 `DROP TABLE redirect_hits;` — 세는 쪽의 실패 경로가 「경고만 남기고 넘어간다」라 순서를 틀려도 서비스는 살아 있다.
+
+---
+
+## 10. 보안 묶음 ① — 익명 제한·피싱 이름·차단 목록·약관/신고·쿠키 (2026-10-07)
+
+스펙 `scratchpad/security-batch-spec.md`(위키 `projects/sitey-security-batch.md`). 커밋 `780a809`·`68e66fe`·`b45dd4f`·`85e25ee`.
+
+### 무엇이 바뀌나 — 운영자가 알아야 할 것만
+
+- **계정 없는 호출자**(API 키 없음 — 익명·owner_token): TXT 추가 불가(`ACCOUNT_REQUIRED`) ·
+  CNAME/REDIRECT 를 임시 터널로 못 보냄(`TUNNEL_TARGET_FORBIDDEN`) · `login`·`wallet` 등이 든 이름 불가(`ACCOUNT_REQUIRED`).
+  **이미 있는 레코드는 안 건드린다**(생성·값 변경 때만). TXT 삭제는 익명도 된다.
+- 브랜드 이름(`toss`·`kakao`·`paypal` …)은 **계정도** 새로 못 만든다.
+- 차단 목록 `blocklist` — 생성·값 변경·TXT 쓰기 때 REST·MCP·대시보드 전부 검사. 답은 403 `BLOCKED`(무엇에 걸렸는지 말하지 않는다).
+- 🔴 **세션 쿠키 이름이 `__Host-sitey_token` 으로 바뀐다 → 배포 순간 로그인된 사람 전원 1회 로그아웃.** 시각을 Jay 와 맞춘다.
+- `/terms`·`/abuse`·`/.well-known/security.txt` 가 생긴다. 신고는 DB 저장 후 **운영 텔레그램으로 온다**(`ABUSE REPORT #n`).
+
+### 새 설정 키 (선택 — 없어도 기본값으로 동작)
+
+| 키 | 기본값 | 뜻 |
+|---|---|---|
+| `ANON_TUNNEL_DOMAINS` | trycloudflare.com · serveousercontent.com · serveo.net · ngrok.io · ngrok.app · ngrok-free.app · ngrok-free.dev · loca.lt · localtunnel.me · pinggy.link · pinggy.io · lhr.life · localhost.run · bore.pub · devtunnels.ms · tunnelmole.net | 계정 없이 CNAME/REDIRECT 목적지로 못 쓰는 도메인(그 아래 전부). 콤마 구분. **설정하면 목록 전체를 대체한다** |
+
+### 배포 순서 — 이 순서를 지킨다
+
+```bash
+# ① 마이그레이션 먼저 — 없으면 쓰기 경로가 전부 500
+mysql -u <user> -p <db> < deploy/migrations/010-blocklist-abuse-reports.sql
+mysql -u <user> -p <db> -e "SELECT kind, value FROM blocklist; SHOW TABLES LIKE 'abuse_reports';"   # 3행 + 테이블
+
+# ② (읽기 전용) 새 이름 목록이 기존 이름 몇 개를 잡았을지 — 보고용, 아무것도 안 바꾼다
+mysql -u <user> -p <db> < scripts/010-blacklist-hits.sql
+
+# ③ 재시작 (Jay 와 시각 맞춘 뒤 — 전원 로그아웃)
+NODE_ENV=production pm2 restart server --update-env
+```
+
+### 검증
+
+```bash
+curl -s https://sitey.my/.well-known/security.txt                       # Contact: https://sitey.my/abuse
+curl -s -o /dev/null -w "%{http_code}\n" https://sitey.my/terms          # 200
+curl -s -o /dev/null -w "%{http_code}\n" https://sitey.my/abuse          # 200
+# 익명 TXT → 403 ACCOUNT_REQUIRED (레코드가 없어도 이 답이 먼저 나온다)
+curl -s -X POST https://sitey.my/api/v1/subdomains/x/sitey.my/txt -H 'content-type: application/json' \
+  -d '{"host_prefix":"_vercel","value":"t"}' | jq .code
+# 로그인 후 브라우저 개발자도구 → 쿠키 이름이 __Host-sitey_token, Domain 칸이 비어 있는지
+# /abuse 에서 신고 한 건 → 텔레그램에 ABUSE REPORT 가 오는지, 그리고:
+mysql -u <user> -p <db> -e "SELECT id, created_at, target FROM abuse_reports ORDER BY id DESC LIMIT 3;"
+```
+
+### 되돌리기
+
+코드 `git revert` + `pm2 restart` **먼저**, 테이블은 그 뒤(010 파일 끝의 Rollback). 쿠키는 되돌려도 또 한 번 전원 로그아웃이다.
+
+### 운영 — 차단·신고 다루기
+
+`.claude/docs/runbooks/abuse.md`.
