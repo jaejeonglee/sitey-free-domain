@@ -12,7 +12,7 @@
   "remotes": [
     {
       "type": "streamable-http",
-      "url": "https://sitey.my/mcp"
+      "url": "https://sitey.my/mcp?via=registry"
     }
   ]
 }

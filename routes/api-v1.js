@@ -17,6 +17,7 @@ const redirectHits = require("../services/redirect-hits");
 const { LIVE_TXT_VALUE_SQL } = require("../services/txt-records");
 const credits = require("../services/credits");
 const x402 = require("../services/x402");
+const paidExtension = require("../services/paid-extension");
 const alertService = require("../services/alert");
 const {
   isValidSubdomain,
@@ -559,6 +560,77 @@ async function apiV1Routes(fastify, options) {
     return ok({
       fqdn: `${subdomain}.${domainEntry.domain}`,
       expires_at: renewal.expiresAt,
+    });
+  });
+
+  // -------------------------------------------------------
+  // POST /subdomains/:subdomain/:domain/extend — a paid year (x402)
+  // -------------------------------------------------------
+  // services/paid-extension.js. The free monthly renew above is untouched;
+  // this is the other door, and it is shut unless X402_ENABLED can work.
+  fastify.post("/subdomains/:subdomain/:domain/extend", async (request, reply) => {
+    const auth = request.apiAuth;
+    const subdomain = (request.params.subdomain || "").trim().toLowerCase();
+    const domainEntry = await resolveDomain(fastify, request.params.domain);
+
+    if (!x402.status().enabled) {
+      apiError(
+        403,
+        "Paying for a year is switched off on this server. Renew free a month at a time " +
+          "with POST /api/v1/subdomains/{subdomain}/{domain}/renew.",
+        "PAYMENT_DISABLED"
+      );
+    }
+    if (auth.mode !== "token") {
+      apiError(
+        403,
+        "A paid year is for a record held by an owner token: send it as " +
+          "`Authorization: Bearer anon_…`. A record under an account renews for three months free.",
+        "OWNER_TOKEN_REQUIRED"
+      );
+    }
+
+    const record = await findOwnedRecord(fastify, auth, subdomain, domainEntry);
+    const result = await paidExtension.extend(fastify, {
+      recordId: record.id,
+      subdomain,
+      domain: domainEntry.domain,
+      proof: request.headers["x-payment"],
+    });
+
+    switch (result.state) {
+      case "off":
+        apiError(403, result.reason, "PAYMENT_DISABLED");
+        break;
+      case "not_found":
+        apiError(404, "Subdomain not found.", "SUBDOMAIN_NOT_FOUND");
+        break;
+      case "not_agent":
+        apiError(403, "Subdomain not found or you do not have permission.", "FORBIDDEN");
+        break;
+      case "not_due":
+        apiError(409, result.message, "EXTENSION_NOT_DUE");
+        break;
+      case "payment_required":
+      case "payment_invalid":
+      case "replayed":
+        request.outcome = {
+          payment_required: "PAYMENT_REQUIRED",
+          payment_invalid: "PAYMENT_INVALID",
+          replayed: "PAYMENT_REPLAYED",
+        }[result.state];
+        return reply.code(402).send(result.body);
+      default:
+        break;
+    }
+
+    reply.header("x-payment-response", result.responseHeader);
+    return ok({
+      fqdn: `${subdomain}.${domainEntry.domain}`,
+      expires_at: result.expiresAt,
+      transaction: result.transaction,
+      network: result.network,
+      payer: result.payer,
     });
   });
 

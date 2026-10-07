@@ -67,6 +67,10 @@ function asset(symbol) {
     address: (process.env[`X402_${symbol}_ADDRESS`] || "").trim(),
     network: (process.env[`X402_${symbol}_NETWORK`] || x402Network).trim(),
     decimals: parseIntEnv(`X402_${symbol}_DECIMALS`, 6),
+    // The token's EIP-712 domain, which a payer signs against. Empty means
+    // "use the one services/x402.js knows for this token on this chain".
+    eip712Name: (process.env[`X402_${symbol}_EIP712_NAME`] || "").trim(),
+    eip712Version: (process.env[`X402_${symbol}_EIP712_VERSION`] || "").trim(),
   };
 }
 
@@ -211,12 +215,49 @@ module.exports = {
     // The address is the identity, not the symbol: the same name is a
     // different contract on every chain. `decimals` is how many the token's
     // own smallest unit has, which is what the price has to be converted into.
+    //
+    // USDC, from Circle's own list (https://developers.circle.com/stablecoins/usdc-contract-addresses, read 2026-10-07):
+    //   base-sepolia  0x036CbD53842c5426634e7929541eC2318f3dCF7e
+    //   base          0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
+    // Written here and in deploy/README.md, not defaulted: the existing rule
+    // that a token with no address is not offered still holds.
     assets: [asset("USDC"), asset("USDT")],
     // Who is asked whether a proof is good, and who moves the money. Checking
     // a signature against a chain needs a node and a crypto library; this is
     // the address of the thing that has both.
     facilitatorUrl: (process.env.X402_FACILITATOR_URL || "").trim().replace(/\/+$/, ""),
     timeoutMs: parseIntEnv("X402_TIMEOUT_MS", 10000),
+    // A Coinbase CDP API key, for the mainnet facilitator (it refuses calls
+    // without one). The public testnet facilitator needs none, so both empty
+    // is the ordinary state and means "send no Authorization header". One
+    // without the other is refused at the point of asking rather than guessed
+    // around — services/x402.js. Never logged.
+    cdpKeyId: (process.env.X402_CDP_API_KEY_ID || "").trim(),
+    cdpKeySecret: (process.env.X402_CDP_API_KEY_SECRET || "").trim(),
+    // What a year on an agent's record costs (services/paid-extension.js), in
+    // millionths like the bundle — 1.00 by default. Separate from the bundle
+    // price because they are different things: one is more names, the other is
+    // longer on one name.
+    extendPriceMicros: parseIntEnv("X402_EXTEND_PRICE_MICROS", 1000000),
+  },
+  // The ERC-8004 identity this service is registered under, for the card at
+  // /.well-known/agent-registration.json and the top of /llms.txt. Both empty
+  // until a registration exists: the card is still served, with an empty
+  // `registrations` list, because what the card says about the service is true
+  // before it has an on-chain number and false information is the only kind
+  // worth withholding.
+  agent: {
+    name: (process.env.AGENT_NAME || "sitey").trim(),
+    // The token id IdentityRegistry.register returned.
+    id: (process.env.AGENT_ID || "").trim(),
+    // "eip155:<chainId>:<IdentityRegistry address>" — CAIP-10, as the card
+    // carries it. The registries (erc-8004/erc-8004-contracts README):
+    //   Base Sepolia  eip155:84532:0x8004A818BFB912233c491871b3d84c89A494BD9e
+    //   Base          eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432
+    registry: (process.env.AGENT_REGISTRY || "").trim(),
+    // A contact address for the card's `email` service. No default: nothing
+    // reads mail sent to noreply@, and a card naming it would be a promise.
+    email: (process.env.AGENT_EMAIL || "").trim(),
   },
   telegram: {
     botToken: process.env.TELEGRAM_BOT_TOKEN,

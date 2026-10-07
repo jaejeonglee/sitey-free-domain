@@ -31,6 +31,18 @@ async function discoveryRoutes(fastify, options) {
     reply.type("application/json; charset=utf-8").header("Cache-Control", CACHE).send(openApi)
   );
 
+  // ERC-8004 agent card — services/discovery.js agentCard. Built once here so
+  // an AGENT_ID / AGENT_REGISTRY that does not parse stops the boot rather
+  // than turning this and /llms.txt into 500s; served fresh per request
+  // because x402Support follows the payment switch.
+  discovery.agentCard({ origin });
+  fastify.get("/.well-known/agent-registration.json", async (request, reply) =>
+    reply
+      .type("application/json; charset=utf-8")
+      .header("Cache-Control", CACHE)
+      .send(discovery.agentCard({ origin }))
+  );
+
   // RFC 9116 — services/discovery.js securityTxt. Expires is computed per
   // request, a year out, so a day's caching never serves a stale one.
   fastify.get("/.well-known/security.txt", async (request, reply) =>

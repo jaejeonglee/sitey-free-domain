@@ -23,6 +23,8 @@
 const config = require("../configs/index");
 const expiry = require("./expiry");
 const x402 = require("./x402");
+const paidExtension = require("./paid-extension");
+const { LATEST_PROTOCOL_VERSION } = require("@modelcontextprotocol/sdk/types.js");
 const { TXT_SELF_NAME } = require("../utils/validators");
 const { ANON_KEYWORDS } = require("./blacklist");
 
@@ -86,8 +88,100 @@ function limitNotes() {
         "refused, not offered a price."
     );
   }
+  notes.push(extendNote());
 
   return notes;
+}
+
+/**
+ * The paid year (services/paid-extension.js), from the switch that decides it.
+ * Off says off: the free monthly renewal is then the only way to keep a name.
+ */
+function extendNote() {
+  if (!x402.status().enabled) {
+    return (
+      "A record created without an account is renewed free a month at a time. Paying for " +
+      "a year is switched off on this server."
+    );
+  }
+  return (
+    `A record created without an account can be kept ${paidExtension.PAID_MONTHS} months for ` +
+    `${paidExtension.priceText()} USDC, paid over x402 (POST …/extend, or the extend_subdomain ` +
+    "tool), counted from the day of payment. Free monthly renewal still works."
+  );
+}
+
+/** "Base", "Base Sepolia", or the CAIP-2 id for a chain this file has no name for. */
+const CHAIN_NAMES = { 8453: "Base", 84532: "Base Sepolia" };
+
+/**
+ * The ERC-8004 registration, or null until there is one. Both settings or
+ * neither: an agentId without its registry names nothing.
+ */
+function agentRegistration() {
+  const { id, registry } = config.agent;
+  if (!id || !registry) return null;
+  const match = /^eip155:(\d+):(0x[0-9a-fA-F]{40})$/.exec(registry);
+  if (!match || !/^\d+$/.test(id)) {
+    throw new Error(
+      `AGENT_ID / AGENT_REGISTRY do not parse (want a number and eip155:<chainId>:<address>): ${id} ${registry}`
+    );
+  }
+  const chainId = Number(match[1]);
+  return {
+    agentId: Number(id),
+    agentRegistry: registry,
+    chain: CHAIN_NAMES[chainId] || `eip155:${chainId}`,
+  };
+}
+
+/**
+ * The tagline the card and the top of llms.txt share. The price is in it only
+ * while it can be paid — an agent reads this sentence and acts on it.
+ */
+function agentDescription() {
+  const base = "Put your AI-built site on your own address in 30 seconds. No sign-up.";
+  const period = expiry.AGENT_MONTHS === 1 ? "a month" : `${expiry.AGENT_MONTHS} months`;
+  const free = `Free for agents, ${period} at a time`;
+  return x402.status().enabled
+    ? `${base} ${free} — or a year for ${paidExtension.priceText()} USDC.`
+    : `${base} ${free}.`;
+}
+
+/**
+ * The ERC-8004 agent card at /.well-known/agent-registration.json.
+ *
+ * The EIP (Draft, eips.ethereum.org/EIPS/eip-8004, read 2026-10-07) treats
+ * this path on an endpoint's domain as proof the domain belongs to the agent,
+ * which is why the agentURI registered on chain is this same URL. Built from
+ * settings like the other three documents: the registry and id are empty
+ * until a registration exists (then `registrations` is an empty list), and
+ * `x402Support` is whether paying would actually work right now.
+ *
+ * The MCP address carries ?via=8004 so the access log can say how many came
+ * in through the 8004 door. Same server — the query changes nothing else.
+ */
+function agentCard({ origin }) {
+  const registration = agentRegistration();
+  const services = [
+    { name: "web", endpoint: origin },
+    { name: "MCP", endpoint: `${origin}/mcp?via=8004`, version: LATEST_PROTOCOL_VERSION },
+  ];
+  if (config.agent.email) services.push({ name: "email", endpoint: config.agent.email });
+
+  return {
+    type: "https://eips.ethereum.org/EIPS/eip-8004#registration-v1",
+    name: config.agent.name,
+    description: agentDescription(),
+    image: `${origin}/sitey_logo.png`,
+    services,
+    x402Support: x402.status().enabled,
+    active: true,
+    registrations: registration
+      ? [{ agentId: registration.agentId, agentRegistry: registration.agentRegistry }]
+      : [],
+    supportedTrust: ["reputation"],
+  };
 }
 
 /**
@@ -231,7 +325,7 @@ const RECORD_TYPE = {
 };
 
 /**
- * The nine operations, keyed by the route they document.
+ * The ten operations, keyed by the route they document.
  *
  * The key is the method and the full path exactly as Fastify has it, because
  * tests/discovery.test.js boots the app, reads the route table and compares
@@ -477,6 +571,57 @@ function operations(origin) {
       },
     },
 
+    "POST /api/v1/subdomains/{subdomain}/{domain}/extend": {
+      summary: `Keep a name for a year, for ${paidExtension.priceText()} USDC`,
+      description:
+        extendNote() +
+        " Send the owner token as `Authorization: Bearer anon_…`. The first call answers 402 " +
+        "with an x402 payment requirement (`accepts`: amount, asset, payTo, network, and the " +
+        "token's EIP-712 domain in `extra`); sign an EIP-3009 transfer for it and repeat the " +
+        "call with the result base64-encoded in an `x-payment` header. The year is counted " +
+        "from the day you pay. The response carries the transaction hash, which is also the " +
+        "proof of payment if you leave feedback for this service on ERC-8004.",
+      parameters: pathParams("subdomain", "domain"),
+      responses: {
+        200: ok("Paid and extended.", {
+          fqdn: { type: "string", example: fqdn },
+          expires_at: { type: "string", format: "date-time" },
+          transaction: { type: "string", description: "The settlement's transaction hash." },
+          network: { type: "string", example: "base" },
+          payer: { type: ["string", "null"] },
+        }),
+        400: fail("INVALID_DOMAIN — that root is not managed here."),
+        402: {
+          description:
+            "PAYMENT_REQUIRED — no `x-payment` header yet; the body says what to pay. " +
+            "PAYMENT_INVALID — the proof did not verify or settle; the body says why and asks again. " +
+            "PAYMENT_REPLAYED — that settlement has already bought something.",
+          content: {
+            "application/json": {
+              schema: {
+                type: "object",
+                properties: {
+                  x402Version: { type: "integer" },
+                  error: { type: "string" },
+                  accepts: { type: "array", items: { type: "object" } },
+                },
+              },
+            },
+          },
+        },
+        403: fail(
+          "PAYMENT_DISABLED — paying is switched off on this server; renew free monthly instead. " +
+            "OWNER_TOKEN_REQUIRED — the paid year is for a record held by an owner token. " +
+            "FORBIDDEN — no such record under this caller."
+        ),
+        404: fail("SUBDOMAIN_NOT_FOUND — it was there a moment ago and is not now."),
+        409: fail(
+          "EXTENSION_NOT_DUE — a paid year is still running; the message names the date paying " +
+            "would buy something again."
+        ),
+      },
+    },
+
     "POST /api/v1/subdomains/{subdomain}/{domain}/txt": {
       summary: "Add the TXT record a host asks for",
       description:
@@ -690,11 +835,23 @@ function openApi({ origin }) {
 function llmsTxt({ origin, domains }) {
   const host = hostOf(origin);
   const root = domains[0] || host;
+  const registration = agentRegistration();
+  const card = `${origin}/.well-known/agent-registration.json`;
 
   return [
     `# ${host}`,
     "",
-    `> ${SUMMARY}`,
+    `> ${agentDescription()}`,
+    "",
+    // The 8004 identity first, for an agent that knows the standard; the MCP
+    // address right under it for one that does not (2026-10-07). ?via=llms
+    // tells the access log which door was used.
+    registration
+      ? `Identity: ERC-8004 agent #${registration.agentId} on ${registration.chain} — ${card}`
+      : `Identity: ERC-8004 agent card — ${card}`,
+    `MCP: ${origin}/mcp?via=llms (no account needed)`,
+    "",
+    SUMMARY,
     "",
     "No account is needed to create one, and nothing has to be fetched first. Create with no",
     "Authorization header and the response carries an `owner_token`, once — send it back as",
@@ -723,7 +880,7 @@ function llmsTxt({ origin, domains }) {
     "",
     `- [OpenAPI 3.1 spec](${origin}/openapi.json): every REST operation, every error code.`,
     `- [MCP endpoint](${origin}/mcp): Streamable HTTP, stateless — one POST per JSON-RPC`,
-    "  message. Nine tools, the same nine operations as the REST API.",
+    "  message. Ten tools, the same ten operations as the REST API.",
     `- [MCP manifest](${origin}/.well-known/mcp.json): what to hand an agent runtime.`,
     "",
     "Claiming a name is one request:",
@@ -774,4 +931,14 @@ function securityTxt({ origin, now = new Date() }) {
   ].join("\n");
 }
 
-module.exports = { SUMMARY, API_PREFIX, hostOf, limitNotes, mcpManifest, openApi, llmsTxt, securityTxt };
+module.exports = {
+  SUMMARY,
+  API_PREFIX,
+  hostOf,
+  limitNotes,
+  mcpManifest,
+  openApi,
+  llmsTxt,
+  securityTxt,
+  agentCard,
+};

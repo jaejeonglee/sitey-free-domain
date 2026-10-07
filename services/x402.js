@@ -29,6 +29,7 @@
 // address drops out of the offer with a line in the log rather than being
 // offered and failing at somebody else's expense.
 
+const crypto = require("crypto");
 const config = require("../configs/index");
 
 // The version this speaks, sent on every facilitator call and in every 402.
@@ -39,6 +40,22 @@ const SCHEME = "exact";
 // millionths). A token with a different number is converted, so the price is
 // one number however it is being paid.
 const PRICE_DECIMALS = 6;
+
+/**
+ * The EIP-712 domain a token signs transfers under, by chain and symbol.
+ *
+ * A payer signs an EIP-3009 transfer against the token's own domain, and the
+ * name is not the symbol: USDC calls itself "USD Coin" on Base and "USDC" on
+ * Base Sepolia. Getting it wrong yields a signature that verifies against
+ * nothing. Sent as `extra` in every requirement so a client does not have to
+ * know it. From coinbase/x402, typescript/packages/legacy/x402/src/types/
+ * shared/evm/config.ts (usdcName per chain) and shared/middleware.ts
+ * (version "2"); read 2026-10-07. X402_<SYMBOL>_EIP712_NAME/_VERSION override.
+ */
+const KNOWN_EIP712 = {
+  "base-sepolia:USDC": { name: "USDC", version: "2" },
+  "base:USDC": { name: "USD Coin", version: "2" },
+};
 
 let logger = { info: () => {}, warn: () => {}, error: () => {} };
 
@@ -124,12 +141,20 @@ function status() {
  * price — we have no such token, and undercharging is the worse way to be
  * wrong about one.
  */
-function amountFor(asset) {
-  const micros = BigInt(config.quota.bundle.priceMicros);
+function amountFor(asset, priceMicros) {
+  const micros = BigInt(priceMicros);
   const shift = asset.decimals - PRICE_DECIMALS;
   if (shift >= 0) return String(micros * 10n ** BigInt(shift));
   const unit = 10n ** BigInt(-shift);
   return String((micros + unit - 1n) / unit);
+}
+
+/** The token's signing domain, or null when neither a setting nor the table names it. */
+function eip712Of(asset) {
+  const known = KNOWN_EIP712[`${asset.network}:${asset.symbol}`] || {};
+  const name = asset.eip712Name || known.name;
+  const version = asset.eip712Version || known.version;
+  return name && version ? { name, version } : null;
 }
 
 /**
@@ -137,18 +162,24 @@ function amountFor(asset) {
  *
  * `resource` is the URL being charged for and travels back with the proof, so
  * a payment made for one endpoint cannot be spent at another.
+ *
+ * `priceMicros` is what this particular thing costs. The bundle was the only
+ * thing for sale until 2026-10-07; a year on an agent's record is the second,
+ * at its own price, and both go through here.
  */
-function requirementFor(asset, { resource, description }) {
+function requirementFor(asset, { resource, description, priceMicros = config.quota.bundle.priceMicros }) {
+  const domain = eip712Of(asset);
   return {
     scheme: SCHEME,
     network: asset.network,
-    maxAmountRequired: amountFor(asset),
+    maxAmountRequired: amountFor(asset, priceMicros),
     resource,
     description,
     mimeType: "application/json",
     payTo: config.x402.payTo,
     maxTimeoutSeconds: Math.ceil(config.x402.timeoutMs / 1000),
     asset: asset.address,
+    ...(domain ? { extra: domain } : {}),
   };
 }
 
@@ -159,11 +190,13 @@ function requirementFor(asset, { resource, description }) {
  * empty list cannot happen here — the route asks status() first and a server
  * with no usable token reports itself off.
  */
-function paymentRequiredBody({ resource, description, error }) {
+function paymentRequiredBody({ resource, description, error, priceMicros }) {
   return {
     x402Version: X402_VERSION,
     error,
-    accepts: usableAssets().map((asset) => requirementFor(asset, { resource, description })),
+    accepts: usableAssets().map((asset) =>
+      requirementFor(asset, { resource, description, priceMicros })
+    ),
   };
 }
 
@@ -204,11 +237,22 @@ function assetOf(payload) {
  */
 async function ask(path, body) {
   const url = `${config.x402.facilitatorUrl}${path}`;
+  let auth;
+  try {
+    auth = authHeaders("POST", url);
+  } catch (err) {
+    // A key that is half set or will not parse. Said in the log by name and
+    // never sent: the facilitator would refuse it anyway, and guessing at the
+    // other half is how a payment goes out unauthenticated by surprise.
+    logger.error({ evt: "x402", action: "auth_unusable", err: err.message },
+      `CDP API key could not be used: ${err.message}`);
+    return { ok: false, reason: "the payment facilitator could not be asked" };
+  }
   let response;
   try {
     response = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", ...auth },
       body: JSON.stringify(body),
       signal: AbortSignal.timeout(config.x402.timeoutMs),
     });
@@ -251,7 +295,10 @@ async function ask(path, body) {
  * @returns {{ok:true, payer, reference, amountMicros, asset, responseHeader}}
  *        | {ok:false, reason:string}   `reason` is safe to show the caller.
  */
-async function settle(headerValue, { resource, description }) {
+async function settle(
+  headerValue,
+  { resource, description, priceMicros = config.quota.bundle.priceMicros }
+) {
   const state = status();
   if (!state.enabled) return { ok: false, reason: state.reason };
 
@@ -274,7 +321,7 @@ async function settle(headerValue, { resource, description }) {
   const body = {
     x402Version: X402_VERSION,
     paymentPayload: payload,
-    paymentRequirements: requirementFor(chosen.asset, { resource, description }),
+    paymentRequirements: requirementFor(chosen.asset, { resource, description, priceMicros }),
   };
 
   const verified = await ask("/verify", body);
@@ -322,12 +369,105 @@ async function settle(headerValue, { resource, description }) {
     reference: String(reference),
     // The ledger counts in one unit whatever the payment was made in, so a
     // bundle bought with USDT and one bought with USDC are the same entry.
-    amountMicros: config.quota.bundle.priceMicros,
+    amountMicros: priceMicros,
     asset: chosen.asset.symbol,
+    // Which chain `reference` is a transaction on — a hash alone does not say.
+    network: settled.body.network || chosen.asset.network,
     // What the protocol asks a paid response to carry back, so the caller can
     // see the transaction its money went into.
     responseHeader: Buffer.from(JSON.stringify(settled.body)).toString("base64"),
   };
 }
 
-module.exports = { setLogger, status, paymentRequiredBody, settle };
+// ---------------------------------------------------------------------------
+// Coinbase CDP authentication — the mainnet facilitator refuses anonymous calls.
+//
+// Every request carries `Authorization: Bearer <JWT>`, a fresh JWT per request
+// and per path, signed with the CDP API key. Built with node:crypto alone.
+// Sources, read 2026-10-07:
+//   https://docs.cdp.coinbase.com/api-reference/v2/authentication
+//   https://docs.cdp.coinbase.com/get-started/authentication/jwt-authentication
+//   github.com/coinbase/cdp-sdk typescript/packages/cdp-sdk/src/auth/utils/jwt.ts
+// Header {alg, kid: key id, typ: "JWT", nonce: 16 random bytes hex}; claims
+// {sub: key id, iss: "cdp", iat, nbf: now, exp: now + 120, uris: ["POST
+// host/path"]}. The docs name the request claim `uri` and the SDK sends
+// `uris` (an array) — both are sent, since a verifier ignores a claim it does
+// not read. Two key formats: the current Ed25519 one (base64 of 64 bytes, seed
+// then public key → EdDSA) and the legacy EC PEM (→ ES256).
+//
+// 🔴 Not exercised against CDP: no key exists yet, and the CDP docs describe
+// only x402 v2 while this file speaks v1. Whether CDP takes a v1 "base"
+// payment is unconfirmed — the mainnet switch has to check that first.
+// ---------------------------------------------------------------------------
+
+function base64url(input) {
+  return Buffer.from(input).toString("base64url");
+}
+
+/** The CDP secret as a KeyObject and the JWS algorithm it signs with. */
+function cdpSigningKey(secret) {
+  if (secret.includes("PRIVATE KEY-----")) {
+    // An env file holds a PEM on one line with literal \n.
+    return { alg: "ES256", key: crypto.createPrivateKey(secret.replace(/\\n/g, "\n")) };
+  }
+  const raw = Buffer.from(secret, "base64");
+  if (raw.length !== 64) {
+    throw new Error("X402_CDP_API_KEY_SECRET is neither an EC PEM nor a 64-byte base64 Ed25519 key");
+  }
+  const key = crypto.createPrivateKey({
+    key: {
+      kty: "OKP",
+      crv: "Ed25519",
+      d: raw.subarray(0, 32).toString("base64url"),
+      x: raw.subarray(32).toString("base64url"),
+    },
+    format: "jwk",
+  });
+  return { alg: "EdDSA", key };
+}
+
+/**
+ * A CDP JWT for one request. Exported for the tests, which check its shape
+ * and its signature against the key's public half.
+ */
+function cdpJwt({ keyId, keySecret, method, url, now = Date.now() }) {
+  const { alg, key } = cdpSigningKey(keySecret);
+  const target = new URL(url);
+  const requestLine = `${method} ${target.host}${target.pathname}`;
+  const iat = Math.floor(now / 1000);
+
+  const header = { alg, kid: keyId, typ: "JWT", nonce: crypto.randomBytes(16).toString("hex") };
+  const claims = {
+    sub: keyId,
+    iss: "cdp",
+    iat,
+    nbf: iat,
+    exp: iat + 120,
+    uri: requestLine,
+    uris: [requestLine],
+  };
+  const signingInput = `${base64url(JSON.stringify(header))}.${base64url(JSON.stringify(claims))}`;
+  const signature =
+    alg === "EdDSA"
+      ? crypto.sign(null, Buffer.from(signingInput), key)
+      : // JWS wants r||s, not the DER node gives by default.
+        crypto.sign("sha256", Buffer.from(signingInput), { key, dsaEncoding: "ieee-p1363" });
+  return `${signingInput}.${base64url(signature)}`;
+}
+
+/**
+ * Extra headers for one facilitator call: none without a CDP key (the testnet
+ * facilitator wants none), a Bearer JWT with one. Throws on half a key.
+ */
+function authHeaders(method, url) {
+  const { cdpKeyId: keyId, cdpKeySecret: keySecret } = config.x402;
+  if (!keyId && !keySecret) return {};
+  if (!keyId || !keySecret) {
+    throw new Error(
+      `${keyId ? "X402_CDP_API_KEY_SECRET" : "X402_CDP_API_KEY_ID"} is not set but the other half is`
+    );
+  }
+  return { Authorization: `Bearer ${cdpJwt({ keyId, keySecret, method, url })}` };
+}
+
+module.exports = { setLogger, status, paymentRequiredBody, settle, cdpJwt };

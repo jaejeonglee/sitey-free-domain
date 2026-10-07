@@ -49,6 +49,9 @@ const STEPS = new Map(
     // being clicked is the measure of whether renewal works.
     "GET /renew/:token": "renew",
     "POST /api/v1/subdomains/:subdomain/:domain/renew": "renew",
+    // The paid year (services/paid-extension.js). Its own step: a payment and
+    // a free renewal answer different questions.
+    "POST /api/v1/subdomains/:subdomain/:domain/extend": "extend",
   })
 );
 
@@ -84,6 +87,24 @@ function subjectOf(request) {
   return null;
 }
 
+/**
+ * Which door the caller came in by — the `?via=` the discovery documents put
+ * on the addresses they hand out: llms.txt → llms, the ERC-8004 card → 8004,
+ * the MCP registry's server.json → registry. Counted to find out whether the
+ * 8004 door brings anybody (plan 3-5).
+ *
+ * The value is the caller's to write, so it is shaped before it reaches the
+ * log: short lowercase tokens pass, anything else is "other". Absent is null.
+ */
+const VIA = /^[a-z0-9-]{1,32}$/;
+
+function viaOf(request) {
+  const raw = request.query?.via;
+  if (raw === undefined) return null;
+  const value = String(Array.isArray(raw) ? raw[0] : raw).trim().toLowerCase();
+  return VIA.test(value) ? value : "other";
+}
+
 function stepOf(method, routePattern) {
   return STEPS.get(`${method} ${routePattern}`) || null;
 }
@@ -112,8 +133,9 @@ function fieldsFor(request, reply) {
     code: request.outcome || (reply.statusCode < 400 ? "OK" : null),
     sub: subjectOf(request),
     iph: hashIp(request.ip),
+    via: viaOf(request),
     ms: Math.round(reply.elapsedTime),
   };
 }
 
-module.exports = { fieldsFor, hashIp, subjectOf, stepOf, STEPS };
+module.exports = { fieldsFor, hashIp, subjectOf, stepOf, viaOf, STEPS };

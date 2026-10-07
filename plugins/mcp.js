@@ -23,6 +23,8 @@ const accessLog = require("../services/access-log");
 const anonCreateRate = require("../services/anon-create-rate");
 const redirectHits = require("../services/redirect-hits");
 const { LIVE_TXT_VALUE_SQL } = require("../services/txt-records");
+const x402 = require("../services/x402");
+const paidExtension = require("../services/paid-extension");
 const {
   validateHostPrefix,
   checkTxtRecordName,
@@ -555,6 +557,110 @@ function createMcpServer(fastify) {
       } catch (error) {
         fastify.log.error(error, "MCP renew_subdomain failed");
         return mcpError("Server error during renewal.");
+      }
+    }
+  );
+
+  // --- Tool: extend_subdomain ---
+  // services/paid-extension.js — the same door as POST …/extend. The payment
+  // travels as an argument for the reason the owner token does: one POST can
+  // carry several calls, and JSON-RPC has nowhere to hang a per-call header.
+  const paying = x402.status().enabled;
+  server.tool(
+    "extend_subdomain",
+    paying
+      ? `Keep a subdomain you created without an account for ${paidExtension.PAID_MONTHS} months ` +
+          `for ${paidExtension.priceText()} USDC, paid over x402, instead of renewing free every ` +
+          "month. Needs owner_token. Call it once without payment: the result carries an x402 " +
+          "payment requirement (accepts: amount, asset, payTo, network, EIP-712 domain in extra). " +
+          "Sign an EIP-3009 transfer for it, base64-encode the x402 payment payload — what an " +
+          "HTTP client would send as X-PAYMENT — and call again with it as payment. The year is " +
+          "counted from the day you pay; the result carries the transaction hash."
+      : "Paying for a year is switched off on this server, so this always answers " +
+          "PAYMENT_DISABLED. Use renew_subdomain, which is free and adds a month.",
+    {
+      subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
+      domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
+      owner_token: OWNER_TOKEN_ARG,
+      payment: z
+        .string()
+        .optional()
+        .describe("The x402 payment payload, base64 — the X-PAYMENT header value. Omit to be told what to pay."),
+    },
+    async ({ subdomain: rawSubdomain, domain: rawDomain, owner_token: ownerToken, payment }, extra) => {
+      const subdomain = (rawSubdomain || "").trim().toLowerCase();
+      const domainName = (rawDomain || "").trim().toLowerCase();
+
+      const caller = callerFor(extra, ownerToken);
+      if (caller.error) return mcpError(caller.error);
+      const auth = caller.auth;
+
+      const managedDomains = await getManagedDomains(fastify);
+      const domainEntry = managedDomains.find((d) => d.normalized === domainName);
+      if (!domainEntry) return mcpError("Domain is not managed by this service.");
+
+      const state = x402.status();
+      if (!state.enabled) {
+        return mcpErrorObj({
+          error: "Paying for a year is switched off on this server. Use renew_subdomain.",
+          code: "PAYMENT_DISABLED",
+        });
+      }
+      if (auth.mode !== "token") {
+        return mcpErrorObj({
+          error:
+            "A paid year is for a record created without an account: pass its owner_token. " +
+            "A record under an account renews for three months free.",
+          code: "OWNER_TOKEN_REQUIRED",
+        });
+      }
+
+      const record = await findOwned(fastify, auth, subdomain, domainEntry.id);
+      if (!record) return mcpError(notFoundMessage(auth));
+
+      try {
+        const result = await paidExtension.extend(fastify, {
+          recordId: record.id,
+          subdomain,
+          domain: domainEntry.domain,
+          proof: payment,
+        });
+        switch (result.state) {
+          case "extended":
+            return mcpSuccess({
+              success: true,
+              fullSubdomain: `${subdomain}.${domainEntry.domain}`,
+              expires_at: result.expiresAt,
+              transaction: result.transaction,
+              network: result.network,
+              payer: result.payer,
+            });
+          case "payment_required":
+          case "payment_invalid":
+          case "replayed":
+            return mcpErrorObj({
+              code: {
+                payment_required: "PAYMENT_REQUIRED",
+                payment_invalid: "PAYMENT_INVALID",
+                replayed: "PAYMENT_REPLAYED",
+              }[result.state],
+              ...result.body,
+            });
+          case "not_due":
+            return mcpErrorObj({
+              error: result.message,
+              code: "EXTENSION_NOT_DUE",
+              expires_at: result.expiresAt,
+              extend_from: result.opensAt,
+            });
+          case "off":
+            return mcpErrorObj({ error: result.reason, code: "PAYMENT_DISABLED" });
+          default:
+            return mcpError(notFoundMessage(auth));
+        }
+      } catch (error) {
+        fastify.log.error(error, "MCP extend_subdomain failed");
+        return mcpError("Server error during extension.");
       }
     }
   );
