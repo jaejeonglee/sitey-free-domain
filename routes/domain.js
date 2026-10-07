@@ -14,6 +14,7 @@ const { checkBlocklist, blockedMessage } = require("../services/blocklist");
 const { checkSubdomainQuota } = require("../services/quota");
 const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
 const redirectHits = require("../services/redirect-hits");
+const { LIVE_TXT_VALUE_SQL } = require("../services/txt-records");
 const {
   isValidSubdomain,
   validateRecordValue,
@@ -688,7 +689,7 @@ async function domainRoutes(fastify, options) {
         // replace; under "@" the name is theirs alone and this simply keeps
         // the append from leaving the old value behind.
         const [prevRows] = await fastify.mysql.execute(
-          "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+          LIVE_TXT_VALUE_SQL,
           [subdomainId, hostPrefix]
         );
 

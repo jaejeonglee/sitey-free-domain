@@ -14,6 +14,7 @@ const { hashKey, validateKey } = require("../services/api-key");
 const anonToken = require("../services/anon-token");
 const { checkSubdomainQuota } = require("../services/quota");
 const redirectHits = require("../services/redirect-hits");
+const { LIVE_TXT_VALUE_SQL } = require("../services/txt-records");
 const credits = require("../services/credits");
 const x402 = require("../services/x402");
 const alertService = require("../services/alert");
@@ -631,7 +632,7 @@ async function apiV1Routes(fastify, options) {
     // value is the only thing that identifies a line; under "@" the name is
     // the caller's alone, and this is what stops the append stacking values.
     const [prevRows] = await fastify.mysql.execute(
-      "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+      LIVE_TXT_VALUE_SQL,
       [record.id, hostPrefix]
     );
 
@@ -676,7 +677,7 @@ async function apiV1Routes(fastify, options) {
     // The stored value is what identifies this caller's line in the zone —
     // the TXT name itself belongs to every subdomain of the domain.
     const [txtRows] = await fastify.mysql.execute(
-      "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+      LIVE_TXT_VALUE_SQL,
       [record.id, hostPrefix]
     );
     if (!txtRows.length) {

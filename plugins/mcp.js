@@ -22,6 +22,7 @@ const { checkSubdomainQuota } = require("../services/quota");
 const accessLog = require("../services/access-log");
 const anonCreateRate = require("../services/anon-create-rate");
 const redirectHits = require("../services/redirect-hits");
+const { LIVE_TXT_VALUE_SQL } = require("../services/txt-records");
 const {
   validateHostPrefix,
   checkTxtRecordName,
@@ -761,7 +762,7 @@ function createMcpServer(fastify) {
         // tool used to write the zone without recording anything, which left
         // its records undeletable. Mirror what REST does.
         const [prevRows] = await fastify.mysql.execute(
-          "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+          LIVE_TXT_VALUE_SQL,
           [record.id, hostPrefix]
         );
 
@@ -826,7 +827,7 @@ function createMcpServer(fastify) {
 
       try {
         const [txtRows] = await fastify.mysql.execute(
-          "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+          LIVE_TXT_VALUE_SQL,
           [record.id, hostPrefix]
         );
         if (!txtRows.length) {

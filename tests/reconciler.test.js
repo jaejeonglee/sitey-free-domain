@@ -414,6 +414,63 @@ describe("the live server's state, 2026-09-08", () => {
 });
 
 // ---------------------------------------------------------------------------
+// A self-named TXT whose value is rewritten (2026-10-05, catikteam).
+//
+// The owner rewrote its `@` value every few hours. Production's unique key is
+// (subdomain_id, host_prefix, txt_value) — migration 005 — so each new value
+// was a new row, and the writers read «the previous value» with no ORDER BY,
+// which got them the *oldest* row. The zone write then removed a line that was
+// long gone and left the real previous one behind: the zone collected old
+// values, one per rewrite.
+//
+// The reconciler reported each of those as txt-zone-only — "no row claims
+// this" — when a row did: an older one of the same record. The alert sent the
+// reader looking for a record that did not exist in the database, when the
+// value was sitting right there. It is still worth reporting (the line should
+// not be in the zone, and --prune-orphans removes it), but as what it is.
+// ---------------------------------------------------------------------------
+
+describe("a self-named value that was rewritten", () => {
+  it("names a leftover value of an older row as superseded, not as having no row", () => {
+    const issues = diff({
+      zoneRecords: [{ name: "catikteam", type: "A", value: "94.156.115.193" }],
+      dbRows: [{ subdomain: "catikteam", record_type: "A", record_value: "94.156.115.193" }],
+      dbTxtRows: [
+        txtRow("catikteam", "1|t1|wss://a.example/ws", SELF),
+        txtRow("catikteam", "1|t2|wss://b.example/ws", SELF),
+        txtRow("catikteam", "1|t3|wss://c.example/ws", SELF),
+      ],
+      // t1 was removed by the first rewrite; t2 stayed behind when t3 came
+      zoneTxtLines: [
+        txtLine("catikteam", "1|t2|wss://b.example/ws"),
+        txtLine("catikteam", "1|t3|wss://c.example/ws"),
+      ],
+    });
+
+    expect(issues).toEqual([
+      {
+        type: "txt-superseded",
+        name: "catikteam",
+        recordType: "TXT",
+        subdomain: "catikteam",
+        zoneValue: "1|t2|wss://b.example/ws",
+      },
+    ]);
+  });
+
+  it("still calls a line that no row ever held zone-only", () => {
+    const issues = diff({
+      dbTxtRows: [txtRow("selfy", "v-new", SELF)],
+      zoneTxtLines: [txtLine("selfy", "v-new"), txtLine("selfy", "never-in-db")],
+    });
+
+    expect(issues).toEqual([
+      { type: "txt-zone-only", name: "selfy", recordType: "TXT", zoneValue: "never-in-db" },
+    ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // computeDiff for real: zone file off a mocked disk, rows out of a stub
 // connection. Same harness as bind-zone-write.test.js — bind.js reads config
 // at module load, so both have to be replaced before the re-require.

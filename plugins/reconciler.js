@@ -288,9 +288,36 @@ function diffTxt(zoneTxtLines, dbTxtRows) {
     }
   }
 
+  // A leftover line whose value an *older* row of the same record still holds
+  // is not "no row claims this" — it is a value that was replaced and never
+  // taken out of the zone. Reported either way (it should not be there, and
+  // --prune-orphans removes it), but under its own name, so nobody goes
+  // looking for a record the database is said not to have (catikteam,
+  // 2026-10-05: the alert said zone-only and the value was in the table).
+  // Same name only: a fossil under another name (`_vercel.stock`) stays
+  // zone-only, as it always was.
+  const liveIds = new Set(liveTxtRows(dbTxtRows).map((row) => row.id));
+  const supersededBy = new Map(); // "name|value" -> subdomain
+  for (const row of dbTxtRows) {
+    if (liveIds.has(row.id)) continue;
+    const name = bindService.txtRecordName(row.subdomain, row.host_prefix).toLowerCase();
+    supersededBy.set(`${name}|${row.txt_value}`, row.subdomain);
+  }
+
   for (const [name, values] of zoneByName) {
     for (const value of values) {
       if (explained.has(`${name}|${value}`)) continue;
+      const owner = supersededBy.get(`${name}|${value}`);
+      if (owner !== undefined) {
+        issues.push({
+          type: "txt-superseded",
+          name,
+          recordType: "TXT",
+          subdomain: owner,
+          zoneValue: value,
+        });
+        continue;
+      }
       issues.push({ type: "txt-zone-only", name, recordType: "TXT", zoneValue: value });
     }
   }
@@ -425,6 +452,7 @@ async function reconcile(fastify) {
         if (i.type === "db-only") return `[DB-ONLY] ${i.name}.${i.domain} ${i.recordType} = ${i.dbValue}`;
         if (i.type === "txt-db-only") return `[TXT-DB-ONLY] ${i.name}.${i.domain} <- ${i.subdomain} = ${i.dbValue}`;
         if (i.type === "txt-zone-only") return `[TXT-ZONE-ONLY] ${i.name}.${i.domain} = ${i.zoneValue}`;
+        if (i.type === "txt-superseded") return `[TXT-SUPERSEDED] ${i.name}.${i.domain} <- ${i.subdomain} old value still in zone = ${i.zoneValue}`;
         if (i.type === "txt-name-mismatch") return `[TXT-WRONG-NAME] ${i.subdomain}: at ${i.foundAt}.${i.domain}, should be ${i.name}.${i.domain} = ${i.dbValue}`;
         if (i.type === "txt-value-drift") return `[TXT-DRIFT] ${i.name}.${i.domain} <- ${i.subdomain} zone=${i.zoneValue} db=${i.dbValue}`;
         return `[DRIFT] ${i.name}.${i.domain} ${i.recordType} zone=${i.zoneValue} db=${i.dbValue}`;

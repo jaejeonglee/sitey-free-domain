@@ -122,3 +122,64 @@ describe("--prune-orphans delete list", () => {
     expect(unclaimed).toEqual([]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// `@` rows (2026-09-22 onward) — a TXT on the subdomain's own name.
+//
+// 🔴 The scan used to be built from each row's host_prefix, so an `@` row
+// became the pattern `^@…`, which is the zone's *apex*: the domain's SPF and
+// site verification. With one `@` row in the table, --prune-orphans --apply
+// would have deleted them. And the name an `@` row actually writes — the
+// subdomain itself — was never scanned, so a value it left behind on a
+// rewrite (catikteam, 2026-10-05) could not be cleaned up.
+// ---------------------------------------------------------------------------
+
+const selfRow = (id, subdomainId, subdomain, txt_value) => ({
+  id,
+  subdomain_id: subdomainId,
+  subdomain,
+  domain: DOMAIN,
+  host_prefix: "@",
+  txt_value,
+});
+
+describe("--prune-orphans and self-named rows", () => {
+  it("never lists the apex TXT because a row says @", () => {
+    const { unclaimed } = buildPlan(
+      [selfRow(1, 10, "test", "v=MCPv1; p=x")],
+      zoneWith(
+        '@\tIN\tTXT\t"v=spf1 include:_spf.resend.com -all"',
+        'test\tIN\tTXT\t"v=MCPv1; p=x"'
+      )
+    );
+
+    expect(unclaimed).toEqual([]);
+  });
+
+  it("lists the value a rewrite left on the subdomain's own name", () => {
+    const { unclaimed } = buildPlan(
+      [
+        selfRow(1, 10, "catikteam", "1|t1"),
+        selfRow(2, 10, "catikteam", "1|t2"),
+        selfRow(3, 10, "catikteam", "1|t3"),
+      ],
+      zoneWith('catikteam\tIN\tTXT\t"1|t2"', 'catikteam\tIN\tTXT\t"1|t3"')
+    );
+
+    expect(unclaimed).toEqual([
+      { zonePath: ZONE_PATH, domain: DOMAIN, name: "catikteam", value: "1|t2" },
+    ]);
+  });
+
+  it("only scans a self name in its own domain's zone", () => {
+    const other = config.bind.zoneFilePath("officials.my");
+    const zones = new Map([
+      [ZONE_PATH, 'test\tIN\tTXT\t"mine"'],
+      // somebody's hand-placed record on the same label in another zone
+      [other, 'test\tIN\tTXT\t"not-ours"'],
+    ]);
+    const { unclaimed } = buildPlan([selfRow(1, 10, "test", "mine")], zones);
+
+    expect(unclaimed).toEqual([]);
+  });
+});

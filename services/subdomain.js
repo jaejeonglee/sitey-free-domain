@@ -1,6 +1,7 @@
 const bindService = require("./bind");
 const alertService = require("./alert");
 const { expiryAfter } = require("./expiry");
+const { LIVE_TXT_VALUE_SQL } = require("./txt-records");
 const { TXT_SELF_NAME } = require("../utils/validators");
 
 /**
@@ -164,7 +165,7 @@ async function updateSubdomain(fastify, params) {
     // Fetch old TXT value if applicable
     if (txtRequested) {
       const [oldTxtRows] = await connection.execute(
-        "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ?",
+        LIVE_TXT_VALUE_SQL,
         [recordId, txtHostPrefix]
       );
       oldTxtValue = oldTxtRows[0]?.txt_value || null;

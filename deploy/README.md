@@ -264,6 +264,17 @@ named-checkzone sitey.one /etc/bind/db.sitey.one
 grep '"evt":"reconcile"' /root/.pm2/logs/server-out.log | jq -c 'select(.issue|startswith("txt"))'
 ```
 
+> 🔴 **2026-10-07 — 자기이름(`@`) 행이 있으면 옛 `--prune-orphans` 를 «돌리지 않는다».**
+> 옛 코드는 `host_prefix` 를 그대로 패턴으로 써서 `@` 행이 **`^@` = 존 apex** 를 훑었다 —
+> `--apply` 하면 **SPF·사이트 인증 TXT 를 지웠을 것이다.** 고친 코드(`@` 는 그 서브도메인 이름만,
+> 그 도메인 존에서만 훑는다)가 배포된 뒤에만 쓴다. `tests/migrate-vercel-txt.test.js` 가 지킨다.
+>
+> 같은 날 대조기에 **`txt-superseded`** 가 생겼다 — 존에 남은 값이 «같은 레코드의 옛 행»에 있는 경우다.
+> 예전엔 `txt-zone-only`(행 없음)로 찍혀 «DB 에 없는 값»으로 읽혔다(catikteam, 10/5).
+> 원인은 쓰는 쪽이었다: 이전 값을 `ORDER BY` 없이 읽어 **가장 옛 행**을 지우려 했고, 진짜 이전 값이 존에 남았다.
+> 이제 쓰는 쪽 여섯 곳이 `services/txt-records.js` 의 `LIVE_TXT_VALUE_SQL`(최신 id)을 쓴다.
+> 이미 쌓인 줄은 `--prune-orphans` 가 지운다(dry-run 먼저).
+
 ---
 
 ---

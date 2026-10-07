@@ -30,4 +30,18 @@ function liveTxtRows(rows) {
   return [...newest.values()];
 }
 
-module.exports = { liveTxtRows };
+/**
+ * The value a record holds now, for a writer about to replace or delete it —
+ * the same rule as liveTxtRows (newest `id` wins), in SQL.
+ *
+ * 🔴 Without the ORDER BY, InnoDB answers in index order, and the index is
+ * (subdomain_id, host_prefix, txt_value) — so "the previous value" was the
+ * alphabetically first, which for a timestamped value is the oldest. Each
+ * rewrite then removed a line that was already gone and left the real
+ * previous one in the zone (catikteam, 2026-10-05). Every writer uses this.
+ */
+const LIVE_TXT_VALUE_SQL =
+  "SELECT txt_value FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ? " +
+  "ORDER BY id DESC LIMIT 1";
+
+module.exports = { liveTxtRows, LIVE_TXT_VALUE_SQL };

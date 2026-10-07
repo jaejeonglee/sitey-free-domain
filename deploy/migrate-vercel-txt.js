@@ -23,6 +23,7 @@ const fs = require("fs").promises;
 const config = require("../configs/index");
 const bindService = require("../services/bind");
 const { liveTxtRows } = require("../services/txt-records");
+const { TXT_SELF_NAME } = require("../utils/validators");
 
 const APPLY = process.argv.includes("--apply");
 // Off by default, and even then it still needs --apply. The lines it removes
@@ -83,7 +84,22 @@ function buildPlan(rows, zones) {
   //
   // Which *names* are scanned still comes from every row: the fossil name only
   // exists because a row that is now superseded was written there.
-  const prefixes = [...new Set(rows.map((r) => r.host_prefix))];
+  //
+  // 🔴 `@` is not a prefix. Read as one it becomes the pattern `^@`, which is
+  // the zone's apex — SPF and site verification — and this is a delete list.
+  // An `@` row writes on the subdomain's own name, so that exact name is
+  // scanned instead, and only in that row's own zone (the same label in
+  // another zone is somebody else's).
+  const prefixes = [
+    ...new Set(rows.map((r) => r.host_prefix).filter((p) => p !== TXT_SELF_NAME)),
+  ];
+  const selfNames = new Map(); // zonePath -> Set of subdomain labels
+  for (const r of rows) {
+    if (r.host_prefix !== TXT_SELF_NAME) continue;
+    const zonePath = config.bind.zoneFilePath(r.domain);
+    if (!selfNames.has(zonePath)) selfNames.set(zonePath, new Set());
+    selfNames.get(zonePath).add(r.subdomain);
+  }
   const claimed = new Set(
     live.map((r) => `${config.bind.zoneFilePath(r.domain)} ${r.txt_value}`)
   );
@@ -92,9 +108,13 @@ function buildPlan(rows, zones) {
   );
   const unclaimed = [];
   for (const [zonePath, zone] of zones) {
-    for (const prefix of prefixes) {
+    const patterns = [
+      ...prefixes.map((prefix) => `${escapeRegex(prefix)}(?:\\.\\S+)?`),
+      ...[...(selfNames.get(zonePath) || [])].map((name) => escapeRegex(name)),
+    ];
+    for (const pattern of patterns) {
       const scan = new RegExp(
-        `^(${escapeRegex(prefix)}(?:\\.\\S+)?)[ \\t]+IN[ \\t]+TXT[ \\t]+"([^"]*)"`,
+        `^(${pattern})[ \\t]+IN[ \\t]+TXT[ \\t]+"([^"]*)"`,
         "gim"
       );
       let match;
