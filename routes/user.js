@@ -101,7 +101,8 @@ async function userRoutes(fastify, options) {
           sessionId,
         });
 
-        // Set HttpOnly cookie
+        // Set HttpOnly cookie. `__Host-` (plugins/auth.js) requires exactly
+        // this: secure, path "/", and no domain — do not add one.
         reply.setCookie(fastify.COOKIE_NAME, token, {
           httpOnly: true,
           secure: true,
@@ -150,12 +151,16 @@ async function userRoutes(fastify, options) {
         );
       }
 
-      reply.clearCookie(fastify.COOKIE_NAME, {
-        httpOnly: true,
-        secure: true,
-        sameSite: "strict",
-        path: "/",
-      });
+      // Both names: the old one is never read any more, but a browser that
+      // still carries it should not keep it after saying goodbye.
+      for (const name of [fastify.COOKIE_NAME, fastify.LEGACY_COOKIE_NAME]) {
+        reply.clearCookie(name, {
+          httpOnly: true,
+          secure: true,
+          sameSite: "strict",
+          path: "/",
+        });
+      }
 
       return reply.send({ success: true });
     }

@@ -40,7 +40,7 @@ beforeAll(async () => {
 afterAll(() => app.close());
 
 const cookieFor = (user) =>
-  `sitey_token=${app.jwt.sign({ id: user.id, email: user.email, sessionId: "s1" })}`;
+  `__Host-sitey_token=${app.jwt.sign({ id: user.id, email: user.email, sessionId: "s1" })}`;
 
 describe("who may see /admin", () => {
   it("is on the list by default — Jay's account", () => {
@@ -63,7 +63,7 @@ describe("who may see /admin", () => {
     });
 
     it(`${url}: a forged token is 404`, async () => {
-      const res = await app.inject({ method: "GET", url, headers: { cookie: "sitey_token=not.a.jwt" } });
+      const res = await app.inject({ method: "GET", url, headers: { cookie: "__Host-sitey_token=not.a.jwt" } });
       expect(res.statusCode).toBe(404);
     });
   }
