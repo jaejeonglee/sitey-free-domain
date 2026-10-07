@@ -684,6 +684,7 @@ NODE_ENV=production pm2 restart server --update-env
 ⚠️ **웹 대시보드에는 402 가 절대 안 나간다.** 402 로 내려면 지갑이 있어야 하는데
 브라우저 앞의 사람에게 「지갑부터 만드세요」는 곧 이탈이다. 402 는 `POST /api/v1/subdomains` 한 곳뿐이고,
 MCP 에도 없다(JSON-RPC 결과에는 상태코드를 담을 자리가 없다).
+> 2026-10-07 덧붙임: **«1년 연장» 은 별개다** — `POST …/extend`(402) 와 MCP `extend_subdomain`(결과 안에 결제 요구서) 에도 결제가 있다. 둘 다 같은 `X402_ENABLED` 로 꺼져 있다. 11절.
 
 ### 🔎 관찰 모드 로그를 어떻게 세나 — 이게 이 작업의 산출물이다
 
@@ -954,3 +955,71 @@ mysql -u <user> -p <db> -e "SELECT id, created_at, target FROM abuse_reports ORD
 ### 운영 — 차단·신고 다루기
 
 `.claude/docs/runbooks/abuse.md`.
+
+---
+
+## 11. ERC-8004 소개 카드 · llms.txt 신원 줄 · 입구 꼬리표 · «1년 = 1 USDC» (2026-10-07)
+
+Jay 「8004, 지갑결제 쪽이야. 그리고 8004를 찾아서 들어올 수 있도록 색인작업까지」 → 「테스트넷 미리 해보자」(10/7 17:01).
+스펙 `scratchpad/agent-8004-spec.md` 맨 위 절. 커밋 `d8d62d3`.
+
+### 🔴 운영은 «아무 설정도 안 넣고» 배포한다 — 그러면 바뀌는 건 무해한 것뿐이다
+
+| 무엇 | 운영 기본(설정 없음)에서 |
+|---|---|
+| `GET /.well-known/agent-registration.json` | **새로 나온다.** `registrations: []`, `x402Support: false`, MCP 주소 `…/mcp?via=8004` |
+| `/llms.txt` 맨 위 | 「Identity: ERC-8004 agent card — <카드 주소>」 + 「MCP: …/mcp?via=llms (no account needed)」. 그 아래 기존 본문 그대로 |
+| 접근 로그 `evt:"http"` | `via` 필드가 붙는다(없으면 `null`). 나머지 필드 그대로 |
+| `POST /api/v1/subdomains/:s/:d/extend` · MCP `extend_subdomain` | **403 `PAYMENT_DISABLED`** — 402 가 아니다. 「월 무료 갱신을 쓰라」고 말한다 |
+| 익명 무료 월 갱신 `POST …/renew` · 한도 · 보안 묶음 | **안 바뀐다** |
+| 마이그레이션 | **없다.** 결제 기록은 기존 `credit_entries`(004) 를 쓴다 — 결제를 켤 때만 필요 |
+
+`server.json` 의 MCP 주소가 `?via=registry` 로 바뀌었다. **공식 MCP 목록에는 다시 올려야 반영된다**(파일만 바뀜).
+
+### 새 설정 — 전부 비어 있는 게 기본
+
+| 이름 | 기본 | 뜻 |
+|---|---|---|
+| `AGENT_ID` | 없음 | 8004 `register` 가 돌려준 번호. `AGENT_REGISTRY` 와 **둘 다** 있어야 카드에 들어간다 |
+| `AGENT_REGISTRY` | 없음 | `eip155:<chainId>:<IdentityRegistry 주소>`. 형식이 틀리면 **부팅 실패**(fail-close) |
+| `AGENT_NAME` | `sitey` | 카드의 `name` |
+| `AGENT_EMAIL` | 없음 | 있으면 카드 `services` 에 `email` 한 줄. 없으면 안 넣는다(받는 사람이 없는 주소를 약속하지 않는다) |
+| `X402_EXTEND_PRICE_MICROS` | `1000000` | «1년 연장» 가격(백만분의 1 단위, 1.00) |
+| `X402_CDP_API_KEY_ID` · `X402_CDP_API_KEY_SECRET` | 없음 | 메인넷 CDP facilitator 용. **둘 다** 있으면 매 호출에 `Authorization: Bearer <JWT>`. 하나만 있으면 facilitator 를 **부르지 않고** 결제 실패로 답한다 |
+| `X402_USDC_EIP712_NAME` · `_VERSION` | 표에서 | 지갑이 서명할 토큰 도메인. 비우면 base-sepolia=`USDC`/`2`, base=`USD Coin`/`2` |
+
+8004 레지스트리 주소(erc-8004/erc-8004-contracts README, 2026-10-07 확인):
+- Base Sepolia `eip155:84532:0x8004A818BFB912233c491871b3d84c89A494BD9e`
+- Base `eip155:8453:0x8004A169FB4a3325136EB29fA0ceB6D2e539a432`
+
+USDC 주소(https://developers.circle.com/stablecoins/usdc-contract-addresses, 2026-10-07 확인) — 기존 규칙대로 **기본값으로 넣지 않았다**(`X402_USDC_ADDRESS` 에 직접):
+- base-sepolia `0x036CbD53842c5426634e7929541eC2318f3dCF7e`
+- base `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+
+### 테스트넷 설정(로컬 E2E 가 쓰는 값) — 운영에 넣지 않는다
+
+```
+X402_ENABLED=true
+X402_PAY_TO=<테스트 지갑 payee 주소>
+X402_NETWORK=base-sepolia
+X402_USDC_ADDRESS=0x036CbD53842c5426634e7929541eC2318f3dCF7e
+X402_FACILITATOR_URL=https://x402.org/facilitator
+X402_TIMEOUT_MS=30000
+```
+실행 순서·필요 잔액은 저장소 밖 `/Users/jarvis/Develop/sitey-x402-e2e/README.md`.
+
+⚠️ **`X402_TIMEOUT_MS` 는 402 의 `maxTimeoutSeconds`(= ÷1000)도 정한다.** 표준 클라이언트는 그 초만큼만 유효한 서명을 만든다.
+기본 10초면 facilitator 의 「지금+6초 이후」 검사를 빼고 4초가 남는다 — 메인넷을 켤 때 30 이상으로 둔다(기존 동작이라 코드는 안 바꿨다).
+
+### 1년 연장 — 무엇을 하나
+
+- **owner_token 을 가진 호출자만**(계정 레코드는 3개월 무료라 대상 아님 → `OWNER_TOKEN_REQUIRED`).
+- 첫 호출 = 402(1.00 USDC, `extra` 에 토큰 서명 도메인). `x-payment` 로 재호출 → **verify → settle → `credit_entries` 한 줄(user_id NULL — 이름 한도에 안 들어간다) → `expires_at` = 오늘부터 12개월.** 응답에 `transaction`(거래 해시)·`network`·`payer`.
+- 같은 정산을 두 번 내면 `(channel, reference)` 유니크로 거절(`PAYMENT_REPLAYED`).
+- **유료 1년이 아직 한 달 넘게 남았으면 돈을 묻기 전에 409 `EXTENSION_NOT_DUE`** — 1년은 오늘부터 세므로 그때 내면 거의 아무것도 못 산다. 날짜를 같이 말한다.
+- 기록 실패(테이블 없음)·날짜 쓰기 실패는 **돈이 이미 움직인 뒤**라 텔레그램 critical(`PAYMENT_UNRECORDED` / `PAID_EXTENSION_NOT_WRITTEN`).
+
+### 확인 못 한 것
+
+- 🔴 **CDP facilitator 는 실제로 안 불러봤다** — 키가 없다. JWT 형식은 CDP 문서 + cdp-sdk 소스로 맞췄고(요청 클레임은 문서 `uri`·SDK `uris` 둘 다 보냄), **CDP 문서는 x402 v2 만 적혀 있다. 우리는 v1** — 메인넷 전환 전에 CDP 가 v1 `base` 를 받는지 먼저 확인해야 한다.
+- 8004scan 이 Base Sepolia 를 색인하는지 모른다.
