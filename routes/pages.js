@@ -95,6 +95,20 @@ const PAGES = {
       "What sitey collects, why, how long it is kept, and who processes it.",
     markdown: ["legal", "privacy"],
   },
+  "/terms": {
+    title: `Terms of Use — ${SITE_TITLE_SUFFIX}`,
+    description:
+      "What a name on sitey may not be used for, when it can be taken down, and what needs an account.",
+    markdown: ["legal", "terms"],
+  },
+  // The page carries its own form (in the markdown) and public/modules/abuse.js
+  // wires it; without JavaScript the browser posts the form itself.
+  "/abuse": {
+    title: `Report abuse — ${SITE_TITLE_SUFFIX}`,
+    description:
+      "Report a sitey name used for phishing, malware or spam. No account needed.",
+    markdown: ["pages", "abuse"],
+  },
   "/about": {
     title: `About — ${SITE_TITLE_SUFFIX}`,
     description:

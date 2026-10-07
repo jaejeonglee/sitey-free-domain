@@ -4,12 +4,21 @@ import { initializeDashboardPage } from './dashboard.js';
 import { initializeDocsPage } from './docs.js';
 import { initializeBlogPage } from './blog.js';
 import { initializeAdminPage } from './admin.js';
+import { initializeAbuseForm } from './abuse.js';
 import { renderNavbar } from './ui.js';
 import { applyTranslations, loadLang, getLang } from './i18n.js';
 import { getCurrentUser } from './api.js';
 
 // Paths the server fills in; the client must not paint over them.
-const SERVER_RENDERED = new Set(["/privacy", "/about"]);
+// 🔴 A new markdown page in routes/pages.js goes here too — otherwise the
+// router swaps the home template in and the body vanishes a moment after it
+// appears (2026-09-14).
+const SERVER_RENDERED = new Set(["/privacy", "/about", "/terms", "/abuse"]);
+
+// What a server-rendered page still needs from the client, if anything.
+const SERVER_RENDERED_INIT = {
+    "/abuse": initializeAbuseForm,
+};
 
 const routes = {
     "/": { templateId: "template-home", init: initializeLandingPage, title: "Sitey — your AI-built site, on your own address" },
@@ -89,6 +98,7 @@ export async function router() {
   renderNavbar(path);
   applyTranslations();
   if (!serverRendered) route.init();
+  else SERVER_RENDERED_INIT[path]?.();
 
   // KR·EN. The header is rebuilt on every route, so the buttons are wired
   // here rather than once at boot — and re-running the router is what repaints

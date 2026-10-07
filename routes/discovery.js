@@ -31,6 +31,15 @@ async function discoveryRoutes(fastify, options) {
     reply.type("application/json; charset=utf-8").header("Cache-Control", CACHE).send(openApi)
   );
 
+  // RFC 9116 — services/discovery.js securityTxt. Expires is computed per
+  // request, a year out, so a day's caching never serves a stale one.
+  fastify.get("/.well-known/security.txt", async (request, reply) =>
+    reply
+      .type("text/plain; charset=utf-8")
+      .header("Cache-Control", "public, max-age=86400")
+      .send(discovery.securityTxt({ origin }))
+  );
+
   // Markdown, served as text/plain: llmstxt.org asks for a file a reader can
   // take in without parsing anything, and a browser that lands on it should
   // show it rather than offer to download it.

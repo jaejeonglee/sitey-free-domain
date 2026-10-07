@@ -754,4 +754,24 @@ function llmsTxt({ origin, domains }) {
   ].join("\n");
 }
 
-module.exports = { SUMMARY, API_PREFIX, hostOf, limitNotes, mcpManifest, openApi, llmsTxt };
+/**
+ * /.well-known/security.txt (RFC 9116). Contact is the /abuse page — it takes
+ * a report with no account, which is what a researcher or a security vendor
+ * needs. Expires is a year from the moment it is asked for, so the file can
+ * never go stale the way a file on disk would.
+ */
+function securityTxt({ origin, now = new Date() }) {
+  const expires = new Date(now.getTime() + 365 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .replace(/\.\d{3}Z$/, "Z");
+  return [
+    `Contact: ${origin}/abuse`,
+    `Expires: ${expires}`,
+    "Preferred-Languages: en, ko",
+    `Canonical: ${origin}/.well-known/security.txt`,
+    `Policy: ${origin}/terms`,
+    "",
+  ].join("\n");
+}
+
+module.exports = { SUMMARY, API_PREFIX, hostOf, limitNotes, mcpManifest, openApi, llmsTxt, securityTxt };
