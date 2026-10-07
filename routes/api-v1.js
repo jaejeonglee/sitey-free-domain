@@ -8,6 +8,8 @@ const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../servic
 const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
+const { checkAnonTarget, TXT_ACCOUNT_REQUIRED_MESSAGE } = require("../services/abuse-policy");
+const { checkBlocklist, blockedMessage } = require("../services/blocklist");
 const { hashKey, validateKey } = require("../services/api-key");
 const anonToken = require("../services/anon-token");
 const { checkSubdomainQuota } = require("../services/quota");
@@ -217,6 +219,35 @@ async function resolveDomain(fastify, rawDomain) {
   return entry;
 }
 
+/**
+ * Refuse a caller on the blocklist (services/blocklist.js) — by the name it is
+ * writing, the owner token it holds, or the address it came from. Asked on
+ * create, value change and TXT write.
+ */
+async function refuseIfBlocked(fastify, request, auth, subdomain) {
+  const hit = await checkBlocklist(fastify, {
+    name: subdomain,
+    tokenHash: auth.mode === "token" ? auth.tokenHash : null,
+    ip: getClientIp(request),
+  });
+  if (hit.blocked) {
+    request.log.warn({ evt: "blocklist", kind: hit.kind, sub: subdomain }, "Blocked caller refused");
+    apiError(403, blockedMessage(config.server.publicOrigin), "BLOCKED");
+  }
+}
+
+/**
+ * A caller with no account may not point a name at a temporary tunnel
+ * (services/abuse-policy.js). An API key may.
+ */
+function refuseAnonTarget(auth, recordType, recordValue) {
+  if (auth.mode === "apikey") return;
+  const target = checkAnonTarget(recordType, recordValue);
+  if (!target.ok) {
+    apiError(403, target.message, "TUNNEL_TARGET_FORBIDDEN");
+  }
+}
+
 async function apiV1Routes(fastify, options) {
   // --- Auth preHandler ---
   fastify.addHook("preHandler", async (request, reply) => {
@@ -302,8 +333,13 @@ async function apiV1Routes(fastify, options) {
       apiError(400, "Record value is required.", "INVALID_INPUT");
     }
 
-    const blacklistCheck = isBlacklisted(subdomain);
+    // Brands are refused for everyone; words like "login" only without an
+    // account, and that refusal names the way round (services/blacklist.js).
+    const blacklistCheck = isBlacklisted(subdomain, { anonymous: auth.mode !== "apikey" });
     if (blacklistCheck.blocked) {
+      if (blacklistCheck.code === "ACCOUNT_REQUIRED") {
+        apiError(403, blacklistCheck.reason, "ACCOUNT_REQUIRED");
+      }
       apiError(400, blacklistCheck.reason, "BLACKLISTED");
     }
 
@@ -320,6 +356,10 @@ async function apiV1Routes(fastify, options) {
       apiError(400, validation.message, validation.code || "INVALID_INPUT");
     }
     const recordValue = validation.value;
+    refuseAnonTarget(auth, recordType, recordValue);
+
+    // Ahead of the quota, so a blocked caller is never offered a payment.
+    await refuseIfBlocked(fastify, request, auth, subdomain);
 
     // How many this caller already holds. An account is refused only once
     // SUBDOMAIN_LIMIT_ENFORCED is switched on; the anonymous ceiling is an
@@ -442,6 +482,8 @@ async function apiV1Routes(fastify, options) {
       apiError(400, validation.message, validation.code || "INVALID_INPUT");
     }
     const recordValue = validation.value;
+    refuseAnonTarget(auth, recordType, recordValue);
+    await refuseIfBlocked(fastify, request, auth, subdomain);
 
     // Reachability, recorded rather than enforced — as on create.
     const reach = await noteReachability(request.log, {
@@ -528,6 +570,15 @@ async function apiV1Routes(fastify, options) {
     const domainEntry = await resolveDomain(fastify, request.params.domain);
     const { host_prefix: rawHostPrefix, value: rawTxtValue, root_level: rootLevel } = request.body || {};
 
+    // 🔴 No TXT without an account (2026-10-07). An anonymous self-named TXT
+    // is how a malware contact point was published through us; an API key is
+    // somebody we can write to and switch off. Asked before anything else so
+    // the answer does not depend on what else was wrong with the request.
+    // Deleting stays open to anonymous owners — routes below.
+    if (auth.mode !== "apikey") {
+      apiError(403, TXT_ACCOUNT_REQUIRED_MESSAGE, "ACCOUNT_REQUIRED");
+    }
+
     if (!rawHostPrefix || !rawTxtValue) {
       apiError(400, "host_prefix and value are required.", "INVALID_INPUT");
     }
@@ -562,6 +613,7 @@ async function apiV1Routes(fastify, options) {
 
     // Ownership of parent subdomain
     const record = await findOwnedRecord(fastify, auth, subdomain, domainEntry);
+    await refuseIfBlocked(fastify, request, auth, subdomain);
 
     // A TXT on the subdomain's own name cannot sit beside a CNAME — the
     // refusal names itself, CNAME_CANNOT_HOLD_TXT. Asked here

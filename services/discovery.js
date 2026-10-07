@@ -24,6 +24,7 @@ const config = require("../configs/index");
 const expiry = require("./expiry");
 const x402 = require("./x402");
 const { TXT_SELF_NAME } = require("../utils/validators");
+const { ANON_KEYWORDS } = require("./blacklist");
 
 const SUMMARY =
   "Free subdomains with the DNS behind them: claim a name, point it at an address " +
@@ -59,6 +60,7 @@ function limitNotes() {
       "again. Records created before tokens existed are still identified by the IP address " +
       `that made them. Either way the ${limit} is enforced, per token or per address.`
   );
+  notes.push(anonRulesNote());
   notes.push(
     `A name is lent, not given: ${expiry.USER_MONTHS} months for a record owned by an ` +
       `account, ${expiry.AGENT_MONTHS} month for one created without one. Every response ` +
@@ -86,6 +88,20 @@ function limitNotes() {
   }
 
   return notes;
+}
+
+/**
+ * What a caller with no account cannot do (2026-10-07), from the lists that
+ * enforce it — services/blacklist.js and config.abuse.
+ */
+function anonRulesNote() {
+  return (
+    "Without an account (an API key from the dashboard) three things are refused: " +
+    "TXT records (ACCOUNT_REQUIRED); a CNAME or REDIRECT pointing at a temporary tunnel — " +
+    `${config.abuse.anonTunnelDomains.join(", ")} — (TUNNEL_TARGET_FORBIDDEN); and names ` +
+    `containing ${ANON_KEYWORDS.join(", ")} (ACCOUNT_REQUIRED). An API key lifts all three. ` +
+    "Brand names (toss, kakao, paypal and the like) are refused for everyone."
+  );
 }
 
 /**
@@ -131,7 +147,7 @@ function mcpManifest({ origin, domains }) {
         "`owner_token` tool argument over MCP, to manage the record from any address. " +
         "`Authorization: Bearer styo_…` — an API key from the dashboard — puts the records " +
         "under an account instead. A key is an account, not a larger allowance: both hold " +
-        "the same number.",
+        "the same number. TXT records need the key.",
     },
     limits: limitNotes().join(" "),
   };
@@ -336,7 +352,7 @@ function operations(origin) {
             "INVALID_REDIRECT_URL — a REDIRECT value that is not an absolute https:// URL, or is too long. " +
             "REDIRECT_LOOP — a REDIRECT value under one of the roots served here; two of those could chase each other. " +
             "INVALID_DOMAIN — that root is not managed here. " +
-            "BLACKLISTED — the name is reserved."
+            "BLACKLISTED — the name is reserved, or carries a brand name."
         ),
         402: {
           description:
@@ -357,7 +373,14 @@ function operations(origin) {
             },
           },
         },
-        403: fail("LIMIT_REACHED — the caller is holding as many as they may. The message says both numbers."),
+        403: fail(
+          "LIMIT_REACHED — the caller is holding as many as they may. The message says both numbers. " +
+            "ACCOUNT_REQUIRED — the name carries a word (login, wallet and the like) that only an " +
+            "account may use; send an API key. " +
+            "TUNNEL_TARGET_FORBIDDEN — without an account, a CNAME or REDIRECT may not point at a " +
+            "temporary tunnel host; send an API key. " +
+            "BLOCKED — this name, token or address has been turned away. The message says where to write."
+        ),
         409: fail("SUBDOMAIN_TAKEN — somebody else has it."),
       },
     },
@@ -410,7 +433,11 @@ function operations(origin) {
             "REDIRECT_LOOP — for a REDIRECT, a URL under one of the roots served here. " +
             "INVALID_DOMAIN — that root is not managed here."
         ),
-        403: fail("FORBIDDEN — no such record under this caller. Deliberately the same answer as one that exists and belongs to somebody else."),
+        403: fail(
+          "FORBIDDEN — no such record under this caller. Deliberately the same answer as one that exists and belongs to somebody else. " +
+            "TUNNEL_TARGET_FORBIDDEN — without an account, the new target may not be a temporary tunnel host. " +
+            "BLOCKED — this name, token or address has been turned away."
+        ),
       },
     },
 
@@ -453,6 +480,9 @@ function operations(origin) {
     "POST /api/v1/subdomains/{subdomain}/{domain}/txt": {
       summary: "Add the TXT record a host asks for",
       description:
+        "Needs an account: send an API key from the dashboard as `Authorization: Bearer styo_…`. " +
+        "An owner token or no header at all is refused with ACCOUNT_REQUIRED (deleting one you " +
+        "already hold still works with the token). " +
         "Two places a TXT record can go, and `host_prefix` picks. " +
         `${prefixes.map((p) => `\`${p}\``).join(", ")} writes it at the root domain, which is ` +
         "where a verification service looks when the root is not on the Public Suffix List; " +
@@ -491,7 +521,11 @@ function operations(origin) {
             "ROOT_LEVEL_FORBIDDEN — the `root_level` flag is gone; every TXT record is written " +
             "at the root now, so the flag selects nothing. Omit it."
         ),
-        403: fail("FORBIDDEN — no such subdomain under this caller to hang a TXT record on."),
+        403: fail(
+          "ACCOUNT_REQUIRED — no API key on the request; TXT records need an account. " +
+            "FORBIDDEN — no such subdomain under this caller to hang a TXT record on. " +
+            "BLOCKED — this name or address has been turned away."
+        ),
       },
     },
 
@@ -669,6 +703,10 @@ function llmsTxt({ origin, domains }) {
     "a record owned by a token is not reachable without it. An API key from the dashboard",
     "puts the records under an account instead.",
     "",
+    "TXT records need an account: send the API key as `Authorization: Bearer styo_…`. Without",
+    "one, TXT is refused with `ACCOUNT_REQUIRED`, and so is a CNAME or REDIRECT pointing at a",
+    "temporary tunnel host (`TUNNEL_TARGET_FORBIDDEN`). The Limits section lists both.",
+    "",
     "The name comes first: a record whose target is not serving yet is created all the same,",
     "with `reachable: false` in the response saying so. Claim the address, then deploy to it.",
     "",
@@ -710,6 +748,8 @@ function llmsTxt({ origin, domains }) {
     "",
     `- [Docs](${origin}/docs): the same ground for a person, with the Vercel setup written out.`,
     `- [Blog](${origin}/blog): notes on running the service.`,
+    `- [Terms](${origin}/terms): what a name here may not be used for.`,
+    `- [Report abuse](${origin}/abuse): no account needed.`,
     "",
   ].join("\n");
 }

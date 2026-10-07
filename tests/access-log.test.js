@@ -115,6 +115,9 @@ describe("access log", () => {
     });
   });
 
+  // Anonymous, so since 2026-10-07 the refusal is ACCOUNT_REQUIRED before the
+  // root_level flag is even read. What this checks is unchanged: the code the
+  // caller got is the code the log line carries.
   it("carries the v1 error code through to the log", async () => {
     await app.inject({
       method: "POST",
@@ -124,8 +127,8 @@ describe("access log", () => {
 
     expect(lastLine()).toMatchObject({
       step: "connect",
-      st: 400,
-      code: "ROOT_LEVEL_FORBIDDEN",
+      st: 403,
+      code: "ACCOUNT_REQUIRED",
     });
   });
 

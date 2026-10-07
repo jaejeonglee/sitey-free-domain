@@ -97,6 +97,10 @@ function scriptedDb({ existingTxt = [] } = {}) {
   return vi.fn(async (sql) => {
     if (sql.includes("FROM managed_domains")) return [[{ id: DOMAIN_ID, domain_name: DOMAIN }]];
     if (sql.includes("COUNT(*) AS cnt FROM subdomains")) return [[{ cnt: 0 }]];
+    // any styo_ key is a user — the TXT route takes an account since 2026-10-07
+    if (sql.includes("FROM api_keys ak JOIN users u")) {
+      return [[{ key_id: 1, user_id: USER_ID, email: "a@example.com", name: "A" }]];
+    }
     // ownership lookups, for the update paths
     if (/^SELECT (s\.id, s\.record_type|id, record_type)/.test(sql)) {
       return [[{ id: 42, record_type: "A" }]];
@@ -425,6 +429,7 @@ describe("the TXT route is untouched", () => {
     const res = await app.inject({
       method: "POST",
       url: `/api/v1/subdomains/demo/${DOMAIN}/txt`,
+      headers: { authorization: `Bearer styo_${"a".repeat(32)}` },
       payload: { host_prefix: prefix, value: "vc-domain-verify=demo,tok" },
     });
 

@@ -14,6 +14,8 @@ const { createSubdomain, updateSubdomain, deleteSubdomain } = require("../servic
 const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
+const { checkAnonTarget, TXT_ACCOUNT_REQUIRED_MESSAGE } = require("../services/abuse-policy");
+const { checkBlocklist, blockedMessage } = require("../services/blocklist");
 const { hashKey, validateKey } = require("../services/api-key");
 const anonToken = require("../services/anon-token");
 const { checkSubdomainQuota } = require("../services/quota");
@@ -52,7 +54,15 @@ async function resolveAuth(fastify, request) {
     if (!user) {
       return { mode: "invalid_key" };
     }
-    return { mode: "apikey", userId: user.user_id, email: user.email, name: user.name };
+    // The address rides along for the blocklist only — it proves nothing
+    // about ownership on this branch.
+    return {
+      mode: "apikey",
+      userId: user.user_id,
+      email: user.email,
+      name: user.name,
+      ip: getClientIp(request),
+    };
   }
   return { mode: "ip", ip: getClientIp(request) };
 }
@@ -163,6 +173,28 @@ function mcpValidateRecordValue(recordType, value, subdomain, domain) {
   return validateRecordValue(recordType, value, { subdomain, domain });
 }
 
+/**
+ * The refusal for a caller on the blocklist, or null to carry on — by name,
+ * owner token or address (services/blocklist.js). Same check as REST.
+ */
+async function blockedResult(fastify, auth, subdomain) {
+  const hit = await checkBlocklist(fastify, {
+    name: subdomain,
+    tokenHash: auth.mode === "token" ? auth.tokenHash : null,
+    ip: auth.ip,
+  });
+  if (!hit.blocked) return null;
+  fastify.log.warn({ evt: "blocklist", kind: hit.kind, sub: subdomain }, "Blocked caller refused");
+  return mcpErrorObj({ error: blockedMessage(config.server.publicOrigin), code: "BLOCKED" });
+}
+
+/** A tunnel target without an account, or null to carry on (services/abuse-policy.js). */
+function anonTargetResult(auth, recordType, recordValue) {
+  if (auth.mode === "apikey") return null;
+  const target = checkAnonTarget(recordType, recordValue);
+  return target.ok ? null : mcpErrorObj({ error: target.message, code: target.code });
+}
+
 function mcpError(message) {
   return { content: [{ type: "text", text: JSON.stringify({ error: message }) }], isError: true };
 }
@@ -268,7 +300,8 @@ function createMcpServer(fastify) {
     "Create a new DNS record for a subdomain. Supports A records (IP address), CNAME records (hostname) and REDIRECT records (an https:// URL — visitors to the name are sent there with a 301). Example: create demo.sitey.my pointing to 1.2.3.4. " +
       "No account, API key or signup is needed. " +
       "The target does not have to be serving yet: claim the name first and deploy to it second if that is your order. The result carries reachable:false when nothing answered, and the record is created either way. " +
-      "If you send no owner_token, the result carries a new one under 'owner_token' — save it, it is shown once and is the only way to change or delete this record later.",
+      "If you send no owner_token, the result carries a new one under 'owner_token' — save it, it is shown once and is the only way to change or delete this record later. " +
+      "Without an API key, a CNAME or REDIRECT may not point at a temporary tunnel (trycloudflare.com, ngrok and the like), names containing words such as login or wallet are refused with ACCOUNT_REQUIRED, and TXT records are not available.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
@@ -296,9 +329,9 @@ function createMcpServer(fastify) {
         return mcpError("Invalid subdomain format.");
       }
 
-      const blacklistCheck = isBlacklisted(subdomain);
+      const blacklistCheck = isBlacklisted(subdomain, { anonymous: auth.mode !== "apikey" });
       if (blacklistCheck.blocked) {
-        return mcpError(blacklistCheck.reason);
+        return mcpErrorObj({ error: blacklistCheck.reason, code: blacklistCheck.code });
       }
 
       const managedDomains = await getManagedDomains(fastify);
@@ -310,6 +343,11 @@ function createMcpServer(fastify) {
       const validation = mcpValidateRecordValue(recordType, value, subdomain, domainEntry.domain);
       if (!validation.valid) return mcpError(validation.message);
       const recordValue = validation.value;
+
+      const tunnel = anonTargetResult(auth, recordType, recordValue);
+      if (tunnel) return tunnel;
+      const blocked = await blockedResult(fastify, auth, subdomain);
+      if (blocked) return blocked;
 
       // Counted per caller, not per process — services/anon-create-rate.js.
       // The subject is whatever the access log calls this caller: `t:` and the
@@ -556,6 +594,11 @@ function createMcpServer(fastify) {
       if (!validation.valid) return mcpError(validation.message);
       const recordValue = validation.value;
 
+      const tunnel = anonTargetResult(auth, recordType, recordValue);
+      if (tunnel) return tunnel;
+      const blocked = await blockedResult(fastify, auth, subdomain);
+      if (blocked) return blocked;
+
       // Recorded rather than enforced — as on create.
       const reach = await noteReachability(fastify.log, {
         recordType,
@@ -638,7 +681,8 @@ function createMcpServer(fastify) {
   // --- Tool: create_txt_record ---
   server.tool(
     "create_txt_record",
-    "Create or update a TXT record for domain verification. Used for services like Vercel (_vercel) and Netlify that require DNS-based ownership proof. The record is placed at the root domain under the prefix you give (e.g. _vercel.sitey.my), alongside the other owners' values — that is the name Vercel reads for a subdomain of sitey.my.",
+    "Create or update a TXT record for domain verification. Used for services like Vercel (_vercel) and Netlify that require DNS-based ownership proof. The record is placed at the root domain under the prefix you give (e.g. _vercel.sitey.my), alongside the other owners' values — that is the name Vercel reads for a subdomain of sitey.my. " +
+      "Needs an account: send an API key from the dashboard (Authorization: Bearer styo_…) on the MCP request. Without one this returns ACCOUNT_REQUIRED.",
     {
       subdomain: z.string().describe("Subdomain name (e.g. 'demo')"),
       domain: z.string().describe("Root domain (e.g. 'sitey.my')"),
@@ -655,6 +699,12 @@ function createMcpServer(fastify) {
       if (caller.error) return mcpError(caller.error);
       const auth = caller.auth;
 
+      // 🔴 No TXT without an account — same rule and wording as REST
+      // (routes/api-v1.js). delete_txt_record stays open to token owners.
+      if (auth.mode !== "apikey") {
+        return mcpErrorObj({ error: TXT_ACCOUNT_REQUIRED_MESSAGE, code: "ACCOUNT_REQUIRED" });
+      }
+
       const managedDomains = await getManagedDomains(fastify);
       const domainEntry = managedDomains.find((d) => d.normalized === domainName);
       if (!domainEntry) return mcpError("Domain is not managed by this service.");
@@ -662,8 +712,10 @@ function createMcpServer(fastify) {
       // Verify ownership: the caller must own the subdomain to add TXT
       const record = await findOwned(fastify, auth, subdomain, domainEntry.id);
       if (!record) {
-        return mcpError("You must own the subdomain before adding TXT records. Create the subdomain first, and pass the owner_token it returned.");
+        return mcpError(notFoundMessage(auth));
       }
+      const blocked = await blockedResult(fastify, auth, subdomain);
+      if (blocked) return blocked;
 
       if (!rawHostPrefix || !txtValue) {
         return mcpError("host_prefix and value are required.");

@@ -93,6 +93,30 @@ CREATE TABLE IF NOT EXISTS credit_entries (
   FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE SET NULL
 );
 
+-- Names, owner tokens and addresses turned away (services/blocklist.js).
+-- deploy/migrations/010 — which also seeds the 2026-10-07 entries.
+CREATE TABLE IF NOT EXISTS blocklist (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  kind ENUM('name','token','ip') NOT NULL,
+  value VARCHAR(255) NOT NULL,
+  reason VARCHAR(255) NULL,
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  UNIQUE KEY uq_blocklist_kind_value (kind, value),
+  CONSTRAINT chk_blocklist_value CHECK (value <> '')
+);
+
+-- Reports from /abuse (routes/abuse.js). deploy/migrations/010.
+CREATE TABLE IF NOT EXISTS abuse_reports (
+  id INT AUTO_INCREMENT PRIMARY KEY,
+  target VARCHAR(512) NOT NULL,
+  reason TEXT NOT NULL,
+  contact VARCHAR(255) NULL,
+  reporter_iph VARCHAR(64) NULL,
+  status ENUM('new','done') NOT NULL DEFAULT 'new',
+  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+  INDEX idx_abuse_reports_status (status, created_at)
+);
+
 -- Migration for existing databases:
 -- ALTER TABLE subdomains ADD COLUMN owner_type ENUM('user','agent') DEFAULT 'user';
 -- ALTER TABLE subdomains ADD COLUMN owner_ip VARCHAR(45) DEFAULT NULL;
@@ -102,3 +126,4 @@ CREATE TABLE IF NOT EXISTS credit_entries (
 -- deploy/migrations/004-credit-ledger.sql        (credit_entries)
 -- deploy/migrations/005-txt-no-duplicates.sql    (subdomain_txt_records uniq_txt_record)
 -- deploy/migrations/006-anon-owner-token.sql     (subdomains.owner_token_hash)
+-- deploy/migrations/010-blocklist-abuse-reports.sql (blocklist, abuse_reports + seed)

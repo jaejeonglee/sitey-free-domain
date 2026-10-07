@@ -10,6 +10,8 @@ const bindMod = require2("../services/bind.js");
 
 const DOMAIN = "example.com";
 const DOMAIN_ID = 1;
+const KEY_USER = 7;
+const API_KEY = "styo_" + "a".repeat(32);
 
 // ---------------------------------------------------------------------------
 // Harness — a bare Fastify with only the v1 routes and a scripted MySQL.
@@ -25,11 +27,16 @@ function buildHarness({ ownedBy = null, existingTxt = [], recordType = "CNAME" }
     if (sql.includes("FROM managed_domains")) {
       return [[{ id: DOMAIN_ID, domain_name: DOMAIN }]];
     }
+    // Any styo_ key is user 7. TXT writes need one since 2026-10-07.
+    if (sql.includes("FROM api_keys ak JOIN users u")) {
+      return [[{ key_id: 1, user_id: KEY_USER, email: "a@example.com", name: "A" }]];
+    }
     if (sql.includes("COUNT(*) AS cnt FROM subdomains")) {
       return [[{ cnt: 0 }]];
     }
     if (sql.startsWith("SELECT id, record_type FROM subdomains")) {
-      // ownership lookup: anonymous mode matches on owner_ip (last param)
+      // ownership lookup: the owner is the last param — owner_ip for an
+      // anonymous caller, user_id for an API key
       const owner = params[2];
       return [owner === ownedBy ? [{ id: 42, record_type: recordType }] : []];
     }
@@ -155,17 +162,22 @@ describe("anonymous identity (trusted proxy)", () => {
 describe("POST /subdomains/:subdomain/:domain/txt", () => {
   const OWNER_IP = "203.0.113.9";
 
+  // Writing a TXT record takes an account since 2026-10-07, so these go in
+  // with an API key; the anonymous refusal has its own tests
+  // (tests/abuse-policy.test.js). Deleting is still open to the address that
+  // owns the record — the %40 case below stays anonymous on purpose.
   function post(app, body) {
     return app.inject({
       method: "POST",
       url: `/api/v1/subdomains/demo/${DOMAIN}/txt`,
       remoteAddress: OWNER_IP,
+      headers: { authorization: `Bearer ${API_KEY}` },
       payload: body,
     });
   }
 
   it("refuses root_level, which wrote to the shared zone apex", async () => {
-    const { app } = buildHarness({ ownedBy: OWNER_IP });
+    const { app } = buildHarness({ ownedBy: KEY_USER });
 
     const res = await post(app, {
       host_prefix: "_vercel",
@@ -188,7 +200,7 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
     ["a wildcard", "*"],
     ["a space", "_vercel ; x"],
   ])("rejects %s as host_prefix", async (_label, hostPrefix) => {
-    const { app } = buildHarness({ ownedBy: OWNER_IP });
+    const { app } = buildHarness({ ownedBy: KEY_USER });
 
     const res = await post(app, { host_prefix: hostPrefix, value: "token" });
 
@@ -199,7 +211,7 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
   });
 
   it("writes the value at the root domain under the prefix", async () => {
-    const { app } = buildHarness({ ownedBy: OWNER_IP });
+    const { app } = buildHarness({ ownedBy: KEY_USER });
 
     const res = await post(app, { host_prefix: "_VERCEL", value: "vc-domain-verify=mine" });
 
@@ -222,7 +234,7 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
   // only thing that says which line under it is theirs to replace.
   it("hands the caller's stored value to the zone write", async () => {
     const { app } = buildHarness({
-      ownedBy: OWNER_IP,
+      ownedBy: KEY_USER,
       existingTxt: [{ txt_value: "vc-domain-verify=old" }],
     });
 
@@ -237,7 +249,7 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
   // root domain: _acme-challenge there would get the caller a certificate for
   // sitey.my itself.
   it("refuses a prefix that would claim the root domain", async () => {
-    const { app } = buildHarness({ ownedBy: OWNER_IP });
+    const { app } = buildHarness({ ownedBy: KEY_USER });
 
     const res = await post(app, { host_prefix: "_acme-challenge", value: "token" });
 
@@ -252,7 +264,7 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
   // -------------------------------------------------------------------------
 
   it("writes @ on the subdomain's own name, not at the root", async () => {
-    const { app } = buildHarness({ ownedBy: OWNER_IP, recordType: "A" });
+    const { app } = buildHarness({ ownedBy: KEY_USER, recordType: "A" });
 
     const res = await post(app, {
       host_prefix: "@",
@@ -274,7 +286,7 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
   });
 
   it("stores @ as the host_prefix so the record can be found again", async () => {
-    const { app, queries } = buildHarness({ ownedBy: OWNER_IP, recordType: "A" });
+    const { app, queries } = buildHarness({ ownedBy: KEY_USER, recordType: "A" });
 
     await post(app, { host_prefix: "@", value: "token" });
 
@@ -288,7 +300,7 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
   // it swaps the file in so the live zone survives, but the caller would get a
   // 500 with nothing in it. 23 of the 32 records in the live zone are CNAME.
   it("refuses @ on a CNAME record, before anything is written", async () => {
-    const { app } = buildHarness({ ownedBy: OWNER_IP, recordType: "CNAME" });
+    const { app } = buildHarness({ ownedBy: KEY_USER, recordType: "CNAME" });
 
     const res = await post(app, { host_prefix: "@", value: "token" });
 
@@ -301,7 +313,7 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
   });
 
   it("still takes an apex prefix on a CNAME record", async () => {
-    const { app } = buildHarness({ ownedBy: OWNER_IP, recordType: "CNAME" });
+    const { app } = buildHarness({ ownedBy: KEY_USER, recordType: "CNAME" });
 
     const res = await post(app, { host_prefix: "_vercel", value: "vc-domain-verify=mine" });
 
@@ -311,7 +323,7 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
   });
 
   it("accepts @ on a REDIRECT, whose zone line is an A record", async () => {
-    const { app } = buildHarness({ ownedBy: OWNER_IP, recordType: "REDIRECT" });
+    const { app } = buildHarness({ ownedBy: KEY_USER, recordType: "REDIRECT" });
 
     const res = await post(app, { host_prefix: "@", value: "token" });
 
@@ -351,7 +363,7 @@ describe("POST /subdomains/:subdomain/:domain/txt", () => {
   });
 
   it("rejects a TXT value that would break out of the quoted field", async () => {
-    const { app } = buildHarness({ ownedBy: OWNER_IP });
+    const { app } = buildHarness({ ownedBy: KEY_USER });
 
     const res = await post(app, { host_prefix: "_vercel", value: 'a"\n@ IN A 6.6.6.6' });
 

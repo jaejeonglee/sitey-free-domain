@@ -335,6 +335,24 @@ module.exports = {
       .map((s) => s.trim().toLowerCase())
       .filter(Boolean),
   },
+  // What a caller with no account may not do (services/abuse-policy.js).
+  abuse: {
+    // Temporary tunnel hosts. A name of ours pointed at one of these is a
+    // link to whatever happens to be running on somebody's laptop tonight —
+    // 2026-10-03 and 10-06 it was a malware contact point, five names each
+    // time. An account may still use them (that is ordinary development); a
+    // caller with no account may not, as a CNAME or as a REDIRECT target.
+    // A name covers itself and everything under it.
+    anonTunnelDomains: (
+      process.env.ANON_TUNNEL_DOMAINS ||
+      "trycloudflare.com,serveousercontent.com,serveo.net,ngrok.io,ngrok.app," +
+        "ngrok-free.app,ngrok-free.dev,loca.lt,localtunnel.me,pinggy.link,pinggy.io," +
+        "lhr.life,localhost.run,bore.pub,devtunnels.ms,tunnelmole.net"
+    )
+      .split(",")
+      .map((s) => s.trim().toLowerCase())
+      .filter(Boolean),
+  },
   server: {
     port: process.env.PORT || 3000,
     host: "0.0.0.0",

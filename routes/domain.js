@@ -10,6 +10,7 @@ const {
 } = require("../services/subdomain");
 const { getManagedDomains } = require("../services/managedDomain");
 const { isBlacklisted } = require("../services/blacklist");
+const { checkBlocklist, blockedMessage } = require("../services/blocklist");
 const { checkSubdomainQuota } = require("../services/quota");
 const { renewSubdomain, renewalNotDueMessage } = require("../services/expiry");
 const redirectHits = require("../services/redirect-hits");
@@ -24,6 +25,20 @@ const config = require("../configs/index");
 
 function normalizeRecordType(recordType = "A") {
   return bindService.normalizeRecordType(recordType);
+}
+
+/**
+ * Has this name or address been turned away (services/blocklist.js)? Sends
+ * the 403 and returns true when it has; the route then stops. A signed-in
+ * user has no owner token, so only the name and the address are asked.
+ */
+async function sendIfBlocked(fastify, request, reply, subdomain) {
+  const hit = await checkBlocklist(fastify, { name: subdomain, ip: request.ip });
+  if (!hit.blocked) return false;
+  request.log.warn({ evt: "blocklist", kind: hit.kind, sub: subdomain }, "Blocked caller refused");
+  request.outcome = "BLOCKED";
+  reply.code(403).send({ error: blockedMessage(config.server.publicOrigin), code: "BLOCKED" });
+  return true;
 }
 
 /**
@@ -277,6 +292,8 @@ async function domainRoutes(fastify, options) {
       }
       const recordValue = validation.value;
 
+      if (await sendIfBlocked(fastify, request, reply, subdomain)) return reply;
+
       // How many this account already holds. Nothing is refused here unless
       // SUBDOMAIN_LIMIT_ENFORCED is switched on — see services/quota.js.
       //
@@ -395,6 +412,8 @@ async function domainRoutes(fastify, options) {
           return reply.code(400).send({ error: validation.message });
         }
         const recordValue = validation.value;
+
+        if (await sendIfBlocked(fastify, request, reply, subdomain)) return reply;
 
         // Recorded, not enforced — same as create, and for the same reason:
         // the new target is often somewhere that will not answer until this
@@ -649,6 +668,8 @@ async function domainRoutes(fastify, options) {
           });
         }
         const subdomainId = record.id;
+
+        if (await sendIfBlocked(fastify, request, reply, subdomain)) return reply;
 
         // A TXT on the subdomain's own name cannot sit beside a CNAME. Caught
         // here so the answer is a sentence about the record rather than the
