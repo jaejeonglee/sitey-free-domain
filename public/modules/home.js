@@ -20,11 +20,15 @@ const FALLBACK_DOMAIN = "sitey.my";
 // style.css 의 폰 구간과 같은 수다.
 const PHONE = "(max-width: 720px)";
 
-// 주소 글자 크기의 범위 (px). 화면 폭에 맞춰 이 안에서 고른다.
-// floor 는 이름 «하나만으로» 한 줄을 넘을 때만 쓴다(데스크톱 45자·폰 18자 남짓부터).
+// 주소 글자 크기의 범위 (px). 화면 폭에 맞춰 이 안에서 한 번 고른다.
+// floor 는 이름 «하나만으로» 한 줄을 넘을 때만 쓴다.
 // 글자가 작아지는 것보다 이름 앞이 잘려 안 보이는 쪽이 더 나쁘다.
 const SIZE = { desk: [64, 152], phone: [34, 76] };
 const FLOOR = { desk: 40, phone: 22 };
+
+// 크기를 정하는 기준 이름. 이 길이(12자)의 이름이 꼬리와 한 줄에 들어가는
+// 크기를 고른다(폰은 이름만 한 줄에). 흔한 이름이 이 안에 든다.
+const TYPICAL_NAMES = ["my-portfolio", "politicalmap"];
 
 const HANGUL = /[ㄱ-ㅎㅏ-ㅣ가-힣]/;
 
@@ -158,41 +162,62 @@ export function initializeLandingPage() {
   function setDomain(next) {
     domain = next;
     tld.textContent = next;
-    fit();
+    measure();
     syncPrompt();
   }
 
   /* ---------- The size of the address ----------
-     As large as the line allows, between SIZE's two ends. A name too long for
-     one line at the smallest size puts the tail on a second line; on a phone
-     the tail always has its own line. */
-  function fit() {
+     Set by the width of the screen, not by what is typed: a letter added must
+     not make the whole address jump (Jay, 2026-11-10). `base` is the size at
+     which a typical name (TYPICAL_NAMES) and the tail share one line — on a
+     phone, at which that name has its line to itself, the tail being always on
+     the next. It is worked out when the page is drawn, when the window changes
+     size and when the tail changes; never on a keystroke.
+
+     While typing, a name too long to share its line with the tail sends the
+     tail down at the same size (`.wrap`). Only a name too wide for a line by
+     itself makes the letters smaller, down to FLOOR. */
+  let base = 0;
+
+  function lineWidth() {
+    const style = getComputedStyle(hero);
+    return hero.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+  }
+
+  /** [name, tail] widths at `size` on one line. The tail's own letters, not
+      its box — on a phone the box is the whole line. */
+  function widthsAt(size, name) {
+    addr.classList.remove("wrap");
+    addr.style.setProperty("--size", `${size}px`);
+    mirror.textContent = name;
+    const letters = document.createRange();
+    letters.selectNodeContents(tail);
+    return [mirror.getBoundingClientRect().width, letters.getBoundingClientRect().width];
+  }
+
+  function measure() {
     const phone = window.matchMedia(PHONE).matches;
     const [min, max] = phone ? SIZE.phone : SIZE.desk;
-    const floor = phone ? FLOOR.phone : FLOOR.desk;
-    const text = input.value || input.placeholder;
-    const style = getComputedStyle(hero);
-    const avail = hero.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
+    const nameWidth = Math.max(...TYPICAL_NAMES.map((name) => widthsAt(max, name)[0]));
+    const tailWidth = widthsAt(max, "")[1];
+    const need = phone ? Math.max(nameWidth, tailWidth) : nameWidth + tailWidth;
+    base = Math.max(min, Math.min(max, Math.floor((max * lineWidth()) / (need + 8))));
+    fit();
+  }
 
-    addr.classList.remove("wrap");
-    addr.style.setProperty("--size", `${max}px`);
-    mirror.textContent = text;
-    const nameWidth = mirror.getBoundingClientRect().width;
-    const tailWidth = tail.getBoundingClientRect().width;
-
-    let size;
-    if (phone) {
-      size = Math.floor((max * avail) / (Math.max(nameWidth, tailWidth) + 8));
-    } else {
-      size = Math.floor((max * avail) / (nameWidth + tailWidth + 8));
-      if (size < min) {
-        addr.classList.add("wrap");
-        size = Math.floor((max * avail) / (Math.max(nameWidth, tailWidth) + 8));
-      }
+  function fit() {
+    if (!base) {
+      measure();
+      return;
     }
-    // Below the range only when the name alone is wider than the line.
-    const nameFits = Math.floor((max * avail) / (nameWidth + 8));
-    size = Math.max(Math.min(min, Math.max(floor, nameFits)), Math.min(max, size));
+    const phone = window.matchMedia(PHONE).matches;
+    const floor = phone ? FLOOR.phone : FLOOR.desk;
+    const avail = lineWidth();
+    const [nameWidth, tailWidth] = widthsAt(base, input.value || input.placeholder);
+
+    let size = base;
+    if (nameWidth + 8 > avail) size = Math.max(floor, Math.floor((base * avail) / (nameWidth + 8)));
+    if (!phone && nameWidth + tailWidth + 8 > avail) addr.classList.add("wrap");
     addr.style.setProperty("--size", `${size}px`);
     input.style.width = `${Math.ceil(mirror.getBoundingClientRect().width + 2)}px`;
   }
@@ -238,18 +263,23 @@ export function initializeLandingPage() {
           : row.isAvailable === false
             ? "home.others.taken"
             : "home.others.unknown";
-      if (i) line.append(el("span", { class: "sep", "aria-hidden": "true" }, "·"));
+      // The «·» travels with the item before it, so a line never starts with one.
       line.append(
         " ",
         el(
-          "button",
-          {
-            type: "button",
-            class: "textbtn other",
-            "data-domain": row.domain,
-            "aria-label": `${t(key, { domain: row.domain })} — ${t("home.others.use", { domain: row.domain })}`,
-          },
-          t(key, { domain: row.domain })
+          "span",
+          { class: "other-item" },
+          el(
+            "button",
+            {
+              type: "button",
+              class: "textbtn other",
+              "data-domain": row.domain,
+              "aria-label": `${t(key, { domain: row.domain })} — ${t("home.others.use", { domain: row.domain })}`,
+            },
+            t(key, { domain: row.domain })
+          ),
+          i < others.length - 1 && el("span", { class: "sep", "aria-hidden": "true" }, "·")
         )
       );
     });
@@ -682,9 +712,9 @@ export function initializeLandingPage() {
   document.addEventListener("pointerdown", unfoldOutside, { signal });
   document.addEventListener("focusin", unfoldOutside, { signal });
 
-  window.addEventListener("resize", fit, { signal });
+  window.addEventListener("resize", measure, { signal });
   document.fonts?.ready.then(() => {
-    if (!signal.aborted) fit();
+    if (!signal.aborted) measure();
   });
 
   wireAgentCopy();
@@ -701,7 +731,7 @@ export function initializeLandingPage() {
     }
   });
 
-  fit();
+  measure();
   syncPrompt();
 
   /* ============================================

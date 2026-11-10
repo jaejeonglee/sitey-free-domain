@@ -391,10 +391,11 @@ body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top
   font: 500 28px/1.3 var(--h-ui);
   letter-spacing: -0.01em;
   color: var(--h-ink);
+  text-wrap: pretty; /* 접힐 때 마지막 줄에 낱말 하나만 남지 않게(1024 영어 «none») */
 }
 .home .kicker-sub { color: var(--h-ink-2); font-weight: 400; }
 
-/* 주소. 크기는 home.js fit() 이 화면 폭에 맞춰 --size 로 준다. */
+/* 주소. 크기는 home.js measure()/fit() 이 화면 폭에 맞춰 --size 로 준다 — 칠 때마다 바뀌지 않는다. */
 .home .addr {
   display: flex;
   align-items: baseline;
@@ -409,13 +410,17 @@ body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top
 .home .addr.wrap { flex-wrap: wrap; }
 .home .addr.wrap .tail { flex-basis: 100%; }
 
-.home .name-wrap { position: relative; display: inline-block; max-width: 100%; }
+/* 입력칸은 줄 높이를 1.3 으로 따로 가진다 — 주소의 1.02 를 그대로 받으면 칸이
+   j·g·p·q·y 꼬리보다 낮아서 꼬리를 자른다(2026-11-10 Jay 폰). 늘어난 위쪽 0.14em 은
+   margin 으로 되돌려 주소가 설명 줄에서 내려앉지 않게 한다. 기준선은 flex 가 꼬리와 맞춘다. */
+.home .name-wrap { position: relative; display: inline-block; max-width: 100%; margin-top: -0.14em; }
+/* 밑줄은 꼬리 끝 바로 아래 — 칸 바닥(기준선 + 0.29em)에서 0.02em 더. */
 .home .name-wrap::after {
   content: "";
   position: absolute;
   left: 0;
   right: 0;
-  bottom: -0.06em;
+  bottom: -0.02em;
   height: 2px;
   background: var(--h-ink-3);
   transition: background-color 0.16s var(--h-ease);
@@ -433,6 +438,7 @@ body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top
   box-shadow: none;
   background: transparent;
   font: inherit;
+  line-height: 1.3;
   letter-spacing: inherit;
   color: var(--h-ink);
   caret-color: var(--h-blue);
@@ -527,6 +533,8 @@ body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top
 .home .others { margin: 0; font-size: 14px; color: var(--h-ink-3); }
 .home .others .other { color: var(--h-ink-2); }
 .home .others .sep { margin: 0 2px 0 6px; }
+/* 항목과 그 뒤의 «·» 는 한 덩어리 — 줄이 «·» 로 시작하지 않게. */
+.home .others .other-item { white-space: nowrap; }
 
 .home .hosts,
 .home .suggest { display: flex; flex-wrap: wrap; gap: 8px; }
@@ -687,7 +695,7 @@ body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top
 }
 
 /* 이렇게 써요 — 첫 화면 아래. 칸 셋은 그대로, 색과 간격만 이 화면의 것. */
-.home .how { padding: 96px var(--h-gut) 120px; }
+.home .how { padding: 96px var(--h-gut) 120px; container: how / inline-size; }
 .home .steps-title {
   margin: 0;
   font: 600 28px/1.3 var(--h-round);
@@ -700,10 +708,43 @@ body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top
   margin: 32px 0 0;
   list-style: none;
 }
-.home .points > li { padding: 24px; border-radius: 8px; background: var(--h-chip); min-width: 0; }
+/* 칸마다 그림 · 제목 · 설명 세 줄을 바깥 격자에 맞춘다(subgrid) — 그림 높이가 칸마다
+   달라도 가장 높은 그림에 맞춰 늘어나서 «1. 2. 3.» 제목이 한 줄에 선다. */
+.home .points > li {
+  display: grid;
+  grid-row: span 3;
+  grid-template-rows: subgrid;
+  row-gap: 0;
+  padding: 24px;
+  border-radius: 8px;
+  background: var(--h-chip);
+  min-width: 0;
+}
 .home .points h3 { margin: 0 0 8px; font: 600 17px/1.4 var(--h-ui); letter-spacing: -0.01em; }
 .home .points p { margin: 0; font-size: 15px; line-height: 1.6; color: var(--h-ink-2); }
-.home .mock { margin-bottom: 20px; border-radius: 8px; box-shadow: none; }
+.home .mock { margin-bottom: 20px; border-radius: 8px; box-shadow: none; min-width: 0; }
+
+/* 그림 속 주소·레코드는 글자 단위로 끊지 않는다 — 한 줄, 모자라면 «…».
+   flex 안의 글자는 min-width: 0 이어야 줄어든다(아니면 칸 밖으로 민다). */
+.home .mock-host,
+.home .mock-target {
+  min-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  text-overflow: ellipsis;
+  word-break: normal;
+}
+.home .mock-chip,
+.home .mock-hosts span { flex: none; white-space: nowrap; }
+
+/* 칸 하나가 320px 아래로 좁아지면(3 × 320 + 2 × 16) 한 줄에 하나씩 쌓는다.
+   쌓이면 높이를 맞출 이유가 없고(폰과 같다), 폭은 560 까지 — 900~1180 에서
+   칸이 화면 폭으로 늘어나면 그림 속 입력칸·주소창이 빈 막대가 된다. */
+@container how (max-width: 991.98px) {
+  .home .points { grid-template-columns: minmax(0, 1fr); max-width: 560px; }
+  .home .points > li { display: block; grid-row: auto; }
+  .home .mock { min-height: 0; }
+}
 
 @media (prefers-reduced-motion: reduce) {
   .home .status.enter > *,

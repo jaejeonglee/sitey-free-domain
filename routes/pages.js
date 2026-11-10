@@ -31,7 +31,7 @@ const INDEX_PATH = path.join(__dirname, "..", "public", "index.html");
 
 const SITE_TITLE_SUFFIX = "Sitey";
 const DEFAULT_DESCRIPTION =
-  "Put the site you built with AI on your own address. Check a name without signing up, or let your agent create it in one call over MCP. Point it at Vercel, Netlify, GitHub Pages, Lovable or your server.";
+  "A free address for the site you built with AI. One Google sign-in, or let your agent create it in one call over MCP with no sign-in. Point it at Vercel, Netlify, GitHub Pages, Lovable or your server.";
 
 // Mirrors the client router in public/modules/router.js. Anything not listed
 // here is a real 404 — the old handler answered every unknown URL with the home
