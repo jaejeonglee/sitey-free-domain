@@ -20,15 +20,13 @@ const FALLBACK_DOMAIN = "sitey.my";
 // style.css 의 폰 구간과 같은 수다.
 const PHONE = "(max-width: 720px)";
 
-// 주소 글자 크기의 범위 (px). 화면 폭에 맞춰 이 안에서 한 번 고른다.
-// floor 는 이름 «하나만으로» 한 줄을 넘을 때만 쓴다.
-// 글자가 작아지는 것보다 이름 앞이 잘려 안 보이는 쪽이 더 나쁘다.
-const SIZE = { desk: [64, 152], phone: [34, 76] };
+// 주소 글자 크기는 style.css(.addr)가 화면 폭으로 정한다. 이건 이름 «하나만으로»
+// 한 줄을 넘을 때만 쓰는 하한이다 — 글자가 작아지는 것보다 이름 앞이 잘려 안
+// 보이는 쪽이 더 나쁘다.
 const FLOOR = { desk: 40, phone: 22 };
 
-// 크기를 정하는 기준 이름. 이 길이(12자)의 이름이 꼬리와 한 줄에 들어가는
-// 크기를 고른다(폰은 이름만 한 줄에). 흔한 이름이 이 안에 든다.
-const TYPICAL_NAMES = ["my-portfolio", "politicalmap"];
+// 주소 서체. 꼬리 폭은 이 서체로 재야 맞는다(style.css 의 배수도 이 서체 실측).
+const ADDRESS_FONT = '600 100px "Open Runde"';
 
 const HANGUL = /[ㄱ-ㅎㅏ-ㅣ가-힣]/;
 
@@ -168,58 +166,74 @@ export function initializeLandingPage() {
 
   /* ---------- The size of the address ----------
      Set by the width of the screen, not by what is typed: a letter added must
-     not make the whole address jump (Jay, 2026-11-10). `base` is the size at
-     which a typical name (TYPICAL_NAMES) and the tail share one line — on a
-     phone, at which that name has its line to itself, the tail being always on
-     the next. It is worked out when the page is drawn, when the window changes
-     size and when the tail changes; never on a keystroke.
+     not make the whole address jump (Jay, 2026-11-10). style.css works the
+     size out from the line's width — the size at which a typical 12-letter
+     name and the tail share one line (on a phone, at which that name has its
+     line to itself) — so the server's first paint is already the right size
+     and nothing here changes it on load.
 
-     While typing, a name too long to share its line with the tail sends the
-     tail down at the same size (`.wrap`). Only a name too wide for a line by
-     itself makes the letters smaller, down to FLOOR. */
-  let base = 0;
-
+     All this file adds: how wide the tail is (`--tail`, measured once Open
+     Runde is in, because the CSS default is sitey.my's), and, while typing, a
+     name too long to share its line with the tail sends the tail down at the
+     same size (`.wrap`). Only a name too wide for a line by itself makes the
+     letters smaller (`--size`), down to FLOOR. */
   function lineWidth() {
     const style = getComputedStyle(hero);
     return hero.clientWidth - parseFloat(style.paddingLeft) - parseFloat(style.paddingRight);
   }
 
-  /** [name, tail] widths at `size` on one line. The tail's own letters, not
-      its box — on a phone the box is the whole line. */
-  function widthsAt(size, name) {
-    addr.classList.remove("wrap");
-    addr.style.setProperty("--size", `${size}px`);
-    mirror.textContent = name;
+  /** The width of «.» + the domain — its letters, not the `.tail` box (on a
+      phone that box is the whole line) and not the ↗ after a create. */
+  function tailWidth() {
     const letters = document.createRange();
-    letters.selectNodeContents(tail);
-    return [mirror.getBoundingClientRect().width, letters.getBoundingClientRect().width];
+    letters.setStartBefore(tail.querySelector(".dot"));
+    letters.setEndAfter(tld);
+    return letters.getBoundingClientRect().width;
   }
 
   function measure() {
-    const phone = window.matchMedia(PHONE).matches;
-    const [min, max] = phone ? SIZE.phone : SIZE.desk;
-    const nameWidth = Math.max(...TYPICAL_NAMES.map((name) => widthsAt(max, name)[0]));
-    const tailWidth = widthsAt(max, "")[1];
-    const need = phone ? Math.max(nameWidth, tailWidth) : nameWidth + tailWidth;
-    base = Math.max(min, Math.min(max, Math.floor((max * lineWidth()) / (need + 8))));
+    // A fallback font's width would size the line wrong; the CSS default
+    // stands until the real one is here (fonts.ready below calls this again).
+    if (!document.fonts || document.fonts.check(ADDRESS_FONT)) {
+      addr.style.removeProperty("--size");
+      const size = parseFloat(getComputedStyle(addr).fontSize);
+      addr.style.setProperty("--tail", (tailWidth() / size).toFixed(4));
+    }
     fit();
   }
 
   function fit() {
-    if (!base) {
-      measure();
-      return;
-    }
     const phone = window.matchMedia(PHONE).matches;
     const floor = phone ? FLOOR.phone : FLOOR.desk;
     const avail = lineWidth();
-    const [nameWidth, tailWidth] = widthsAt(base, input.value || input.placeholder);
+    addr.classList.remove("wrap");
+    addr.style.removeProperty("--size");
+    const base = parseFloat(getComputedStyle(addr).fontSize);
+    mirror.textContent = input.value || input.placeholder;
+    const nameWidth = mirror.getBoundingClientRect().width;
 
-    let size = base;
-    if (nameWidth + 8 > avail) size = Math.max(floor, Math.floor((base * avail) / (nameWidth + 8)));
-    if (!phone && nameWidth + tailWidth + 8 > avail) addr.classList.add("wrap");
-    addr.style.setProperty("--size", `${size}px`);
-    input.style.width = `${Math.ceil(mirror.getBoundingClientRect().width + 2)}px`;
+    if (nameWidth + 8 > avail) {
+      addr.style.setProperty("--size", `${Math.max(floor, Math.floor((base * avail) / (nameWidth + 8)))}px`);
+    }
+    if (!phone && nameWidth + tailWidth() + 8 > avail) addr.classList.add("wrap");
+    // Empty, the CSS width already fits the placeholder; setting one here
+    // would nudge the tail on the first paint.
+    input.style.width = input.value ? `${Math.ceil(mirror.getBoundingClientRect().width + 2)}px` : "";
+  }
+
+  /* ---------- Where the address sits (desktop) ----------
+     Centred on the first paint, then pinned there: a status area that grows
+     (chips, the value box) or a band below that changes its line count must
+     not lift the address — what grows goes into the empty space under it.
+     Worked out again when the window changes size. */
+  function pin() {
+    hero.classList.remove("pinned");
+    if (window.matchMedia(PHONE).matches) return;
+    const kicker = hero.firstElementChild;
+    const box = hero.getBoundingClientRect();
+    hero.style.setProperty("--pin", `${kicker.getBoundingClientRect().top - box.top}px`);
+    hero.style.setProperty("--pin-h", `${box.height}px`);
+    hero.classList.add("pinned");
   }
 
   /* ---------- The status area ---------- */
@@ -402,19 +416,21 @@ export function initializeLandingPage() {
     const free = answer.filter(Boolean);
     if (!free.length) return;
 
-    line.append(" ", t("home.say.taken_more"));
-    const chips = el("div", { class: "suggest" });
+    // At the bottom of the status area: arriving late, it must not push down
+    // the «other domains» line that is already on screen (it did, by 56px).
+    const chips = el("div", { class: "suggest" }, el("span", { class: "suggest-say" }, t("home.say.taken_more")));
     free.forEach((candidate) =>
       chips.append(el("button", { type: "button", class: "chip pick", "data-name": candidate }, candidate))
     );
-    line.after(chips);
+    status.append(chips);
   }
 
   function drawMade(name, root, value) {
     made = { name, domain: root, value };
     input.readOnly = true;
     input.blur();
-    home.classList.remove("typing");
+    // The phone keeps the fold: unfolding here dropped the whole result 163px
+    // the moment «Create» was pressed. A tap outside unfolds it, as always.
     openLink.href = `https://${name}.${root}`;
     openLink.setAttribute("aria-label", t("home.open", { name: `${name}.${root}` }));
     openLink.hidden = false;
@@ -703,8 +719,14 @@ export function initializeLandingPage() {
      focus a tapped button, so a blur-based rule would unfold the page between
      the finger going down on a chip and the click landing — on whatever had
      moved under it. */
+  // One frame late: a tap's focus comes between its pointerdown and its click,
+  // and folding at once moved the page under the finger before the click
+  // landed — on the hero, or in an open status area on an «other domain».
   input.addEventListener("focus", () => {
-    if (window.matchMedia(PHONE).matches && !made) home.classList.add("typing");
+    if (!window.matchMedia(PHONE).matches || made) return;
+    requestAnimationFrame(() => {
+      if (document.activeElement === input) home.classList.add("typing");
+    });
   });
   const unfoldOutside = (event) => {
     if (!addr.contains(event.target) && !status.contains(event.target)) home.classList.remove("typing");
@@ -712,9 +734,19 @@ export function initializeLandingPage() {
   document.addEventListener("pointerdown", unfoldOutside, { signal });
   document.addEventListener("focusin", unfoldOutside, { signal });
 
-  window.addEventListener("resize", measure, { signal });
+  window.addEventListener(
+    "resize",
+    () => {
+      pin();
+      measure();
+    },
+    { signal }
+  );
   document.fonts?.ready.then(() => {
-    if (!signal.aborted) measure();
+    if (signal.aborted) return;
+    measure();
+    // Nothing typed yet: centre again on the real font's line breaks.
+    if (state === "idle") pin();
   });
 
   wireAgentCopy();
@@ -733,6 +765,7 @@ export function initializeLandingPage() {
 
   measure();
   syncPrompt();
+  pin();
 
   /* ============================================
      Arriving, and arriving back

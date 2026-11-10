@@ -17,10 +17,14 @@ const { marked } = require("marked");
 const { loadPost, listPosts } = require("../services/blog");
 const {
   extractTemplate,
+  homeBody,
   docsBody,
   blogListBody,
   blogPostBody,
+  navbarBody,
+  localize,
   injectAppRoot,
+  fillPlaceholder,
 } = require("../services/page-body");
 
 // One canonical origin for the whole site. robots.txt and sitemap.xml carry the
@@ -156,7 +160,24 @@ function setMeta(html, attr, name, value) {
   return replaceWith(html, pattern, `<meta ${attr}="${name}" content="${escapeAttr(value)}" />`);
 }
 
-function renderPage(template, { canonicalPath, title, description, noindex, body }) {
+/**
+ * Is there a session cookie that verifies? Only the header reads this — it
+ * decides «Log in» or «My domains · Log out», nothing else — so the token is
+ * checked and the session table is not: a session ended elsewhere draws the
+ * signed-in header until /api/auth/me says otherwise and the client redraws it.
+ */
+function looksSignedIn(fastify, request) {
+  const token = request.cookies?.[fastify.COOKIE_NAME];
+  if (!token || !fastify.jwt) return false;
+  try {
+    fastify.jwt.verify(token);
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+function renderPage(template, { canonicalPath, title, description, noindex, body, lang = "en", navbar }) {
   const canonicalUrl = `${CANONICAL_ORIGIN}${canonicalPath}`;
 
   let html = replaceWith(
@@ -180,7 +201,11 @@ function renderPage(template, { canonicalPath, title, description, noindex, body
     );
   }
 
-  return injectAppRoot(html, body || "");
+  html = injectAppRoot(html, body || "");
+  // The header in the HTML, not drawn after the scripts run: an empty header
+  // that filled in later pushed every page down 42px (2026-11-10).
+  if (navbar) html = fillPlaceholder(html, "header", "navbar", navbar);
+  return localize(html, lang);
 }
 
 async function pageRoutes(fastify, options) {
@@ -189,18 +214,27 @@ async function pageRoutes(fastify, options) {
   // Read the <template> bodies once at startup. extractTemplate throws if one
   // is missing, so a renamed template fails the boot instead of quietly
   // serving blank pages again.
-  const staticBodies = {
-    "template-home": extractTemplate(template, "template-home"),
-    "template-docs": docsBody(extractTemplate(template, "template-docs")),
-  };
+  const staticBodies = {};
+  for (const lang of ["en", "ko"]) {
+    staticBodies[lang] = {
+      "template-home": homeBody(extractTemplate(template, "template-home"), lang),
+      "template-docs": docsBody(extractTemplate(template, "template-docs"), lang),
+    };
+  }
   const blogTemplate = extractTemplate(template, "template-blog");
 
+  // In the language the reader will see once the scripts run (pickLang and
+  // modules/i18n.js agree on it), so the client has nothing to repaint.
   function send(reply, page, statusCode = 200) {
-    const body = page.body ?? (page.template ? staticBodies[page.template] : "");
+    const { request } = reply;
+    const lang = pickLang(request);
+    const body = page.body ?? (page.template ? staticBodies[lang][page.template] : "");
+    const navbar = navbarBody(request.url.split("?")[0], lang, looksSignedIn(fastify, request));
     return reply
       .code(statusCode)
       .type("text/html; charset=utf-8")
-      .send(renderPage(template, { ...page, body }));
+      .header("Vary", "Cookie, Accept-Language")
+      .send(renderPage(template, { ...page, body, lang, navbar }));
   }
 
   /** the 404 body: still the app shell, but with an honest status code */
@@ -238,7 +272,8 @@ async function pageRoutes(fastify, options) {
   fastify.get("/blog", async (request, reply) => {
     let body = "";
     try {
-      body = blogListBody(blogTemplate, await listPosts(pickLang(request)));
+      const lang = pickLang(request);
+      body = blogListBody(blogTemplate, await listPosts(lang), lang);
     } catch (error) {
       fastify.log.error(error, "Failed to render the blog index body");
     }
@@ -248,9 +283,10 @@ async function pageRoutes(fastify, options) {
 
   fastify.get("/blog/:slug", async (request, reply) => {
     const { slug } = request.params;
+    const lang = pickLang(request);
     let post;
     try {
-      post = await loadPost(slug, pickLang(request));
+      post = await loadPost(slug, lang);
     } catch (error) {
       if (error.statusCode === 404 || error.statusCode === 400) {
         return sendNotFound(reply);
@@ -262,7 +298,7 @@ async function pageRoutes(fastify, options) {
       canonicalPath: `/blog/${post.slug}`,
       title: `${post.title} — ${SITE_TITLE_SUFFIX}`,
       description: post.description || DEFAULT_DESCRIPTION,
-      body: blogPostBody(blogTemplate, post),
+      body: blogPostBody(blogTemplate, post, lang),
     });
   });
 

@@ -132,22 +132,28 @@ export function renderNavbar(currentPath) {
 
   const user = getCurrentUser();
 
+  // data-label: the bold width of the words, held by style.css so the page
+  // you are on (bold) does not nudge the links beside it.
+  // 🔴 services/page-body.js navbarBody() draws the same header on the server —
+  // change the two together, or the header jumps when this one replaces it.
+  const link = (href, key, active) =>
+    `<a href="${href}" class="${active ? "active" : ""}" data-label="${t(key)}">${t(key)}</a>`;
+
   // Signed in, the login link becomes the two things only a signed-in
   // visitor can do. Signed out, it is the one thing they can.
   const account = user
-    ? `<a href="/dashboard" class="${currentPath === "/dashboard" ? "active" : ""}">${t("nav.dashboard")}</a>
+    ? `${link("/dashboard", "nav.dashboard", currentPath === "/dashboard")}
        <button type="button" id="nav-logout-btn" class="nav-auth-btn">${t("nav.logout")}</button>`
-    : `<a href="/login" class="${currentPath === "/login" ? "active" : ""}">${t("nav.login")}</a>`;
+    : link("/login", "nav.login", currentPath === "/login");
 
-  // 모든 화면 왼쪽 위에 둔다. 홈에서 빼던 시절에는 홈 한가운데에 큰 글자
-  // 로고가 따로 있었다 — 첫 화면이 «주소 한 줄»로 바뀌면서(2026-11-10) 그
-  // 로고가 없어졌고, 홈의 이름표도 여기가 맡는다. 홈에서의 모양은 style.css.
+  // 모든 화면 왼쪽 위, 모든 화면에서 같은 글자 로고다(2026-11-10). 홈 한가운데의
+  // 큰 로고가 없어지면서 홈의 이름표도 여기가 맡는다.
   const brand = `<a href="/" class="brand" data-i18n-aria="nav.home" aria-label="Home">sitey</a>`;
 
   container.innerHTML = `
     ${brand}
     <nav aria-label="Primary">
-      <a href="/docs" class="${currentPath === "/docs" || currentPath === "/guide" ? "active" : ""}">${t("nav.docs")}</a>
+      ${link("/docs", "nav.docs", currentPath === "/docs" || currentPath === "/guide")}
       ${account}
       <span class="lang" role="group" data-i18n-aria="lang.group" aria-label="Language">
         <button type="button" data-lang="ko">KR</button>

@@ -280,6 +280,89 @@ describe("per-path canonical and Open Graph tags", () => {
     });
   });
 
+  // The first paint is the page the reader ends up with (2026-11-10). It used to
+  // arrive with an empty header and English text; the client then filled the
+  // header (everything under it dropped 42px) and swapped the words for Korean.
+  describe("the first paint is the final paint", () => {
+    function headerOf(html) {
+      return html.match(/<header id="navbar">([\s\S]*?)<\/header>/)?.[1] ?? "";
+    }
+
+    it("carries the header, signed out and in English with no signal", async () => {
+      const res = await app.inject({ method: "GET", url: "/docs" });
+      const header = headerOf(res.body);
+
+      expect(header).toContain('class="brand"');
+      expect(header).toContain('class="active" data-label="Docs">Docs</a>');
+      expect(header).toContain('href="/login"');
+      expect(header).not.toContain("nav-logout-btn");
+      expect(header).toContain('data-lang="en" aria-pressed="true"');
+      expect(res.headers.vary).toBe("Cookie, Accept-Language");
+    });
+
+    it("is Korean throughout when the reader is — header, body and footer", async () => {
+      const res = await app.inject({
+        method: "GET",
+        url: "/",
+        headers: { "accept-language": "ko-KR,ko;q=0.9" },
+      });
+
+      expect(res.body).toMatch(/^<!DOCTYPE html>\s*<html lang="ko">/);
+      expect(headerOf(res.body)).toContain(">로그인</a>");
+      expect(headerOf(res.body)).toContain('data-lang="ko" aria-pressed="true"');
+      expect(appRootOf(res.body)).toContain("AI로 만든 사이트에 무료로 내 주소를");
+      expect(appRootOf(res.body)).toContain("sitey MCP로 myapp.sitey.my 주소를 내 사이트에 연결해줘");
+      expect(res.body).toMatch(/data-i18n="nav.contact"\s*>문의<\/a/);
+    });
+
+    it("puts the docs body in the reader's language too", async () => {
+      const res = await app.inject({ method: "GET", url: "/docs?lang=ko" });
+
+      expect(appRootOf(res.body)).toContain("<h1>빠른 시작</h1>");
+    });
+  });
+
+  describe("the header reads the session cookie", () => {
+    let signedApp;
+
+    beforeAll(async () => {
+      signedApp = Fastify({ logger: false });
+      await signedApp.register(require2("@fastify/cookie"));
+      await signedApp.register(require2("@fastify/jwt"), { secret: "test-secret-at-least-32-characters-long" });
+      signedApp.decorate("COOKIE_NAME", "__Host-sitey_token");
+      await signedApp.register(pageRoutes);
+      await signedApp.ready();
+    });
+
+    afterAll(async () => {
+      await signedApp.close();
+    });
+
+    it("draws «My domains · Log out» for a token that verifies", async () => {
+      const token = signedApp.jwt.sign({ id: 1, email: "a@b.c" });
+      const res = await signedApp.inject({
+        method: "GET",
+        url: "/dashboard",
+        headers: { cookie: `__Host-sitey_token=${token}` },
+      });
+
+      expect(res.body).toContain('class="active" data-label="My domains">My domains</a>');
+      expect(res.body).toContain('id="nav-logout-btn"');
+      expect(res.body).not.toContain('href="/login" class=');
+    });
+
+    it("draws «Log in» for a token that does not", async () => {
+      const res = await signedApp.inject({
+        method: "GET",
+        url: "/docs",
+        headers: { cookie: "__Host-sitey_token=not-a-token" },
+      });
+
+      expect(res.body).toContain('href="/login"');
+      expect(res.body).not.toContain('id="nav-logout-btn"');
+    });
+  });
+
   // "$&", "$`" and "$'" are replacement patterns for String.replace. Blog
   // titles and post bodies are markdown we do not control, so every insertion
   // goes through a replacer function; a string replacement would splice

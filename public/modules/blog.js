@@ -80,7 +80,7 @@ function escapeHtml(str) {
     .replace(/'/g, "&#39;");
 }
 
-export function initializeBlogPage() {
+export function initializeBlogPage({ hydrated = false } = {}) {
   const container = document.getElementById("blog-content");
   if (!container) return;
 
@@ -88,10 +88,14 @@ export function initializeBlogPage() {
   const path = window.location.pathname;
   const match = path.match(/^\/blog\/(.+)$/);
 
-  if (match) {
-    renderPost(decodeURIComponent(match[1]));
-  } else {
-    renderList();
+  // Unless the server already put this list or post on screen (router.js) —
+  // fetching it again only flashed «Loading…» over it.
+  if (!hydrated) {
+    if (match) {
+      renderPost(decodeURIComponent(match[1]));
+    } else {
+      renderList();
+    }
   }
 
   // Delegate clicks for domain chips

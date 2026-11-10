@@ -62,11 +62,6 @@
   --gap-section: 96px;
   --gap-item: 14px;
 
-  /* 히어로는 «파란 판»이다 — 배경에 깔리는 물빛이 아니라, 둥근 모서리를
-     가진 면 위에 흰 글자가 올라간다. 원본의 180도 그래디언트. */
-  --hero: linear-gradient(180deg, #779bc1 0%, #a9c2da 45%, #cbdcec 100%);
-  --hero-ink: #ffffff;
-
   /* 반경 — 버튼은 알약, 카드는 크게. Letters 의 특징이 여기 있다. */
   --r-pill: 100px;
   --r-card: 18px;
@@ -111,8 +106,6 @@
     --go: #4fb3e4;
     --go-soft: #10222c;
     --go-deep: #4fb3e4;
-    --hero: linear-gradient(180deg, #1d3347 0%, #16222c 55%, #11181f 100%);
-    --hero-ink: #f2f2f5;
     --bad: #f2857a;
   --mock: #202127;
     --mock: #202127;
@@ -141,8 +134,6 @@
   --go: #4fb3e4;
   --go-soft: #10222c;
   --go-deep: #4fb3e4;
-  --hero: linear-gradient(180deg, #1d3347 0%, #16222c 55%, #11181f 100%);
-  --hero-ink: #f2f2f5;
   --bad: #f2857a;
   /* 미디어쿼리 쪽에만 있었다 — 어둡게를 «직접» 고르면 조각이 흰 판이 됐다. */
   --mock: #202127;
@@ -166,6 +157,11 @@
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
 html, body { max-width: 100%; overflow-x: hidden; }
+
+/* 스크롤 막대 자리를 늘 비워 둔다 — 막대가 생기는 긴 페이지와 안 생기는 짧은
+   페이지를 오가면 가운데 맞춘 본문·헤더가 막대 폭의 절반(7.5px)씩 옆으로 흔들렸다
+   (윈도·마우스를 쓰는 맥, 2026-11-10 실측). 겹치는 막대(폰·트랙패드)에는 자리가 없다. */
+html { scrollbar-gutter: stable; }
 
 body {
   /* 토큰 배경색을 body 에 명시한다. 여기를 비우면 시스템이 어두울 때
@@ -203,6 +199,12 @@ img { max-width: 100%; }
 
 .hidden { display: none !important; }
 
+/* 웹 글꼴이 오기 전(최대 1.2초) — index.html 머리의 스크립트가 켜고 끈다. 투명하게만
+   둔다(자리는 그대로, 입력칸 포커스도 그대로). 바탕색은 보인다. */
+.fonts-wait #navbar,
+.fonts-wait main,
+.fonts-wait footer { opacity: 0; }
+
 .mono {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
 }
@@ -221,21 +223,26 @@ img { max-width: 100%; }
    ============================================ */
 /* 내비게이션 전용이다. 예전에는 `header` 로 잡혀 있어서 블로그의 <header> 까지
    flex + padding 28px 가 걸렸다 — 제목이 부제와 한 줄에 붙고 본문보다 들여써졌다. */
+/* 🔴 모든 화면이 같은 헤더다 (2026-11-10 Jay «다른페이지로 갔을땐 여전히 로고가 이거네»).
+   홈의 헤더 — 화면 끝까지, 옆 여백 --h-gut(96/64/20), 높이 64, 글자 로고 — 를 그대로
+   모든 화면에 쓴다. 페이지를 넘겨도 로고·메뉴가 한 픽셀도 안 움직인다.
+   그 대신 본문이 1080 칸에 갇힌 화면(문서·소개 등)은 넓은 화면에서 본문 왼쪽이
+   로고보다 안쪽이다(1440 에서 로고 96 · 본문 208) — 헤더는 창의 틀, 본문은 그 안의 칸.
+   min-height 는 서버가 그린 헤더와 스크립트가 다시 그린 헤더의 높이를 같게 묶는다. */
 #navbar {
   display: flex;
   align-items: center;
   gap: 24px;
   width: 100%;
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 20px 28px;
+  min-height: 64px;
+  padding: 12px var(--h-gut);
+  font-family: var(--h-ui); /* 홈의 글꼴 — 화면마다 글꼴이 다르면 메뉴 폭이 달라 메뉴가 움찔한다 */
 }
 
-/* 홈이 아닌 화면에서만 나온다 (ui.js renderNavbar 참고). */
+/* 판 없는 글자 로고 — 파란 그래디언트 판은 2026-11-10 에 걷었다. */
 .brand {
-  font-size: 17px;
-  font-weight: 700;
-  letter-spacing: -0.02em;
+  font: 700 22px/1 var(--h-round);
+  letter-spacing: -0.01em;
   color: var(--ink);
   text-decoration: none;
 }
@@ -244,8 +251,8 @@ img { max-width: 100%; }
   margin-left: auto;
   display: flex;
   align-items: center;
-  gap: 22px;
-  font-size: 14.5px;
+  gap: 24px;
+  font-size: 15px;
   color: var(--ink-2);
   min-width: 0;
 }
@@ -258,9 +265,20 @@ img { max-width: 100%; }
   border: 0;
   padding: 0;
   font: inherit;
-  font-size: 14.5px;
+  font-size: 15px;
   cursor: pointer;
   white-space: nowrap;
+}
+
+/* 지금 페이지의 링크는 굵다. 굵은 글자 폭을 늘 잡아 두어(data-label), 문서 ↔ 로그인을
+   넘길 때 그 왼쪽 링크가 1~3px 씩 밀리지 않게 한다. */
+#navbar nav a { display: inline-grid; }
+#navbar nav a::after {
+  content: attr(data-label);
+  height: 0;
+  overflow: hidden;
+  visibility: hidden;
+  font-weight: 700;
 }
 
 #navbar nav a:hover,
@@ -349,20 +367,7 @@ body:has(.home) {
   overflow-wrap: break-word;
 }
 
-/* 헤더·본문·푸터가 화면 끝까지 펴지고 옆 여백만 남는다. */
-body:has(.home) #navbar { max-width: none; min-height: 64px; padding: 12px var(--h-gut); }
-body:has(.home) #navbar nav { gap: 24px; }
-body:has(.home) #navbar nav a,
-body:has(.home) #navbar nav .nav-auth-btn { font-size: 15px; }
-/* 홈의 이름표는 판이 아니라 글자다 — 주소가 이미 화면의 주인공이다. */
-body:has(.home) .brand {
-  background: none;
-  color: var(--h-ink);
-  padding: 0;
-  border-radius: 0;
-  font: 700 22px/1 var(--h-round);
-  letter-spacing: -0.01em;
-}
+/* 본문·푸터가 화면 끝까지 펴지고 옆 여백만 남는다(헤더는 모든 화면이 이렇다 — 3절). */
 body:has(.home) main { max-width: none; padding: 0; }
 body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top-color: var(--h-line); }
 
@@ -384,7 +389,13 @@ body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top
   display: flex;
   flex-direction: column;
   justify-content: center;
+  container-type: inline-size; /* 주소 크기의 기준 폭(100cqw) — 아래 .addr */
 }
+/* 가운데 맞춘 자리와 높이에 못 박는다(home.js pin()) — 그 뒤로 상태 줄이 길어지거나 아래
+   띠의 문장이 줄을 바꿔도 주소는 제자리이고, 늘어난 것은 아래로 내려간다(띠는 위가 아니라
+   아래로 자란다). 가운데 맞춤 그대로면 상태 줄이 31px 늘 때마다 주소가 15px 씩 위로 들렸고,
+   영어 띠가 두 줄이 되면 띠가 35px 위로 올라왔다(2026-11-10 실측). */
+.home .hero.pinned { flex: none; min-height: var(--pin-h); justify-content: flex-start; padding-top: var(--pin); }
 
 .home .kicker {
   margin: 0 0 24px;
@@ -395,17 +406,29 @@ body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top
 }
 .home .kicker-sub { color: var(--h-ink-2); font-weight: 400; }
 
-/* 주소. 크기는 home.js measure()/fit() 이 화면 폭에 맞춰 --size 로 준다 — 칠 때마다 바뀌지 않는다. */
+/* 주소. 크기는 화면 폭으로 정하고 칠 때마다 바뀌지 않는다.
+   🔴 크기는 CSS 가 정한다(2026-11-10) — 서버가 보낸 첫 그림부터 맞는 크기여야 한다.
+   스크립트가 정하던 때는 첫 그림이 152px 로 떴다가 128px(폰 61px)로 줄었고, 서체가
+   늦게 오면 그 서체 폭으로 다시 재면서 한 번 더 바뀌었다.
+   식: 이 줄 폭(100cqw)에 «12자 이름 + 꼬리»가 한 줄로 드는 크기, 64~152px.
+   5.6323 = «my-portfolio»(흔한 12자 이름 중 넓은 쪽)의 폭, --tail = 꼬리 «.sitey.my»의 폭 —
+   둘 다 Open Runde 600·자간 −0.035em 에서 글자 크기에 대한 배수다(실측). 0.0526 = 8px/152.
+   서체가 오기 전에도 같은 수로 계산하므로 서체가 도착해도 크기가 그대로다.
+   꼬리가 다른 도메인이면 home.js 가 --tail 만 고친다. 이름 하나가 줄을 넘으면 --size 로 줄인다. */
 .home .addr {
   display: flex;
   align-items: baseline;
   flex-wrap: nowrap;
   min-width: 0;
-  font: 600 var(--size, 152px)/1.02 var(--h-round);
+  font: 600 152px/1.02 var(--h-round);
+  font-size: var(--size, 152px); /* 컨테이너 단위를 모르는 옛 브라우저 */
   letter-spacing: -0.035em;
   white-space: nowrap;
   color: var(--h-ink);
   cursor: text;
+}
+@supports (width: 1cqw) {
+  .home .addr { font-size: var(--size, clamp(64px, calc(100cqw / (5.6323 + var(--tail, 4.0225) + 0.0526)), 152px)); }
 }
 .home .addr.wrap { flex-wrap: wrap; }
 .home .addr.wrap .tail { flex-basis: 100%; }
@@ -427,8 +450,10 @@ body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top
 }
 .home .addr:focus-within .name-wrap::after { background: var(--h-ink); }
 
+/* 빈 칸의 폭 = 자리표시 «myapp» 의 폭(3.0868em) — 첫 그림부터 꼬리가 제자리에 선다.
+   글자를 치면 home.js fit() 이 친 글자 폭으로 바꾼다. */
 .home .addr input {
-  width: 3ch;
+  width: calc(3.09em + 2px);
   max-width: 100%;
   margin: 0;
   padding: 0;
@@ -538,6 +563,8 @@ body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top
 
 .home .hosts,
 .home .suggest { display: flex; flex-wrap: wrap; gap: 8px; }
+/* 추천은 늦게 온다 — 상태 줄 맨 아래에 붙어서 이미 보이던 줄을 밀지 않는다. */
+.home .suggest-say { flex-basis: 100%; font-size: 15px; color: var(--h-ink-2); }
 
 .home .chip {
   height: 40px;
@@ -765,16 +792,20 @@ body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top
 
 @media (max-width: 720px) {
   :root { --h-gut: 20px; }
-  body:has(.home) #navbar nav { gap: 16px; }
-  body:has(.home) #navbar nav a,
-  body:has(.home) #navbar nav .nav-auth-btn { font-size: 14px; }
+  #navbar nav { gap: 16px; }
+  #navbar nav a,
+  #navbar nav .nav-auth-btn { font-size: 14px; }
 
   .home .hero { justify-content: flex-start; padding-top: 12vh; }
   .home .kicker { margin-bottom: 16px; font-size: 21px; }
   .home .kicker-sub { display: block; margin-top: 4px; font-size: 17px; }
   .home .kicker .sep { display: none; }
-  /* 폰에서는 늘 두 줄 — 이름 / .sitey.my */
+  /* 폰에서는 늘 두 줄 — 이름 / .sitey.my. 크기는 «12자 이름»이 한 줄에 드는 값(34~76px),
+     0.1053 = 8px/76. */
   .home .addr { flex-wrap: wrap; line-height: 1.08; }
+  @supports (width: 1cqw) {
+    .home .addr { font-size: var(--size, clamp(34px, calc(100cqw / (max(5.6323, var(--tail, 4.0225)) + 0.1053)), 76px)); }
+  }
   .home .addr .tail { flex-basis: 100%; }
   .home .status { margin-top: 24px; min-height: 120px; }
   .home .say { font-size: 17px; }
@@ -1338,7 +1369,7 @@ footer a:hover { color: var(--ink-2); text-decoration: underline; }
 /* ============================================
    Letters — 제목 서체와 자간
    ============================================ */
-h1, h2, h3, .brand {
+h1, h2, h3 {
   font-family: "Open Runde", "Inter", "Gothic A1", "Apple SD Gothic Neo",
     system-ui, sans-serif;
   letter-spacing: -0.04em;
@@ -1562,24 +1593,6 @@ textarea { border-radius: var(--r-input); }
   box-sizing: border-box;
 }
 .mock-done .mock-foot { color: var(--go); font-weight: 600; }
-
-/* ============================================
-   Letters — 로고는 작은 판 위에 (2026-09-14 Jay 지시)
-
-   처음에 네비 «전체»를 파랗게 했다가 바로 물렸다 — 「로고에만 넣어야지」.
-   첫 화면의 큰 판과 같은 그래디언트를 로고 크기로 잘라 쓴다.
-   ============================================ */
-
-.brand {
-  /* 큰 판과 같은 그림을 120px 로 그려놓고 로고 높이만큼만 보여준다.
-     34px 짜리에 180도 램프를 통째로 넣으면 아래가 허옇게 뜬다. */
-  background: var(--hero);
-  background-size: 100% 120px;
-  background-repeat: no-repeat;
-  color: var(--hero-ink);
-  padding: 7px 13px;
-  border-radius: 11px;
-}
 
 /* ============================================
    Admin (/admin) — 읽기 전용 숫자판

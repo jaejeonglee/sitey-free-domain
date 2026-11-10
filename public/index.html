@@ -21,6 +21,38 @@
       } catch (e) {}
     </script>
 
+    <!-- Hold the page until its web fonts are in, for at most 1.2s. Text that
+         is drawn in a fallback face and then redrawn in the real one moved whole
+         paragraphs a line down — on every page, cached fonts included
+         (2026-11-10, measured; with the fonts blocked it was zero). Each frame,
+         once the document is parsed: lay it out (which asks for the fonts it
+         uses) and let go as soon as no font face is still loading. Not
+         document.fonts.status — that stays "loading" until the whole document
+         has loaded, async scripts included. style.css .fonts-wait.
+         Only with JavaScript: a reader without it is never held. -->
+    <script>
+      (function () {
+        var root = document.documentElement;
+        if (!document.fonts || !document.fonts.forEach || !window.requestAnimationFrame) return;
+        root.classList.add("fonts-wait");
+        var show = function () { root.classList.remove("fonts-wait"); };
+        var tick = function () {
+          if (!root.classList.contains("fonts-wait")) return;
+          if (document.readyState !== "loading") {
+            void document.body.offsetHeight;
+            var loading = false;
+            document.fonts.forEach(function (face) {
+              if (face.status === "loading") loading = true;
+            });
+            if (!loading) return show();
+          }
+          requestAnimationFrame(tick);
+        };
+        requestAnimationFrame(tick);
+        setTimeout(show, 1200);
+      })();
+    </script>
+
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link

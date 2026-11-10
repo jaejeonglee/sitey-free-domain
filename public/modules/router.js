@@ -20,6 +20,11 @@ const SERVER_RENDERED_INIT = {
     "/abuse": initializeAbuseForm,
 };
 
+// The language the server painted the first page in (routes/pages.js writes
+// <html lang>). Read now: i18n.js overwrites the attribute once it loads.
+const SERVED_LANG = document.documentElement.lang;
+let firstRoute = true;
+
 const routes = {
     "/": { templateId: "template-home", init: initializeLandingPage, title: "Sitey — your AI-built site, on your own address" },
     "/index.html": { templateId: "template-home", init: initializeLandingPage, title: "Sitey — your AI-built site, on your own address" },
@@ -83,7 +88,14 @@ export async function router() {
   const appRoot = document.getElementById("app-root");
   if (!appRoot) return;
 
-  if (!serverRendered) {
+  // The first route is usually the page the server has just painted, in this
+  // language. Copying the template over it repainted the same page — English
+  // first for a Korean reader, and /blog went back to «Loading…» while it
+  // fetched what was already on screen (2026-11-10). Keep it; only wire it.
+  const hydrated = firstRoute && !serverRendered && appRoot.childElementCount > 0 && SERVED_LANG === getLang();
+  firstRoute = false;
+
+  if (!serverRendered && !hydrated) {
     const template = document.getElementById(route.templateId);
     if (!template) {
       appRoot.innerHTML = "<h1>Error: Page not found</h1>";
@@ -97,7 +109,7 @@ export async function router() {
 
   renderNavbar(path);
   applyTranslations();
-  if (!serverRendered) route.init();
+  if (!serverRendered) route.init({ hydrated });
   else SERVER_RENDERED_INIT[path]?.();
 
   // KR·EN. The header is rebuilt on every route, so the buttons are wired
