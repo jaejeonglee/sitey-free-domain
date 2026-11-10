@@ -140,7 +140,7 @@ function agentRegistration() {
  * while it can be paid — an agent reads this sentence and acts on it.
  */
 function agentDescription() {
-  const base = "Put your AI-built site on your own address in 30 seconds. No sign-up.";
+  const base = "Put your AI-built site on your own address in one call. No sign-up.";
   const period = expiry.AGENT_MONTHS === 1 ? "a month" : `${expiry.AGENT_MONTHS} months`;
   const free = `Free for agents, ${period} at a time`;
   return x402.status().enabled

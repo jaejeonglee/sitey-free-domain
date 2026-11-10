@@ -1,4 +1,5 @@
 import { IPV4_REGEX, HOSTNAME_REGEX } from "./constants.js";
+import { t } from "./i18n.js";
 
 export function normalizeRecordType(type = "A") {
   const upper = String(type || "A").trim().toUpperCase();
@@ -12,7 +13,7 @@ export function sanitizeHostname(value) {
 export function validateRecordValue(recordType, value, context = {}) {
   const trimmed = String(value || "").trim();
   if (!trimmed) {
-    return { valid: false, message: "Enter a record value." };
+    return { valid: false, message: t("common.value.empty") };
   }
 
   if (recordType === "REDIRECT") {
@@ -27,11 +28,11 @@ export function validateRecordValue(recordType, value, context = {}) {
     if (!url || url.protocol !== "https:" || !url.hostname) {
       return {
         valid: false,
-        message: "Use an absolute https:// URL (e.g. https://example.com/page).",
+        message: t("common.value.url"),
       };
     }
     if (trimmed.length > 2048) {
-      return { valid: false, message: "The URL must be 2048 characters or fewer." };
+      return { valid: false, message: t("common.value.url_long") };
     }
     return { valid: true, value: url.href };
   }
@@ -40,7 +41,7 @@ export function validateRecordValue(recordType, value, context = {}) {
     if (!IPV4_REGEX.test(trimmed)) {
       return {
         valid: false,
-        message: "Use a valid IPv4 address (e.g. 203.0.113.10).",
+        message: t("common.value.ipv4"),
       };
     }
     return { valid: true, value: trimmed };
@@ -50,7 +51,7 @@ export function validateRecordValue(recordType, value, context = {}) {
   if (!HOSTNAME_REGEX.test(target)) {
     return {
       valid: false,
-      message: "Use a valid hostname (e.g. app.example.com).",
+      message: t("common.value.hostname"),
     };
   }
 
@@ -59,7 +60,7 @@ export function validateRecordValue(recordType, value, context = {}) {
     if (target === full.replace(/\.$/, "")) {
       return {
         valid: false,
-        message: "CNAME target cannot point to itself.",
+        message: t("common.value.self"),
       };
     }
   }
