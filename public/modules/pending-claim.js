@@ -23,14 +23,36 @@
 // What comes back out is not trusted: the name goes through the same regex
 // the server uses, and the root has to be one we still hand out — which only
 // the home page can tell, so it checks there (public/modules/home.js).
+//
+// Since the first screen creates in place (2026-11-10) the trip also carries
+// what was filled in below the name — the hosting chip, the record type, the
+// value — so coming back is one press of «Create», not a form to redo. Those
+// three are optional: a value written before them ({subdomain, domain}) still
+// reads, and a malformed one drops just that part, never the name.
 import { SUBDOMAIN_REGEX } from "./constants.js";
 
 const KEY = "sitey-claim";
 
-/** Put the name down on the way to the sign-in. */
-export function savePendingClaim(subdomain, domain) {
+const RECORD_TYPES = new Set(["A", "CNAME", "REDIRECT"]);
+// The same ceiling the server puts on a REDIRECT URL, the longest value there is.
+const MAX_VALUE_LENGTH = 2048;
+const HOST_ID = /^[a-z]{1,32}$/;
+
+/**
+ * Put the name down on the way to the sign-in.
+ *
+ * @param {string} subdomain
+ * @param {string} domain
+ * @param {{host?: string, recordType?: string, value?: string}} [details]
+ *   what was chosen below the name, if anything.
+ */
+export function savePendingClaim(subdomain, domain, details = {}) {
+  const claim = { subdomain, domain };
+  if (details.host) claim.host = details.host;
+  if (details.recordType) claim.recordType = details.recordType;
+  if (details.value) claim.value = details.value;
   try {
-    sessionStorage.setItem(KEY, JSON.stringify({ subdomain, domain }));
+    sessionStorage.setItem(KEY, JSON.stringify(claim));
   } catch {
     // Storage is off. Signing in still works; only the walk back is poorer.
   }
@@ -39,8 +61,10 @@ export function savePendingClaim(subdomain, domain) {
 /**
  * Pick it up — and drop it, in that order.
  *
- * @returns {{subdomain: string, domain: string}|null} null for absent,
- *   unreadable, or anything whose shape we would not have written.
+ * @returns {{subdomain: string, domain: string, host: string|null,
+ *   recordType: string|null, value: string|null}|null} null for absent,
+ *   unreadable, or anything whose name or root we would not have written.
+ *   The three details come back null when missing or not in a shape we write.
  */
 export function takePendingClaim() {
   let raw = null;
@@ -53,10 +77,19 @@ export function takePendingClaim() {
   if (!raw) return null;
 
   try {
-    const { subdomain, domain } = JSON.parse(raw) || {};
+    const { subdomain, domain, host, recordType, value } = JSON.parse(raw) || {};
     if (typeof subdomain !== "string" || !SUBDOMAIN_REGEX.test(subdomain)) return null;
     if (typeof domain !== "string" || !domain) return null;
-    return { subdomain, domain };
+    return {
+      subdomain,
+      domain,
+      host: typeof host === "string" && HOST_ID.test(host) ? host : null,
+      recordType: RECORD_TYPES.has(recordType) ? recordType : null,
+      value:
+        typeof value === "string" && value.length <= MAX_VALUE_LENGTH && value.trim()
+          ? value
+          : null,
+    };
   } catch {
     return null;
   }
@@ -66,13 +99,13 @@ export function takePendingClaim() {
    The last few metres
 
    The address bar carries the name over — ?check=, the same channel the
-   blog's domain chips use — but not which root was chosen, and not that a
-   form should open by itself. Those travel in memory for the one render that
+   blog's domain chips use — but not which root was chosen, and not what was
+   filled in below the name. Those travel in memory for the one render that
    follows the redirect.
 
-   Deliberately not in the URL: /?check=x&open=sitey.my would be a link anybody
-   could send, and a link that opens a form on arrival is not what ?check=
-   means anywhere else it is used.
+   Deliberately not in the URL: /?check=x&host=vercel&value=… would be a link
+   anybody could send, and a link that arrives with a record half-made is not
+   what ?check= means anywhere else it is used.
    ============================================ */
 
 let held = null;

@@ -160,8 +160,8 @@ describe("per-path canonical and Open Graph tags", () => {
   // previews, AI agents — was handed a blank page.
   describe("the body arrives in the HTML", () => {
     it.each([
-      ["/", "Your AI-built site, on your own address."],
-      ["/", "Use the sitey MCP to point myapp.sitey.my at my Vercel project"],
+      ["/", "Your AI-built site, on your own address"],
+      ["/", "Use the sitey MCP to point myapp.sitey.my at my site"],
       ["/docs", "Three steps and you're done."],
       ["/guide", "1. Check availability"],
       ["/blog", "Let your AI agent create a subdomain (MCP support)"],

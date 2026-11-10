@@ -66,7 +66,6 @@
      가진 면 위에 흰 글자가 올라간다. 원본의 180도 그래디언트. */
   --hero: linear-gradient(180deg, #779bc1 0%, #a9c2da 45%, #cbdcec 100%);
   --hero-ink: #ffffff;
-  --hero-ink-2: rgba(255, 255, 255, 0.82);
 
   /* 반경 — 버튼은 알약, 카드는 크게. Letters 의 특징이 여기 있다. */
   --r-pill: 100px;
@@ -78,6 +77,27 @@
   --lift: 0 1px 2px rgba(7, 7, 9, 0.04), 0 2px 6px rgba(7, 7, 9, 0.05),
           0 8px 16px rgba(7, 7, 9, 0.05), 0 16px 32px rgba(7, 7, 9, 0.04);
   --lift-card: 0 1px 3px rgba(37, 151, 208, 0.05), 0 8px 24px rgba(37, 151, 208, 0.06);
+
+  /* 홈 첫 화면의 팔레트 (2026-11-10 시안 «주소가 곧 화면»). 5절이 홈에서만
+     공용 토큰을 이걸로 바꿔 낀다. 테두리는 글자색의 10% 선이다. */
+  --h-bg: #fafaf7;
+  --h-surface: #ffffff;
+  --h-ink: #111418;
+  --h-ink-2: #5b636b;
+  --h-ink-3: #a9b0b7;
+  --h-line: rgba(17, 20, 24, 0.1);
+  --h-line-2: rgba(17, 20, 24, 0.18);
+  --h-chip: rgba(17, 20, 24, 0.04);
+  --h-blue: #2597d0;
+  --h-blue-ink: #176a9c;
+  --h-red: #d6453a;     /* 점 */
+  --h-red-ink: #b4362c; /* 글자 — 점 빨강은 글자로 쓰기엔 대비가 모자란다 */
+
+  --h-ui: "Pretendard Variable", Pretendard, system-ui, sans-serif;
+  --h-round: "Open Runde", "Pretendard Variable", system-ui, sans-serif;
+  --h-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+  --h-ease: cubic-bezier(0.2, 0.7, 0.2, 1);
+  --h-gut: 96px;
 }
 
 @media (prefers-color-scheme: dark) {
@@ -93,10 +113,21 @@
     --go-deep: #4fb3e4;
     --hero: linear-gradient(180deg, #1d3347 0%, #16222c 55%, #11181f 100%);
     --hero-ink: #f2f2f5;
-    --hero-ink-2: rgba(242, 242, 245, 0.72);
     --bad: #f2857a;
   --mock: #202127;
     --mock: #202127;
+    --h-bg: #121416;
+    --h-surface: #1a1d20;
+    --h-ink: #eceef0;
+    --h-ink-2: #a3abb3;
+    --h-ink-3: #5e666e;
+    --h-line: rgba(236, 238, 240, 0.1);
+    --h-line-2: rgba(236, 238, 240, 0.2);
+    --h-chip: rgba(236, 238, 240, 0.05);
+    --h-blue: #3ba9e0;
+    --h-blue-ink: #6cc0ea;
+    --h-red: #e8675d;
+    --h-red-ink: #f08a82;
   }
 }
 
@@ -112,10 +143,21 @@
   --go-deep: #4fb3e4;
   --hero: linear-gradient(180deg, #1d3347 0%, #16222c 55%, #11181f 100%);
   --hero-ink: #f2f2f5;
-  --hero-ink-2: rgba(242, 242, 245, 0.72);
   --bad: #f2857a;
   /* 미디어쿼리 쪽에만 있었다 — 어둡게를 «직접» 고르면 조각이 흰 판이 됐다. */
   --mock: #202127;
+  --h-bg: #121416;
+  --h-surface: #1a1d20;
+  --h-ink: #eceef0;
+  --h-ink-2: #a3abb3;
+  --h-ink-3: #5e666e;
+  --h-line: rgba(236, 238, 240, 0.1);
+  --h-line-2: rgba(236, 238, 240, 0.2);
+  --h-chip: rgba(236, 238, 240, 0.05);
+  --h-blue: #3ba9e0;
+  --h-blue-ink: #6cc0ea;
+  --h-red: #e8675d;
+  --h-red-ink: #f08a82;
 }
 
 /* ============================================
@@ -277,260 +319,439 @@ main {
 }
 
 /* ============================================
-   5. Home
+   5. Home — «주소가 곧 화면» (2026-11-10)
+
+   첫 화면은 주소 한 줄이다. 이름 칸(#subdomain)이 곧 주소의 앞부분이고
+   이름과 꼬리 사이 마침표가 상태등이다. 시안은
+   ~/Develop/design-drafts/sitey-oil-ui/explore/polished (Jay 「괜찮네」).
+
+   이 화면은 자기 팔레트(--h-*)를 쓴다. 홈에 있을 때만 body 에서 공용 토큰을
+   그 팔레트로 바꿔 끼워 — 헤더·푸터·아래 세 칸도 같은 색으로 따라오고,
+   다른 페이지의 색은 그대로다. :has() 로 거는 이유: 서버가 홈 본문을 미리
+   넣어 보내므로(routes/pages.js) 자바스크립트가 돌기 전 첫 그림부터 맞는다.
+
+   파랑(--h-blue)은 점·포커스·«복사됨»에만 쓴다. 반경 8, 여백 4px 격자,
+   옆 여백 96/64/20. 움직임은 점 색 160ms · 상태 줄 6px 올라오며 200ms ·
+   누르면 1px 뿐이고 반복하는 움직임은 없다.
    ============================================ */
-.stage {
-  max-width: 1080px;
-  margin: 0 auto;
+body:has(.home) {
+  --paper: var(--h-bg);
+  --ink: var(--h-ink);
+  --ink-2: var(--h-ink-2);
+  --ink-3: var(--h-ink-3);
+  --rule: var(--h-line);
+  --rule-2: var(--h-chip);
+  --go: var(--h-blue);
+  --bad: var(--h-red-ink);
+  --mock: var(--h-surface);
+  font-family: var(--h-ui);
+  word-break: keep-all;
+  overflow-wrap: break-word;
+}
+
+/* 헤더·본문·푸터가 화면 끝까지 펴지고 옆 여백만 남는다. */
+body:has(.home) #navbar { max-width: none; min-height: 64px; padding: 12px var(--h-gut); }
+body:has(.home) #navbar nav { gap: 24px; }
+body:has(.home) #navbar nav a,
+body:has(.home) #navbar nav .nav-auth-btn { font-size: 15px; }
+/* 홈의 이름표는 판이 아니라 글자다 — 주소가 이미 화면의 주인공이다. */
+body:has(.home) .brand {
+  background: none;
+  color: var(--h-ink);
   padding: 0;
-  text-align: center;
+  border-radius: 0;
+  font: 700 22px/1 var(--h-round);
+  letter-spacing: -0.01em;
 }
+body:has(.home) main { max-width: none; padding: 0; }
+body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top-color: var(--h-line); }
 
-/* 판은 넓고, 그 «안의 내용»만 읽기 좋은 폭으로 묶는다. 680px 를 판에
-   걸면 판까지 좁아져서 원본의 넓은 면이 안 나온다. */
-/* 판은 1080 으로 펴되 «안의 도구»는 좁게 묶는다. 680 은 글 읽는 폭이지
-   검색창 폭이 아니다 — 판 안에서 입력창이 주인공처럼 커 보였다. */
-.hero-panel > form,
-.hero-panel > .bar { max-width: 560px; margin-left: auto; margin-right: auto; }
+.home { min-width: 0; color: var(--h-ink); }
+.home a { color: inherit; }
 
-/* 구글 첫 화면처럼 이름이 곧 제목이다. 위에 작은 로고를 같이 두면
-   같은 이름이 한 화면에 두 번 나와서 헤더 쪽을 뺐다. */
-.wordmark {
-  font-size: 30px;
-  font-weight: 700;
-  letter-spacing: -0.045em;
-  margin: 0 0 26px;
-  line-height: 1;
-}
-
-/* 첫 화면의 제목은 «무엇을 해주는지»다. 로고만 있으면 처음 온 사람은
-   입력칸을 보고 뭘 넣어야 하는지부터 추측해야 했다. */
-.hero-title {
-  font-size: 46px;
-  font-weight: 700;
-  line-height: 1.12;
-  margin: 0 auto 14px;
-  max-width: 760px;
-  word-break: keep-all;
-}
-
-.hero-sub {
-  font-size: 18px;
-  margin: 0 0 34px;
-  word-break: keep-all;
-}
-
-
-.field {
+/* 첫 화면 = 헤더 아래 화면 전부. 주소가 가운데, 에이전트 띠가 바닥. */
+.home .first {
   display: flex;
-  align-items: stretch;
-  border: 1px solid var(--rule);
-  border-radius: 10px;
-  background: var(--paper);
-  overflow: hidden;
-  transition: border-color 0.12s ease, box-shadow 0.12s ease;
+  flex-direction: column;
+  min-height: calc(100vh - 64px);
+  min-height: calc(100dvh - 64px);
 }
 
-.field:focus-within {
-  border-color: var(--go);
-  box-shadow: 0 0 0 3px var(--go-soft);
-}
-
-.field input {
+.home .hero {
   flex: 1;
   min-width: 0;
-  border: 0;
-  outline: 0;
-  background: none;
-  color: var(--ink);
-  font: inherit;
-  font-size: 16px;
-  font-weight: 500;
-  padding: 13px 18px;
+  padding: 72px var(--h-gut) 24px;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
 }
 
-.field input::placeholder { color: var(--ink-3); font-weight: 400; }
+.home .kicker {
+  margin: 0 0 24px;
+  font: 500 28px/1.3 var(--h-ui);
+  letter-spacing: -0.01em;
+  color: var(--h-ink);
+}
+.home .kicker-sub { color: var(--h-ink-2); font-weight: 400; }
 
-/* 테두리는 .field 가 그린다. 안쪽 컨트롤이 자기 포커스 링을 또 그리면
-   overflow:hidden 에 잘려 세로 띠 하나로 남는다. */
-.field input:focus,
-.field select:focus { box-shadow: none; }
+/* 주소. 크기는 home.js fit() 이 화면 폭에 맞춰 --size 로 준다. */
+.home .addr {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: nowrap;
+  min-width: 0;
+  font: 600 var(--size, 152px)/1.02 var(--h-round);
+  letter-spacing: -0.035em;
+  white-space: nowrap;
+  color: var(--h-ink);
+  cursor: text;
+}
+.home .addr.wrap { flex-wrap: wrap; }
+.home .addr.wrap .tail { flex-basis: 100%; }
 
-/* 화살표는 우리가 그린다.
-   브라우저가 그리는 화살표는 자기 마음대로 자리를 잡아서, 글자와 화살표
-   사이는 벌고 화살표와 테두리 사이는 붙는 모양이 됐다(Jay 지적). 직접
-   그리면 자리가 예측 가능해지고, 색이 토큰을 따라가 어두운 화면에서도 맞는다. */
-.field select {
-  flex: none;
-  appearance: none;
-  -webkit-appearance: none;
+.home .name-wrap { position: relative; display: inline-block; max-width: 100%; }
+.home .name-wrap::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: -0.06em;
+  height: 2px;
+  background: var(--h-ink-3);
+  transition: background-color 0.16s var(--h-ease);
+}
+.home .addr:focus-within .name-wrap::after { background: var(--h-ink); }
+
+.home .addr input {
+  width: 3ch;
+  max-width: 100%;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  font: inherit;
+  letter-spacing: inherit;
+  color: var(--h-ink);
+  caret-color: var(--h-blue);
+}
+.home .addr input::placeholder { color: var(--h-ink-3); opacity: 1; }
+.home .mirror {
+  position: absolute;
+  left: 0;
+  top: 0;
+  visibility: hidden;
+  white-space: pre;
+  font: inherit;
+  letter-spacing: inherit;
+}
+
+/* 점 하나가 상태등이다 — 쉴 때 글자색, 확인 중 회색, 비어 있으면 파랑,
+   못 쓰면 빨강, 확인이 안 되면 회색(그때는 글로도 말한다). */
+.home .dot {
+  display: inline-block;
+  color: var(--h-ink);
+  transform-origin: 50% 85%;
+  transition: color 0.16s var(--h-ease);
+}
+.home .addr[data-state="checking"] .dot,
+.home .addr[data-state="error"] .dot { color: var(--h-ink-3); }
+.home .addr[data-state="free"] .dot,
+.home .addr[data-state="made"] .dot { color: var(--h-blue); }
+.home .addr[data-state="taken"] .dot,
+.home .addr[data-state="invalid"] .dot { color: var(--h-red); }
+
+/* 만든 뒤 — 입력칸이 진짜 주소가 된다. 밑줄이 사라지고 누르면 열린다. */
+.home .addr[data-state="made"] .name-wrap::after { opacity: 0; }
+.home .addr[data-state="made"],
+.home .addr[data-state="made"] input { cursor: pointer; }
+.home .addr[data-state="made"] input { caret-color: transparent; }
+.home .go-out {
+  margin-left: 0.18em;
+  font-size: 0.42em;
+  color: var(--h-ink-2);
+  text-decoration: none;
+}
+.home .go-out:hover { color: var(--h-ink); }
+.home .addr.lit .dot { animation: home-led 0.24s var(--h-ease); }
+@keyframes home-led { 50% { transform: scale(1.35); } }
+
+/* 상태 줄과 그 아래 — 칩, 값 칸, 버튼 */
+.home .status {
+  margin-top: 32px;
+  min-height: 152px;
+  min-width: 0;
+  max-width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 16px;
+}
+.home .status.enter > * { animation: home-rise 0.2s var(--h-ease) both; }
+.home .status.enter > :nth-child(2) { animation-delay: 0.04s; }
+@keyframes home-rise {
+  from { opacity: 0; transform: translateY(6px); }
+  to { opacity: 1; transform: none; }
+}
+
+.home .say {
+  margin: 0;
+  font-size: 19px;
+  line-height: 1.5;
+  color: var(--h-ink-2);
+  text-wrap: balance;
+}
+.home .say strong { color: var(--h-ink); font-weight: 500; }
+.home .say.bad strong { color: var(--h-red-ink); }
+
+/* 글자처럼 보이는 버튼(다시 확인 · 다른 도메인 · 다른 주소 만들기).
+   공용 button 규칙의 테두리·면·hover 를 걷어낸다. */
+.home .textbtn,
+.home .textbtn:hover:not(:disabled) {
+  display: inline;
+  padding: 0;
   border: 0;
   border-radius: 0;
   background: none;
-  color: var(--ink-2);
   font: inherit;
-  font-size: 14px;
-  padding: 0 34px 0 16px;
+  color: var(--h-ink);
+  text-decoration: underline;
+  text-decoration-color: var(--h-ink-3);
+  text-underline-offset: 3px;
   cursor: pointer;
-  outline: 0;
 }
 
-.field { position: relative; }
+/* 다른 도메인 — 조용한 한 줄. 누르면 꼬리가 그 도메인으로 바뀐다. */
+.home .others { margin: 0; font-size: 14px; color: var(--h-ink-3); }
+.home .others .other { color: var(--h-ink-2); }
+.home .others .sep { margin: 0 2px 0 6px; }
 
-.field::after {
-  content: "";
-  position: absolute;
-  right: 17px;
-  top: 50%;
-  width: 7px;
-  height: 7px;
-  margin-top: -5px;
-  border-right: 1.5px solid var(--ink-3);
-  border-bottom: 1.5px solid var(--ink-3);
-  transform: rotate(45deg);
-  pointer-events: none;
+.home .hosts,
+.home .suggest { display: flex; flex-wrap: wrap; gap: 8px; }
+
+.home .chip {
+  height: 40px;
+  padding: 0 16px;
+  border: 1px solid var(--h-line-2);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--h-ink);
+  font: 400 15px var(--h-ui);
+  transition: background-color 0.16s var(--h-ease), border-color 0.16s var(--h-ease),
+    color 0.16s, transform 0.08s;
+}
+.home .chip:hover:not(:disabled) { background: var(--h-chip); }
+.home .chip[aria-pressed="true"],
+.home .chip[aria-pressed="true"]:hover:not(:disabled) {
+  border-color: var(--h-ink);
+  background: var(--h-ink);
+  color: var(--h-bg);
 }
 
-/* Until /api/managed-domains answers there is nothing to choose between, and
-   an empty dropdown reads as a control that is broken. 화살표도 같이 빠져야
-   한다 — 고를 것이 없는데 화살표만 남으면 고장으로 읽힌다. */
-.field select:empty { display: none; }
-.field:has(select:empty)::after { display: none; }
-
-/* 찾는 중임을 알리는 최소한의 표시. 글자가 아니라 선 하나다 — 결과가 바뀌는
-   자리가 아래라, 위에서 소란을 떨 이유가 없다. */
-.bar {
-  height: 2px;
-  margin-top: 2px;
-  background: var(--rule-2);
-  border-radius: 2px;
-  overflow: hidden;
-}
-
-.bar i {
-  display: block;
-  height: 100%;
-  width: 40%;
-  background: var(--go);
-  transform: translateX(-100%);
-}
-
-.bar.on i { animation: sitey-sweep 0.9s ease-in-out infinite; }
-
-/* 결과가 나타나고 사라져도 아래 설명 세 칸이 튀지 않도록 자리를 잡아둔다. */
-.results {
-  margin-top: 22px;
-  text-align: left;
-  min-width: 0;
-  min-height: 180px;
-}
-
-.hint { padding: 16px 4px; color: var(--ink-3); font-size: 14.5px; }
-
-.result-row {
+/* stretch: 줄 폭을 받아야 값 칸·버튼·안내가 한 줄에 선다. 내용 폭으로 줄어들면
+   값 칸의 min(420px, 100%) 가 기댈 폭이 없어 버튼이 밑으로 떨어진다. */
+.home .connect-wrap { display: flex; flex-direction: column; gap: 8px; align-self: stretch; max-width: 100%; }
+.home .connect { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; }
+.home .field {
   display: flex;
   align-items: center;
-  gap: 14px;
-  padding: 13px 4px;
-  border-bottom: 1px solid var(--rule-2);
+  width: min(420px, 100%);
   min-width: 0;
+  height: 44px;
+  padding: 0 4px 0 16px;
+  border: 1px solid var(--h-line);
+  border-radius: 8px;
+  background: var(--h-surface);
+  transition: border-color 0.16s var(--h-ease), box-shadow 0.16s var(--h-ease);
 }
-
-.result-row:last-child { border-bottom: 0; }
-
-.result-row .dot { flex: none; width: 7px; height: 7px; border-radius: 50%; }
-.result-row.free .dot { background: var(--go); }
-.result-row.taken .dot { background: var(--rule); }
-
-.result-row .domain-name {
+.home .field:focus-within { border-color: var(--h-blue); box-shadow: 0 0 0 1px var(--h-blue); }
+.home .field label {
+  margin: 0 12px 0 0;
+  font-size: 14px;
+  color: var(--h-ink-2);
+  white-space: nowrap;
+}
+.home .field input {
   flex: 1;
   min-width: 0;
-  font-size: 15.5px;
-  letter-spacing: -0.01em;
+  height: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  outline: none;
+  box-shadow: none;
+  background: transparent;
+  font: 400 15px var(--h-mono);
+  color: var(--h-ink);
+}
+.home .field input::placeholder { color: var(--h-ink-3); }
+
+.home .go,
+.home .go:hover:not(:disabled) {
+  height: 44px;
+  padding: 0 24px;
+  border: 0;
+  border-radius: 8px;
+  background: var(--h-ink);
+  color: var(--h-bg);
+  font: 500 15px var(--h-ui);
+  transition: transform 0.08s;
+}
+.home .go:disabled {
+  background: transparent;
+  box-shadow: inset 0 0 0 1px var(--h-line-2);
+  color: var(--h-ink-3);
+  cursor: default;
+}
+.home .hint { font-size: 14px; color: var(--h-ink-2); }
+.home .err { margin: 0; font-size: 14px; color: var(--h-red-ink); }
+
+.home .made-to {
+  margin: 0;
+  font: 400 15px var(--h-mono);
+  color: var(--h-ink-2);
   overflow-wrap: anywhere;
 }
+.home .made-links { margin: 0; display: flex; flex-wrap: wrap; gap: 8px 24px; font-size: 15px; }
+.home .made-links a {
+  color: var(--h-ink-2);
+  text-decoration: underline;
+  text-decoration-color: var(--h-ink-3);
+  text-underline-offset: 3px;
+}
 
-.result-row.taken .domain-name { color: var(--ink-3); }
+.home .chip:active,
+.home .go:active:not(:disabled),
+.home .copy:active { transform: translateY(1px); }
+.home .chip:focus-visible,
+.home .go:focus-visible,
+.home .copy:focus-visible,
+.home .textbtn:focus-visible,
+.home .go-out:focus-visible { outline: 2px solid var(--h-blue); outline-offset: 2px; }
 
-/* 오른쪽 끝은 규격이 하나다. 버튼과 「사용 중」의 크기가 다르면 줄마다
-   오른쪽 끝이 들쭉날쭉해진다. 같은 상자에 넣고 «색과 무게»로만 구분한다 —
-   누를 수 있는 것은 검고 진하며, 안 되는 것은 연하고 가만히 있다. */
-.result-row .state,
-.result-row .take {
+/* 아래 띠 — 에이전트에게 맡기는 길. 그림이 아니라 글자라 복사가 된다. */
+.home .strip {
   flex: none;
-  min-width: 96px;
-  text-align: center;
-  font-size: 13px;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 40px;
+  padding: 20px var(--h-gut) 28px;
+  border-top: 1px solid var(--h-line);
+}
+.home .ask { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 16px; min-width: 0; }
+.home .ask-label { font-size: 15px; color: var(--h-ink-2); white-space: nowrap; }
+.home .prompt {
+  min-width: 0;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font: 400 15px/1.5 var(--h-mono);
+  color: var(--h-ink);
+}
+.home .prompt .sync {
   font-weight: 500;
-  letter-spacing: -0.01em;
-  padding: 8px 16px;
+  text-decoration: underline;
+  text-decoration-color: var(--h-ink-3);
+  text-underline-offset: 3px;
+}
+.home .copy,
+.home .copy:hover:not(:disabled) {
+  height: 36px;
+  padding: 0 16px;
+  border: 1px solid var(--h-line-2);
   border-radius: 8px;
+  background: transparent;
+  color: var(--h-ink);
+  font: 400 14px var(--h-ui);
+  white-space: nowrap;
+  transition: color 0.16s, border-color 0.16s, transform 0.08s;
+}
+.home .copy:hover:not(:disabled) { background: var(--h-chip); }
+.home .copy[data-done] { color: var(--h-blue-ink); border-color: var(--h-blue); }
+.home .mcp { margin: 0; display: flex; flex-wrap: wrap; gap: 8px 16px; font-size: 14px; color: var(--h-ink-2); }
+.home .mcp code {
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  font: 400 14px var(--h-mono);
+  color: var(--h-ink);
+}
+.home .mcp a {
+  text-decoration: underline;
+  text-decoration-color: var(--h-ink-3);
+  text-underline-offset: 3px;
 }
 
-.result-row .state { background: var(--rule-2); color: var(--ink-3); }
-
-/* 버튼은 늘 「Get it」이다. 예전엔 쉴 때 「Available」이었다가 손을 얹으면
-   「Get it」으로 굴렀는데, 터치 화면엔 손을 얹는 순간이 없어서 폰에서는
-   상태 딱지로만 보였다(2026-10-01). 상태는 왼쪽 점이 말한다.
-   초록(--go)은 손을 얹은 순간에만 — 그때가 곧 「가져간다」라 뜻과 맞는다. */
-.result-row .take {
-  border: 0;
-  background: var(--ink);
-  color: var(--paper);
-  cursor: pointer;
-  font-family: inherit;
+/* 이렇게 써요 — 첫 화면 아래. 칸 셋은 그대로, 색과 간격만 이 화면의 것. */
+.home .how { padding: 96px var(--h-gut) 120px; }
+.home .steps-title {
+  margin: 0;
+  font: 600 28px/1.3 var(--h-round);
+  letter-spacing: -0.02em;
 }
-
-.result-row .take:focus-visible { outline: 2px solid var(--go); outline-offset: 2px; }
-
-@media (hover: hover) {
-  .result-row .take { transition: background-color 0.16s ease; }
-  .result-row .take:hover { background: var(--go-deep); }
-}
-
-@media (prefers-reduced-motion: reduce) {
-  .bar.on i { animation: none; transform: none; width: 100%; opacity: 0.5; }
-  .result-row .take { transition: none; }
-}
-
-/* sitey.my 한 줄 아래에 나머지 루트를 접어 둔다. 처음 온 사람이 네 줄을
-   한꺼번에 보면 「officials 가 뭐지?」에서 멈췄다. 발급은 그대로 된다. */
-.more-domains summary {
-  cursor: pointer;
-  padding: 12px 4px;
-  font-size: 13.5px;
-  color: var(--ink-3);
-  list-style-position: inside;
-}
-
-.more-domains summary:hover { color: var(--ink-2); }
-.more-domains[open] summary { border-bottom: 1px solid var(--rule-2); }
-.results > .result-row { border-bottom: 1px solid var(--rule-2); }
-
-.points {
+.home .points {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 34px;
-  margin-top: 64px;
-  text-align: left;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 16px;
+  margin: 32px 0 0;
   list-style: none;
 }
+.home .points > li { padding: 24px; border-radius: 8px; background: var(--h-chip); min-width: 0; }
+.home .points h3 { margin: 0 0 8px; font: 600 17px/1.4 var(--h-ui); letter-spacing: -0.01em; }
+.home .points p { margin: 0; font-size: 15px; line-height: 1.6; color: var(--h-ink-2); }
+.home .mock { margin-bottom: 20px; border-radius: 8px; box-shadow: none; }
 
-.points h3 { font-size: 15px; margin: 0 0 6px; }
-
-.steps-title {
-  font-size: 22px;
-  margin: 88px 0 0;
+@media (prefers-reduced-motion: reduce) {
+  .home .status.enter > *,
+  .home .addr.lit .dot { animation: none; }
+  .home .dot,
+  .home .name-wrap::after,
+  .home .chip,
+  .home .field,
+  .home .copy { transition: none; }
+  .home .chip:active,
+  .home .go:active:not(:disabled),
+  .home .copy:active { transform: none; }
 }
 
-/* keep-all — 브라우저는 한글을 글자 아무 데서나 끊는다. 세 칸으로 좁아지니
-   「복잡한 절차 / 없이」처럼 말 가운데가 잘렸다. 띄어쓰기에서만 끊게 한다. */
-.points p {
-  margin: 0;
-  font-size: 14.5px;
-  color: var(--ink-2);
-  line-height: 1.6;
-  word-break: keep-all;
+@media (max-width: 1100px) {
+  :root { --h-gut: 64px; }
+}
+
+@media (max-width: 720px) {
+  :root { --h-gut: 20px; }
+  body:has(.home) #navbar nav { gap: 16px; }
+  body:has(.home) #navbar nav a,
+  body:has(.home) #navbar nav .nav-auth-btn { font-size: 14px; }
+
+  .home .hero { justify-content: flex-start; padding-top: 12vh; }
+  .home .kicker { margin-bottom: 16px; font-size: 21px; }
+  .home .kicker-sub { display: block; margin-top: 4px; font-size: 17px; }
+  .home .kicker .sep { display: none; }
+  /* 폰에서는 늘 두 줄 — 이름 / .sitey.my */
+  .home .addr { flex-wrap: wrap; line-height: 1.08; }
+  .home .addr .tail { flex-basis: 100%; }
+  .home .status { margin-top: 24px; min-height: 120px; }
+  .home .say { font-size: 17px; }
+  .home .connect { width: 100%; }
+  .home .field { flex: 1 1 200px; width: auto; }
+  .home .go,
+  .home .go:hover:not(:disabled) { padding: 0 20px; }
+  .home .prompt { font-size: 13.5px; overflow-wrap: anywhere; }
+  .home .mcp .more { display: none; }
+
+  /* 이름을 치는 동안에는 설명 줄과 아래 띠를 접는다 — 상태·칩·값 칸·버튼이
+     키보드 위에 남게. home.js 가 .typing 을 붙이고 뗀다. */
+  .home.typing .hero { padding-top: 8px; }
+  .home.typing .kicker,
+  .home.typing .strip { display: none; }
+
+  .home .how { padding: 64px var(--h-gut) 80px; }
+  .home .points { grid-template-columns: minmax(0, 1fr); }
 }
 
 /* ============================================
@@ -593,7 +814,7 @@ button:disabled,
 /* ============================================
    7. Forms
    ============================================ */
-input, select, textarea, .input-select {
+input, select, textarea {
   font-family: inherit;
   font-size: 15px;
   background: var(--paper);
@@ -604,7 +825,7 @@ input, select, textarea, .input-select {
   min-width: 0;
 }
 
-input:focus, select:focus, textarea:focus, .input-select:focus {
+input:focus, select:focus, textarea:focus {
   outline: 0;
   border-color: var(--go);
   box-shadow: 0 0 0 3px var(--go-soft);
@@ -612,58 +833,7 @@ input:focus, select:focus, textarea:focus, .input-select:focus {
 
 input::placeholder { color: var(--ink-3); }
 
-.input-select, select { cursor: pointer; }
-
-.input-group { margin-bottom: 14px; min-width: 0; }
-.input-group input, .input-group .input-select { width: 100%; }
-
-.form-label, .input-group label {
-  display: block;
-  font-size: 14px;
-  color: var(--ink-2);
-  margin-bottom: 6px;
-}
-
-.field-label {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  margin-bottom: 6px;
-  position: relative;
-}
-
-.field-label .form-label { margin: 0; }
-
-.field-helper { color: var(--ink-3); font-size: 13px; margin: -8px 0 14px; }
-
-.tooltip-toggle {
-  width: 18px; height: 18px;
-  flex: none;
-  padding: 0;
-  border-radius: 50%;
-  font-size: 11px;
-  font-weight: 700;
-  color: var(--ink-3);
-  background: var(--rule-2);
-  border: 0;
-}
-
-.tooltip-bubble {
-  display: none;
-  position: absolute;
-  top: 100%; left: 0;
-  z-index: 20;
-  width: min(280px, 80vw);
-  margin-top: 6px;
-  background: var(--ink);
-  color: var(--paper);
-  border-radius: 8px;
-  padding: 8px 11px;
-  font-size: 13px;
-  line-height: 1.5;
-}
-
-.tooltip-bubble.show { display: block; }
+select { cursor: pointer; }
 
 .form-card {
   max-width: 380px;
@@ -969,15 +1139,6 @@ pre code { background: none; padding: 0; }
 
 .modal-content > h2 { font-size: 19px; margin-bottom: 4px; padding-right: 28px; }
 
-.modal-subtitle {
-  color: var(--ink-2);
-  font-size: 14.5px;
-  margin-bottom: 20px;
-  overflow-wrap: anywhere;
-}
-
-.modal-subtitle strong { color: var(--ink); }
-
 .modal-close {
   position: absolute;
   top: 14px; right: 14px;
@@ -1104,21 +1265,6 @@ footer a:hover { color: var(--ink-2); text-decoration: underline; }
   main { padding: 0 18px 56px; }
   footer { padding: 18px; gap: 14px; flex-wrap: wrap; }
 
-  .stage { padding-top: 46px; }
-  .wordmark { font-size: 24px; margin-bottom: 20px; }
-  .hero-title { font-size: 30px; }
-  .hero-sub { font-size: 16px; margin-bottom: 26px; }
-  .steps-title { margin-top: 64px; }
-
-  .field { flex-wrap: wrap; border-radius: 12px; }
-  .field input { flex: 1 1 100%; padding: 14px 16px; font-size: 18px; }
-  .field select { padding: 0 34px 12px 16px; }
-  .field::after { top: auto; bottom: 20px; margin-top: 0; }
-
-  .points { grid-template-columns: 1fr; gap: 26px; margin-top: 24px; }
-
-  .result-row { gap: 12px; }
-
   .dashboard-section, .blog-article, .docs-layout { padding-top: 32px; }
   .form-card { margin-top: 40px; }
 }
@@ -1151,7 +1297,7 @@ footer a:hover { color: var(--ink-2); text-decoration: underline; }
 /* ============================================
    Letters — 제목 서체와 자간
    ============================================ */
-h1, h2, h3, .brand, .wordmark {
+h1, h2, h3, .brand {
   font-family: "Open Runde", "Inter", "Gothic A1", "Apple SD Gothic Neo",
     system-ui, sans-serif;
   letter-spacing: -0.04em;
@@ -1164,7 +1310,6 @@ h1, h2, h3, .brand, .wordmark {
 .blog-list-link .tag,
 button.pill { border-radius: var(--r-pill); }
 
-.field,
 input[type="text"],
 input[type="email"],
 select,
@@ -1187,36 +1332,6 @@ textarea { border-radius: var(--r-input); }
    카드 안쪽 여백과 섹션 사이 거리에서 온다.
    ============================================ */
 
-/* 히어로 뒤에 깔리는 파랑.
-   가짜 요소를 -50vw 로 넓히면 body·main·.stage 의 scrollWidth 가 화면보다
-   커진다 — overflow-x:hidden 이 가려줄 뿐 사라지는 게 아니다. body 의
-   배경으로 두면 상자를 전혀 건드리지 않는다. */
-.stage { padding-top: 96px; }
-
-
-
-/* 세 가지 설명이 그냥 글이었다. 카드로 세운다 — 큰 반경, 넉넉한 안쪽,
-   파란 톤의 아주 옅은 그림자. */
-.points {
-  margin-top: 56px;
-  gap: 20px;
-}
-
-/* 흰 바탕 위에 «회색» 카드. 내가 처음에 반대로 했다 — 흰 카드에 그림자를
-   깔았더니 떠 보이기만 하고 원본의 차분함이 안 나왔다. */
-.points > li {
-  background: var(--rule-2);
-  border: 0;
-  border-radius: 28px;
-  padding: 32px 28px;
-  box-shadow: none;
-}
-
-.points h3 { font-size: 16px; margin: 0 0 10px; }
-
-/* 결과 줄과 검색창 사이도 벌린다. */
-.results:not(:empty) { margin-top: 28px; }
-
 /* 글이 실리는 페이지는 위아래를 더 띄운다. */
 .blog-article { padding-top: 72px; padding-bottom: 72px; }
 .blog-list-header { margin-bottom: 48px; }
@@ -1227,64 +1342,8 @@ textarea { border-radius: var(--r-input); }
 .modal-content { padding: 32px; }
 
 @media (max-width: 720px) {
-  .stage { padding-top: 56px; }
-  .points > li { padding: 28px 22px; }
   .blog-article { padding-top: 44px; padding-bottom: 44px; }
 }
-
-/* ============================================
-   Letters — 히어로 판
-   ============================================ */
-
-.stage { padding-top: 0; }
-
-/* 파란 면. 둥근 모서리를 가진 «판»이고, 그 위 글자는 흰색이다. */
-.hero-panel {
-  background: var(--hero);
-  border-radius: 32px;
-  padding: 88px 32px 92px;
-  margin: 8px 0 0;
-  color: var(--hero-ink);
-}
-
-.hero-panel .wordmark { color: var(--hero-ink-2); }
-/* 흰 글자가 판 아래쪽의 옅은 파랑에 얹힌다. 82% 흰색 부제는 거기서
-   안 읽혔다 — 부제도 온전한 흰색에 굵기 하나를 올리고, 아주 옅은 그림자로
-   글자 가장자리만 세운다. */
-.hero-panel .hero-title,
-.hero-panel .hero-sub {
-  color: var(--hero-ink);
-  text-shadow: 0 1px 2px rgba(7, 7, 9, 0.18);
-}
-.hero-panel .hero-sub { font-weight: 500; }
-
-/* 판 위의 입력창은 흰 카드처럼 보여야 읽힌다. */
-.hero-panel .field {
-  border-color: transparent;
-  box-shadow: 0 2px 6px rgba(7, 7, 9, 0.06), 0 12px 28px rgba(7, 7, 9, 0.10);
-}
-
-/* 진행 막대의 «빈 트랙»(--rule-2)이 판 위에서는 입력창 바로 아래 회색
-   실선으로 보인다 — 검색을 안 하는 동안에도 계속. 트랙을 지우고 움직이는
-   조각만 남기면 검색 중에만 나타난다. */
-.hero-panel .bar { background: transparent; }
-.hero-panel .bar i { background: var(--hero-ink); }
-
-@media (max-width: 720px) {
-  .hero-panel { border-radius: 22px; padding: 56px 18px 64px; }
-}
-
-/* 결과와 설명 카드는 판 아래에 온다 — 읽기 폭으로 묶는다. */
-/* 결과 줄은 검색창과 같은 폭이어야 한 덩어리로 읽힌다. */
-.results { max-width: 560px; margin-left: auto; margin-right: auto; }
-
-/* 결과 자리를 180px 비워두던 것은 «타이핑할 때 카드가 안 튀게» 하려던 것이다.
-   판이 커진 지금은 그 빈자리가 구멍으로 읽힌다. 비어 있을 때만 접고,
-   결과가 나오면 그때 한 번 밀린다 — 빈 화면보다 낫다. */
-.results:empty { min-height: 0; margin-top: 0; }
-/* 결과는 이제 한 줄 + 접힌 줄이라 높이가 늘 같다. 180px 자리 잡기는 빈 구멍만 남긴다. */
-.results:not(:empty) { min-height: 0; }
-.points { margin-top: 28px; }
 
 /* ============================================
    Letters — 카드 안의 «화면 조각»
@@ -1315,8 +1374,7 @@ textarea { border-radius: var(--r-input); }
 
 /* 조각 안의 주소·레코드는 전부 코드다. 한글이 섞이지 않으므로 등폭으로. */
 .mock-host,
-.mock-target,
-.mock-call code {
+.mock-target {
   font-family: ui-monospace, SFMono-Regular, "SF Mono", Menlo, monospace;
   font-size: 11.5px;
   letter-spacing: -0.01em;
@@ -1409,32 +1467,6 @@ textarea { border-radius: var(--r-input); }
   background: var(--go);
 }
 
-/* ── MCP: 에이전트가 주고받는 한 토막 ── */
-.mock-said {
-  margin: 0;
-  max-width: 88%;
-  padding: 7px 11px;
-  border-radius: 12px 12px 12px 3px;
-  background: var(--rule-2);
-  color: var(--ink);
-}
-.mock-said-back {
-  align-self: flex-end;
-  border-radius: 12px 12px 3px 12px;
-  /* --go 위의 흰 글자는 3.3:1 이라 안 읽혔다(2026-10-01). --go-deep 은
-     밝은 판에서 5.5:1, 어두운 판에서는 밝은 파랑 위 먹색이라 8:1 이다.
-     --paper 를 쓰면 밝은 판에선 흰색, 어두운 판에선 먹색으로 뒤집힌다. */
-  background: var(--go-deep);
-  color: var(--paper);
-}
-.mock-call {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--ink-3);
-  font-size: 11px;
-}
-
 @media (max-width: 720px) {
   /* 한 칸으로 접히면 카드가 넓어진다. 높이를 억지로 맞출 이유가 없어진다. */
   .mock { min-height: 0; }
@@ -1489,81 +1521,6 @@ textarea { border-radius: var(--r-input); }
   box-sizing: border-box;
 }
 .mock-done .mock-foot { color: var(--go); font-weight: 600; }
-
-/* ============================================
-   에이전트 한 줄 — 첫 화면에서 복사해 갈 수 있는 문장
-
-   그림이 아니라 글자다: 복사가 되어야 쓸모가 있다. 오른쪽 말풍선 조각은
-   그 문장을 붙여 넣으면 무슨 일이 일어나는지를 보여준다.
-   ============================================ */
-.agent-line {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 240px;
-  gap: 28px;
-  align-items: center;
-  max-width: 820px;
-  margin: 40px auto 0;
-  padding: 26px 28px;
-  border: 1px solid var(--rule);
-  border-radius: var(--r-card);
-  text-align: left;
-}
-.agent-line .mock { margin: 0; min-height: 0; background: var(--rule-2); box-shadow: none; }
-.agent-text { min-width: 0; }
-.agent-label { font-size: 14px; color: var(--ink-2); margin: 0 0 10px; }
-.agent-copy {
-  display: flex;
-  align-items: stretch;
-  gap: 8px;
-  min-width: 0;
-}
-.agent-copy code {
-  flex: 1;
-  min-width: 0;
-  padding: 10px 14px;
-  border-radius: var(--r-tight);
-  background: var(--rule-2);
-  color: var(--ink);
-  font-size: 13px;
-  line-height: 1.5;
-  overflow-wrap: anywhere;
-  white-space: normal;
-}
-.agent-copy-btn {
-  flex: none;
-  border: 1px solid var(--rule);
-  background: var(--paper);
-  color: var(--ink);
-  font: inherit;
-  font-size: 13px;
-  font-weight: 500;
-  padding: 0 16px;
-  border-radius: var(--r-tight);
-  cursor: pointer;
-}
-.agent-copy-btn:hover { border-color: var(--ink-3); }
-.agent-copy-btn:focus-visible { outline: 2px solid var(--go); outline-offset: 2px; }
-.agent-links {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 4px 14px;
-  margin: 12px 0 0;
-  font-size: 13px;
-  color: var(--ink-3);
-}
-.agent-links code {
-  background: none;
-  padding: 0;
-  color: var(--ink-2);
-  font-size: 12.5px;
-  overflow-wrap: anywhere;
-}
-.agent-links a { color: var(--ink-2); }
-
-@media (max-width: 720px) {
-  .agent-line { grid-template-columns: minmax(0, 1fr); padding: 20px 18px; gap: 18px; margin-top: 32px; }
-}
 
 /* ============================================
    Letters — 로고는 작은 판 위에 (2026-09-14 Jay 지시)

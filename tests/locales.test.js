@@ -81,4 +81,21 @@ describe("every key the page asks for exists", () => {
       expect(ko, key).toHaveProperty(key);
     }
   });
+
+  // The first screen keeps its hosting chips in a table (HOSTS in home.js) and
+  // looks their words up through a variable — t(host.where), t(host.example) —
+  // which the test above cannot follow. Every "home.…" string literal in that
+  // file is a key, so each one has to exist in both languages.
+  it("finds the keys the home page keeps in its tables", () => {
+    const homeSource = fs.readFileSync(path.join(PUBLIC, "modules", "home.js"), "utf8");
+    const named = new Set(
+      [...homeSource.matchAll(/"(home\.[a-z_]+(?:\.[a-z_]+)+)"/g)].map((m) => m[1])
+    );
+    expect(named).toContain("home.agent.where.lovable");
+    expect(named).toContain("home.example.netlify");
+    for (const key of named) {
+      expect(en, key).toHaveProperty(key);
+      expect(ko, key).toHaveProperty(key);
+    }
+  });
 });

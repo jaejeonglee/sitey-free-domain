@@ -2,7 +2,7 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content" />
     <meta name="google-adsense-account" content="ca-pub-4214732111289465" />
     <link rel="canonical" href="https://sitey.my/" />
     <link rel="icon" href="/favicon-32.png" type="image/png" />
@@ -31,7 +31,7 @@
     <title>Sitey — your AI-built site, on your own address</title>
     <meta
       name="description"
-      content="Put the site you built with AI on your own address in 30 seconds. No sign-up. Point a name at Vercel, Netlify, GitHub Pages, Lovable or your server — or let your agent do it over MCP."
+      content="Put the site you built with AI on your own address. Check a name without signing up, or let your agent create it in one call over MCP. Point it at Vercel, Netlify, GitHub Pages, Lovable or your server."
     />
     <meta
       name="keywords"
@@ -44,7 +44,7 @@
     <!-- Open Graph -->
     <meta property="og:type" content="website" />
     <meta property="og:title" content="Sitey — your AI-built site, on your own address" />
-    <meta property="og:description" content="30 seconds. No sign-up. Agents welcome. Point a name at Vercel, Netlify, GitHub Pages, Lovable or your server." />
+    <meta property="og:description" content="Check a name without signing up. Agents create it in one call. Point it at Vercel, Netlify, GitHub Pages, Lovable or your server." />
     <meta property="og:url" content="https://sitey.my/" />
     <meta property="og:image" content="https://sitey.my/sitey_logo.png" />
     <meta property="og:site_name" content="Sitey" />
@@ -52,7 +52,7 @@
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary" />
     <meta name="twitter:title" content="Sitey — your AI-built site, on your own address" />
-    <meta name="twitter:description" content="30 seconds. No sign-up. Agents welcome. Point a name at Vercel, Netlify, GitHub Pages, Lovable or your server." />
+    <meta name="twitter:description" content="Check a name without signing up. Agents create it in one call. Point it at Vercel, Netlify, GitHub Pages, Lovable or your server." />
     <meta name="twitter:image" content="https://sitey.my/sitey_logo.png" />
 
     <!-- JSON-LD Structured Data -->
@@ -62,7 +62,7 @@
       "@type": "WebApplication",
       "name": "Sitey",
       "url": "https://sitey.my",
-      "description": "Puts a site built with AI on its own address in 30 seconds, without sign-up. People and their agents (over MCP) point a name at Vercel, Netlify, GitHub Pages, Lovable or a server.",
+      "description": "Puts a site built with AI on its own address. Anyone can check a name without signing up; people create it with a Google sign-in and agents in one MCP call. Points at Vercel, Netlify, GitHub Pages, Lovable or a server.",
       "applicationCategory": "DeveloperApplication",
       "operatingSystem": "Any",
       "offers": {
@@ -80,6 +80,21 @@
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/@fontsource/open-runde@5/700.css"
+    />
+    <!-- 첫 화면(홈)만 쓰는 셋 (2026-11-10). 주소 글자는 Open Runde 600, 화면 글자는
+         Pretendard, 에이전트 문장·값 칸은 JetBrains Mono. 서체 파일은 그 글자가
+         실제로 그려질 때만 내려온다 — 다른 페이지는 이 CSS 만 받고 파일은 안 받는다. -->
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/npm/@fontsource/open-runde@5/600.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard@v1.3.9/dist/web/variable/pretendardvariable-dynamic-subset.min.css"
+    />
+    <link
+      rel="stylesheet"
+      href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500&display=swap"
     />
     <link rel="stylesheet" href="/style.css" />
     <script src="/script.js" type="module" defer></script>
@@ -124,88 +139,6 @@
 
     <div id="toast-container" class="toast-container"></div>
 
-    <!-- Create Modal -->
-    <div
-      id="create-modal"
-      class="modal hidden"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="create-modal-title"
-    >
-      <div class="modal-backdrop" data-modal-close></div>
-      <div class="modal-content">
-        <button
-          type="button"
-          class="modal-close"
-          id="create-modal-close"
-          aria-label="Close create modal"
-        >
-          &times;
-        </button>
-        <h2 id="create-modal-title" data-i18n="modal.create.title">Create domain</h2>
-        <p class="modal-subtitle">
-          <span data-i18n="modal.create.subtitle">You are about to create</span>
-          <strong id="create-modal-domain"></strong>
-        </p>
-        <form id="create-modal-form" novalidate>
-          <div class="field-label">
-            <label for="create-modal-type" class="form-label" data-i18n="modal.create.type_label">Record type</label>
-            <button
-              type="button"
-              class="tooltip-toggle"
-              id="create-modal-type-info"
-              aria-label="Learn about record types"
-              aria-expanded="false"
-              aria-controls="create-modal-type-tooltip"
-            >
-              <span aria-hidden="true">i</span>
-            </button>
-            <div
-              class="tooltip-bubble"
-              id="create-modal-type-tooltip"
-              role="tooltip"
-            >
-              Choose how this domain should resolve.
-            </div>
-          </div>
-          <div class="input-group">
-            <select id="create-modal-type" class="input-select">
-              <option value="A">A (IPv4)</option>
-              <option value="CNAME">CNAME</option>
-              <option value="REDIRECT">Redirect (URL)</option>
-            </select>
-          </div>
-          <label
-            for="create-modal-value"
-            class="form-label"
-            id="create-modal-value-label"
-            >A record (IPv4)</label
-          >
-          <div class="input-group">
-            <input
-              type="text"
-              id="create-modal-value"
-              placeholder="e.g. 203.0.113.10"
-              required
-              autocomplete="off"
-              spellcheck="false"
-              autocapitalize="none"
-            />
-          </div>
-          <p class="field-helper" id="create-modal-helper">
-            Maps this domain to an IPv4 address.
-          </p>
-          <button
-            type="submit"
-            class="primary-button"
-            id="create-modal-submit"
-          >
-            <span data-i18n="modal.create.submit">Create domain</span>
-          </button>
-        </form>
-      </div>
-    </div>
-
     <!-- Privacy Modal — the policy lives at /privacy as a real page for
          crawlers; this is the same text opened over the page for a reader. -->
     <div
@@ -234,115 +167,97 @@
 
     <!-- Page Templates -->
     <template id="template-home">
-      <div class="stage">
-        <!-- 히어로는 판이다: 파란 면 위에 이름과 검색이 올라간다. -->
-        <div class="hero-panel">
-        <!-- The name is a mark, not the heading. The heading is what the
-             service does — a first-time visitor saw a logo and an input box
-             and had to guess (2026-10-01). -->
-        <p class="wordmark">sitey</p>
-        <h1 class="hero-title" data-i18n="home.title">Your AI-built site, on your own address.</h1>
-        <p class="hero-sub" data-i18n="home.subtitle">30 seconds. No sign-up. Agents welcome.</p>
-
-        <!-- No Check button: typing is the whole gesture, and the one thing
-             left to press is the button that actually registers a name.
-             The form stays so that Enter searches at once instead of
-             reloading the page. -->
-        <form id="subdomain-form" novalidate>
-          <div class="field">
-            <input
-              type="text"
-              id="subdomain"
-              data-i18n-placeholder="home.placeholder"
-              data-i18n-aria="home.input_label"
-              aria-label="Name you want"
-              placeholder="Check a name first — no sign-up needed"
-              required
-              pattern="^[a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?$"
-              autocomplete="off"
-              spellcheck="false"
-              autocapitalize="none"
-            />
-            <select
-              id="domain-preference"
-              data-i18n-aria="home.select_label"
-              aria-label="Domain to check first"
-            ></select>
-          </div>
-        </form>
-        <div class="bar" id="search-bar" aria-hidden="true"><i></i></div>
-
-        </div>
-
-        <div id="availability-results" class="results" aria-live="polite"></div>
-
-        <!-- The line an agent user needs: what to paste, and where the server
-             is. Text, not a picture of text, so it can be copied. -->
-        <div class="agent-line">
-          <div class="agent-text">
-            <p class="agent-label" data-i18n="home.agent.label">Paste into Claude or Cursor</p>
-            <div class="agent-copy">
-              <code id="agent-prompt" data-i18n="home.agent.prompt">Use the sitey MCP to point myapp.sitey.my at my Vercel project</code>
-              <button type="button" class="agent-copy-btn" id="agent-copy" data-i18n="home.agent.copy">Copy</button>
+      <div class="home" id="home">
+        <!-- 첫 화면은 주소 한 줄이다 (2026-11-10, 시안 «주소가 곧 화면»).
+             이름 칸이 곧 주소의 앞부분이고, 이름과 꼬리 사이 마침표가 상태등이다 —
+             확인 중엔 회색, 비어 있으면 파랑, 못 쓰면 빨강. 판·그림자·가운데
+             쌓기를 버렸다. 설명은 그 위 한 줄, 에이전트 길은 화면 아래 띠. -->
+        <section class="first">
+          <div class="hero" id="home-hero">
+            <!-- The heading is still what the service does, not the logo. -->
+            <h1 class="kicker">
+              <span data-i18n="home.title">Your AI-built site, on your own address</span>
+              <span class="kicker-sub"><span class="sep" aria-hidden="true">· </span><span data-i18n="home.subtitle">Check without signing up. Agents create it in one call</span></span>
+            </h1>
+            <label class="addr" id="addr" data-state="idle" for="subdomain">
+              <span class="sr-only" data-i18n="home.input_label">Name you want</span>
+              <span class="name-wrap"><input
+                  type="text"
+                  id="subdomain"
+                  placeholder="myapp"
+                  maxlength="63"
+                  autocomplete="off"
+                  autocapitalize="none"
+                  autocorrect="off"
+                  spellcheck="false"
+                  inputmode="url"
+                  enterkeyhint="next"
+                  aria-describedby="home-status"
+                /><span class="mirror" aria-hidden="true"></span></span><span class="tail"><span class="dot" aria-hidden="true">.</span><span class="tld" id="addr-tld">sitey.my</span><a class="go-out" id="addr-open" href="/" target="_blank" rel="noopener" hidden>&#8599;</a></span>
+            </label>
+            <div class="status" id="home-status" aria-live="polite">
+              <p class="say" data-i18n="home.say.idle">Type the name you want. We'll tell you right away if it's free</p>
             </div>
-            <p class="agent-links">
-              <span data-i18n="home.agent.server">MCP server</span>
-              <code>https://sitey.my/mcp</code>
+          </div>
+
+          <!-- The line an agent user needs: what to paste, and where the server
+               is. Text, not a picture of text, so it can be copied. -->
+          <div class="strip">
+            <div class="ask">
+              <span class="ask-label" data-i18n="home.agent.label">Or hand it to your agent</span>
+              <code class="prompt" id="agent-prompt">Use the sitey MCP to point myapp.sitey.my at my site</code>
+              <button type="button" class="copy" id="agent-copy" data-i18n="home.agent.copy">Copy</button>
+            </div>
+            <p class="mcp">
+              <span><span data-i18n="home.agent.server">MCP</span> <code>https://sitey.my/mcp</code></span>
               <a href="/.well-known/mcp.json">mcp.json</a>
               <a href="/llms.txt">llms.txt</a>
-              <a href="/docs" data-i18n="nav.docs">Docs</a>
+              <a class="more" href="/docs" data-i18n="nav.docs">Docs</a>
             </p>
           </div>
-          <div class="mock mock-agent" aria-hidden="true">
-            <p class="mock-said" data-i18n="home.mock.ask">Get me an address</p>
-            <div class="mock-call">
-              <span class="mock-chip">MCP</span>
-              <span class="mock-host">create_subdomain</span>
-            </div>
-            <p class="mock-said mock-said-back"><span class="mock-host">demo.sitey.my</span></p>
-          </div>
-        </div>
+        </section>
 
         <!-- 카드마다 «그 단계에서 실제로 보이는 화면»을 작게 넣는다.
              삽화가 아니라 사이티 자기 화면의 축소판이고, 그림 파일이 아니라
              CSS 로 그려서 첫 화면 무게가 늘지 않는다. -->
-        <h2 class="steps-title" data-i18n="home.how.title">How it works</h2>
-        <ol class="points">
-          <li>
-            <div class="mock mock-find" aria-hidden="true">
-              <div class="mock-input"><span class="mock-host">myapp</span><span class="mock-caret"></span></div>
-              <div class="mock-hit"><span class="mock-host">myapp.sitey.my</span><span class="mock-tick"></span></div>
-            </div>
-            <h3 data-i18n="home.how.pick.title">1. Pick a name</h3>
-            <p data-i18n="home.how.pick.desc">Type it. If it's free, it's yours — no account needed to look.</p>
-          </li>
-          <li>
-            <div class="mock mock-record" aria-hidden="true">
-              <div class="mock-head">
-                <span class="mock-host">myapp.sitey.my</span>
-                <span class="mock-chip">CNAME</span>
+        <section class="how">
+          <h2 class="steps-title" data-i18n="home.how.title">How it works</h2>
+          <ol class="points">
+            <li>
+              <div class="mock mock-find" aria-hidden="true">
+                <div class="mock-input"><span class="mock-host">myapp</span><span class="mock-caret"></span></div>
+                <div class="mock-hit"><span class="mock-host">myapp.sitey.my</span><span class="mock-tick"></span></div>
               </div>
-              <div class="mock-target"><span class="mock-arrow">&#8594;</span> cname.vercel-dns.com</div>
-              <div class="mock-hosts">
-                <span>Vercel</span><span>Netlify</span><span>GitHub Pages</span><span>Lovable</span><span data-i18n="home.how.where.server">your server</span>
+              <h3 data-i18n="home.how.pick.title">1. Pick a name</h3>
+              <p data-i18n="home.how.pick.desc">Type it. If it's free, it's yours — no account needed to look.</p>
+            </li>
+            <li>
+              <div class="mock mock-record" aria-hidden="true">
+                <div class="mock-head">
+                  <span class="mock-host">myapp.sitey.my</span>
+                  <span class="mock-chip">CNAME</span>
+                </div>
+                <div class="mock-target"><span class="mock-arrow">&#8594;</span> cname.vercel-dns.com</div>
+                <div class="mock-hosts">
+                  <span>Vercel</span><span>Netlify</span><span>GitHub Pages</span><span>Lovable</span><span data-i18n="home.how.where.server">your server</span>
+                </div>
               </div>
-            </div>
-            <h3 data-i18n="home.how.where.title">2. Tell us where it's hosted</h3>
-            <p data-i18n="home.how.where.desc">Paste the address your host gave you — Vercel, Netlify, GitHub Pages, Lovable, or your own server's IP.</p>
-          </li>
-          <li>
-            <div class="mock mock-done" aria-hidden="true">
-              <div class="mock-bar"><span class="mock-lock"></span><span class="mock-host">https://myapp.sitey.my</span></div>
-              <div class="mock-foot">
-                <span class="mock-dot"></span>
-                <span data-i18n="home.mock.live">Live</span>
+              <h3 data-i18n="home.how.where.title">2. Tell us where it's hosted</h3>
+              <p data-i18n="home.how.where.desc">Paste the address your host gave you — Vercel, Netlify, GitHub Pages, Lovable, or your own server's IP.</p>
+            </li>
+            <li>
+              <div class="mock mock-done" aria-hidden="true">
+                <div class="mock-bar"><span class="mock-lock"></span><span class="mock-host">https://myapp.sitey.my</span></div>
+                <div class="mock-foot">
+                  <span class="mock-dot"></span>
+                  <span data-i18n="home.mock.live">Live</span>
+                </div>
               </div>
-            </div>
-            <h3 data-i18n="home.how.done.title">3. Done</h3>
-            <p data-i18n="home.how.done.desc">Your site answers on the new address, usually within a minute.</p>
-          </li>
-        </ol>
-
+              <h3 data-i18n="home.how.done.title">3. Done</h3>
+              <p data-i18n="home.how.done.desc">Your site answers on the new address, usually within a minute.</p>
+            </li>
+          </ol>
+        </section>
       </div>
     </template>
 
