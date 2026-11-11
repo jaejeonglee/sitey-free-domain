@@ -139,7 +139,18 @@ async function createSubdomain(fastify, params) {
  * @param {string} params.recordType
  * @param {string|undefined} params.txtValue - the record's one TXT value;
  *   undefined leaves it alone, "" removes it. Which name it is written at is
- *   decided here, from the record type — see txtPrefixFor.
+ *   decided here, from the record type — see txtPrefixFor. When the type
+ *   changes, it is the *new* type's name.
+ *
+ * `recordType` may differ from what the row holds — that is a type change
+ * (2026-11-11, the dashboard's «레코드 유형 변경»). The type the row holds is
+ * read here, under the row lock, not taken from the caller. The name stays in
+ * the zone throughout: bind.replaceDnsRecord rewrites the line in place.
+ * Turning a name into a CNAME while it holds a TXT of its own is refused
+ * (409 CNAME_CANNOT_HOLD_TXT) before anything is written — DNS allows nothing
+ * beside a CNAME and BIND would refuse the whole zone. The `_vercel` TXT a
+ * CNAME leaves behind on becoming an A stays: it is a different name, and it
+ * is the owner's to remove.
  */
 async function updateSubdomain(fastify, params) {
   const { recordId, subdomain, domain, recordValue, recordType, txtValue } =
@@ -151,16 +162,36 @@ async function updateSubdomain(fastify, params) {
   let bindUpdated = false;
   let txtTouched = false;
   let oldRecordValue;
+  let oldRecordType = recordType;
   let oldTxtValue;
   try {
     await connection.beginTransaction();
 
     // Fetch old values for compensation
     const [oldRows] = await connection.execute(
-      "SELECT record_value FROM subdomains WHERE id = ? FOR UPDATE",
+      "SELECT record_value, record_type FROM subdomains WHERE id = ? FOR UPDATE",
       [recordId]
     );
     oldRecordValue = oldRows[0]?.record_value;
+    if (oldRows[0]?.record_type) {
+      oldRecordType = bindService.normalizeRecordType(oldRows[0].record_type);
+    }
+    const retyped = oldRecordType !== recordType;
+
+    if (retyped && recordType === "CNAME") {
+      const [selfTxt] = await connection.execute(
+        "SELECT 1 FROM subdomain_txt_records WHERE subdomain_id = ? AND host_prefix = ? LIMIT 1",
+        [recordId, TXT_SELF_NAME]
+      );
+      if (selfTxt.length > 0) {
+        throw Object.assign(
+          new Error(
+            "This name holds a TXT record of its own, and nothing can sit beside a CNAME. Remove the TXT record first, then change the type."
+          ),
+          { statusCode: 409, code: "CNAME_CANNOT_HOLD_TXT" }
+        );
+      }
+    }
 
     // Fetch old TXT value if applicable
     if (txtRequested) {
@@ -172,10 +203,17 @@ async function updateSubdomain(fastify, params) {
     }
 
     // Update main record in DB
-    await connection.execute(
-      "UPDATE subdomains SET record_value = ? WHERE id = ?",
-      [recordValue, recordId]
-    );
+    if (retyped) {
+      await connection.execute(
+        "UPDATE subdomains SET record_value = ?, record_type = ? WHERE id = ?",
+        [recordValue, recordType, recordId]
+      );
+    } else {
+      await connection.execute(
+        "UPDATE subdomains SET record_value = ? WHERE id = ?",
+        [recordValue, recordId]
+      );
+    }
 
     // Handle TXT record in DB
     if (txtRequested) {
@@ -195,7 +233,11 @@ async function updateSubdomain(fastify, params) {
 
     // BIND9: update main record (flag first — see createSubdomain)
     bindUpdated = true;
-    await bindService.updateDnsRecord(subdomain, recordValue, domain, recordType);
+    if (retyped) {
+      await bindService.replaceDnsRecord(subdomain, domain, oldRecordType, recordType, recordValue);
+    } else {
+      await bindService.updateDnsRecord(subdomain, recordValue, domain, recordType);
+    }
 
     // BIND9: handle TXT record
     if (txtRequested) {
@@ -218,7 +260,32 @@ async function updateSubdomain(fastify, params) {
     } catch (rbErr) {
       fastify.log.error(rbErr, "Rollback failed during subdomain update");
     }
-    if (bindUpdated) {
+    if (bindUpdated && oldRecordType !== recordType) {
+      // A type change: the line may now be the new type. Put the old one back
+      // in the same single-line rewrite, or leave it if ours never landed.
+      try {
+        const current = await bindService.readDnsRecord(subdomain, domain, recordType);
+        if (current && current.value === asZoneValue(recordType, recordValue)) {
+          await bindService.replaceDnsRecord(subdomain, domain, recordType, oldRecordType, oldRecordValue);
+          fastify.log.warn(`Compensated BIND type change after failure: ${subdomain}.${domain}`);
+          await alertService.warn("UPDATE_COMPENSATED", { subdomain, domain, recordType, error: error.message });
+        } else if (!current || current.value === asZoneValue(oldRecordType, oldRecordValue)) {
+          fastify.log.info(`BIND type change never applied, no compensation needed: ${subdomain}.${domain}`);
+        } else {
+          await alertService.critical("UPDATE_COMPENSATION_RACE", {
+            subdomain, domain, recordType,
+            expected: recordValue, found: current.value,
+            error: error.message,
+          });
+        }
+      } catch (compErr) {
+        fastify.log.error({ err: compErr, originalErr: error, subdomain, domain, recordType },
+          "UPDATE_COMPENSATION_FAILED");
+        await alertService.critical("UPDATE_COMPENSATION_FAILED", {
+          subdomain, domain, recordType, error: error.message, compError: compErr.message,
+        });
+      }
+    } else if (bindUpdated) {
       try {
         const current = await bindService.readDnsRecord(subdomain, domain, recordType);
         if (current) {

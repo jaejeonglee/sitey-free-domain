@@ -185,4 +185,19 @@ async function checkSubdomainQuota(
   return { held, limit, exceeded, blocked, scope };
 }
 
-module.exports = { checkSubdomainQuota };
+/**
+ * What the dashboard prints as «N / limit» (2026-11-11): the account's own
+ * number plus whatever it has paid for — the same sum checkSubdomainQuota
+ * draws the line at — and whether that line is enforced at all. With
+ * SUBDOMAIN_LIMIT_ENFORCED off the screen must not say «reached» as if it
+ * stops anything; it gets told, and says so.
+ *
+ * @returns {{limit: number, enforced: boolean}}
+ */
+async function accountAllowance(fastify, userId) {
+  const base = await accountLimit(fastify, userId);
+  const paid = await credits.slotsFor(fastify, userId);
+  return { limit: base + paid, enforced: Boolean(config.quota.enforced) };
+}
+
+module.exports = { checkSubdomainQuota, accountAllowance };

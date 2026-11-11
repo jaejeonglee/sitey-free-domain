@@ -77,7 +77,8 @@ describe("what a renewal token can be used for", () => {
     const token = sign(42, issuedAt);
 
     expect(verify(token, issuedAt + TTL_MS - 1000)).toEqual({ valid: true, subdomainIds: [42] });
-    expect(verify(token, issuedAt + TTL_MS + 1000)).toEqual({ valid: false, reason: "expired" });
+    // The ids come back so the page can name the subdomain — never as valid.
+    expect(verify(token, issuedAt + TTL_MS + 1000)).toEqual({ valid: false, reason: "expired", subdomainIds: [42] });
   });
 
   it("turns junk away without deciding anything", () => {

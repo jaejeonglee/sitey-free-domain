@@ -75,7 +75,7 @@ function sign(subdomainIds, issuedAt = Date.now()) {
 }
 
 /**
- * @returns {{valid: true, subdomainIds: number[]} | {valid: false, reason: string}}
+ * @returns {{valid: true, subdomainIds: number[]} | {valid: false, reason: string, subdomainIds?: number[]}}
  *   `reason` is for the log and for choosing which page to show; it is never
  *   detailed enough to help someone guess at a valid token.
  */
@@ -114,8 +114,11 @@ function verify(token, now = Date.now()) {
     return { valid: false, reason: "malformed" };
   }
 
+  // The ids ride along on an expired link — still ours, still signed — so
+  // the page can point at the one subdomain it was about. They do not renew
+  // anything from here.
   if (now > expiresAt) {
-    return { valid: false, reason: "expired" };
+    return { valid: false, reason: "expired", subdomainIds };
   }
 
   return { valid: true, subdomainIds };

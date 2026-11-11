@@ -1,7 +1,7 @@
 // routes/domain.js
 const accessLog = require("../services/access-log");
 const bindService = require("../services/bind");
-const { noteReachability } = require("../services/validation");
+const { noteReachability, probeRecord } = require("../services/validation");
 const {
   createSubdomain,
   updateSubdomain,
@@ -204,7 +204,8 @@ async function domainRoutes(fastify, options) {
 
       try {
         const [rows] = await fastify.mysql.execute(
-          "SELECT s.id, s.subdomain, m.domain_name, s.record_value, s.record_type, s.expires_at, t.host_prefix, t.txt_value " +
+          "SELECT s.id, s.subdomain, m.domain_name, s.record_value, s.record_type, s.expires_at, " +
+            "s.warning_count, s.last_checked_at, t.host_prefix, t.txt_value " +
             "FROM subdomains s " +
             "JOIN managed_domains m ON s.domain_id = m.id " +
             "LEFT JOIN subdomain_txt_records t ON s.id = t.subdomain_id " +
@@ -214,6 +215,16 @@ async function domainRoutes(fastify, options) {
         );
 
         const items = groupBySubdomain(rows);
+
+        // The nightly check's verdict (services/validation.js): `warning_count`
+        // is the run of failed days, `last_checked_at` when it last looked —
+        // null for a record it has not reached yet, which the screen calls
+        // «확인 전» rather than guessing. Numbers, not a word, so the screen
+        // says it in the reader's language.
+        for (const item of items) {
+          item.warning_count = Number(item.warning_count || 0);
+          item.last_checked_at = item.last_checked_at ?? null;
+        }
 
         // REDIRECT rows carry their visit counts; A and CNAME do not, because
         // nothing of theirs comes through this server to be counted. Same rule
@@ -368,7 +379,12 @@ async function domainRoutes(fastify, options) {
     },
     async (request, reply) => {
       const { subdomain: rawSubdomain } = request.params;
-      const { value: rawValue, domain, txtValue } = request.body || {};
+      const {
+        value: rawValue,
+        domain,
+        txtValue,
+        recordType: rawRecordType,
+      } = request.body || {};
       const subdomain = (rawSubdomain || "").trim().toLowerCase();
       const userId = request.user.id;
       const domainName = (domain || "").trim().toLowerCase();
@@ -377,6 +393,18 @@ async function domainRoutes(fastify, options) {
         return reply
           .code(400)
           .send({ error: "Record value and domain are required" });
+      }
+
+      // `recordType` is optional: absent keeps the type the record has, and
+      // naming another one changes it in place (services/subdomain.js).
+      let requestedType = null;
+      if (rawRecordType !== undefined && rawRecordType !== null && rawRecordType !== "") {
+        try {
+          requestedType = normalizeRecordType(rawRecordType);
+        } catch {
+          request.outcome = "INVALID_RECORD_TYPE";
+          return reply.code(400).send({ error: "recordType must be A, CNAME or REDIRECT." });
+        }
       }
 
       try {
@@ -404,13 +432,18 @@ async function domainRoutes(fastify, options) {
           });
         }
 
-        const recordType = normalizeRecordType(record.record_type);
+        // The same checks a new record of this type would get — value shape
+        // and, for REDIRECT, services/redirect-safety.js — whether or not the
+        // type is changing.
+        const recordType = requestedType || normalizeRecordType(record.record_type);
         const validation = validateRecordValue(recordType, rawValue, {
           subdomain,
           domain: domainEntry.domain,
         });
         if (!validation.valid) {
-          return reply.code(400).send({ error: validation.message });
+          return reply
+            .code(400)
+            .send({ error: validation.message, ...(validation.code ? { code: validation.code } : {}) });
         }
         const recordValue = validation.value;
 
@@ -453,10 +486,15 @@ async function domainRoutes(fastify, options) {
         return reply.code(200).send({
           success: true,
           message: "Domain record updated successfully.",
+          recordType,
           reachable: reach.ok,
           ...(reach.note ? { note: reach.note } : {}),
         });
       } catch (error) {
+        if (error.statusCode === 409 && error.code) {
+          request.outcome = error.code;
+          return reply.code(409).send({ error: error.message, code: error.code });
+        }
         fastify.log.error(error, "Failed to update domain");
         return reply
           .code(500)
@@ -526,6 +564,119 @@ async function domainRoutes(fastify, options) {
           .code(500)
           .send({ error: "Server error during domain deletion" });
       }
+    }
+  );
+
+  // POST /api/subdomains/:subdomain/check — the dashboard's «지금 확인».
+  //
+  // The nightly check, run now for one record: the same probe
+  // (services/validation.js probeRecord, with the name in Host and SNI) and
+  // the same rule for what an answer clears. A record that answers is healthy
+  // from this moment — the run of failed days, its start and the «we told
+  // them» mark all reset, exactly as handleValidationResult does at night.
+  //
+  // A record that does not answer is not counted here: the run of failed days
+  // and the mail it leads to belong to the nightly job, or pressing the button
+  // five times would be five days. Its check time moves only when the record
+  // is already counted as down — a healthy row stamped «checked just now»
+  // after a failed probe would say the opposite of what was seen.
+  //
+  // Per person, six a minute: each press is an outbound request that can take
+  // the whole probe timeout, twice. Keyed on the account, after sign-in.
+  fastify.post(
+    "/subdomains/:subdomain/check",
+    {
+      preHandler: [fastify.authenticate],
+      config: {
+        rateLimit: {
+          max: 6,
+          timeWindow: "1 minute",
+          hook: "preHandler",
+          keyGenerator: (request) => `check:${request.user?.id ?? request.ip}`,
+        },
+      },
+    },
+    async (request, reply) => {
+      const { subdomain: rawSubdomain } = request.params;
+      const { domain } = request.body || {};
+      const subdomain = (rawSubdomain || "").trim().toLowerCase();
+      const domainName = (domain || "").trim().toLowerCase();
+      const userId = request.user.id;
+
+      if (!domainName) {
+        request.outcome = "INVALID_INPUT";
+        return reply.code(400).send({ error: "domain is required" });
+      }
+
+      const managedDomains = await getManagedDomains(fastify);
+      const domainEntry = managedDomains.find(
+        (item) => item.normalized === domainName
+      );
+      if (!domainEntry) {
+        request.outcome = "INVALID_DOMAIN";
+        return reply.code(400).send({
+          error: "Requested domain is not managed by this service.",
+        });
+      }
+
+      const [rows] = await fastify.mysql.execute(
+        "SELECT id, record_type, record_value, warning_count, last_checked_at FROM subdomains " +
+          "WHERE subdomain = ? AND domain_id = ? AND user_id = ?",
+        [subdomain, domainEntry.id, userId]
+      );
+      const record = rows[0];
+      if (!record) {
+        request.outcome = "NOT_OWNED";
+        return reply.code(404).send({
+          error: "Domain not found or you do not own this record.",
+        });
+      }
+
+      const recordType = normalizeRecordType(record.record_type);
+      const fqdn = `${subdomain}.${domainEntry.domain}`;
+      const probe = await probeRecord(recordType, record.record_value, { fqdn });
+
+      request.log[probe.ok ? "info" : "warn"](
+        {
+          evt: "validate",
+          phase: "manual",
+          subdomain,
+          domain: domainEntry.domain,
+          type: recordType,
+          value: record.record_value,
+          check: probe.check,
+          status: probe.status,
+          detail: probe.detail,
+          result: probe.ok ? "ok" : "unreachable",
+        },
+        `Manual check: ${fqdn} ${probe.ok ? "answered" : "did not answer"}`
+      );
+
+      if (probe.ok) {
+        await fastify.mysql.execute(
+          "UPDATE subdomains SET warning_count = 0, last_warning_at = NULL, " +
+            "unreachable_notified_at = NULL, last_checked_at = NOW() WHERE id = ? AND user_id = ?",
+          [record.id, userId]
+        );
+      } else if (Number(record.warning_count) > 0) {
+        await fastify.mysql.execute(
+          "UPDATE subdomains SET last_checked_at = NOW() WHERE id = ? AND user_id = ?",
+          [record.id, userId]
+        );
+      }
+
+      const [after] = await fastify.mysql.execute(
+        "SELECT warning_count, last_checked_at FROM subdomains WHERE id = ?",
+        [record.id]
+      );
+
+      request.outcome = probe.ok ? "REACHABLE" : "UNREACHABLE";
+      return reply.send({
+        reachable: probe.ok,
+        note: probe.ok ? null : probe.detail,
+        last_checked_at: after[0]?.last_checked_at ?? null,
+        warning_count: Number(after[0]?.warning_count || 0),
+      });
     }
   );
 

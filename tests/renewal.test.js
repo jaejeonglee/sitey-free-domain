@@ -134,6 +134,24 @@ describe("the renewal page", () => {
     expect(db.writes.filter((w) => /UPDATE/i.test(w.sql))).toHaveLength(0);
   });
 
+  // 2026-11-11: the button on an expired one-subdomain link opens that
+  // subdomain's edit window on the dashboard rather than the bare list.
+  it("points an expired link's button at that subdomain's edit window", async () => {
+    const old = renewalToken.sign(42, Date.now() - renewalToken.TTL_MS - 1000);
+
+    const res = await app.inject({ method: "GET", url: `/renew/${old}` });
+
+    expect(res.statusCode).toBe(400);
+    expect(res.body).toContain("https://sitey.my/dashboard?edit=demo.sitey.my");
+  });
+
+  it("keeps the plain dashboard link when the link was not ours", async () => {
+    const res = await app.inject({ method: "GET", url: "/renew/not-a-real-token" });
+
+    expect(res.body).toContain('href="https://sitey.my/dashboard"');
+    expect(res.body).not.toContain("?edit=");
+  });
+
   it("says the same thing whether the row is gone or never existed", async () => {
     db.rows = new Map();
 

@@ -2,6 +2,7 @@
 const crypto = require("crypto");
 const { google } = require("googleapis");
 const config = require("../configs/index");
+const { accountAllowance } = require("../services/quota");
 
 function getOAuth2Client() {
   return new google.auth.OAuth2(
@@ -135,7 +136,23 @@ async function userRoutes(fastify, options) {
         return reply.code(401).send({ error: "User not found" });
       }
 
-      return reply.send(rows[0]);
+      // «N / limit» on the dashboard (2026-11-11). Here and not on
+      // GET /api/subdomains, whose answer is a bare array other callers read.
+      // A failure to count is not a failure to be signed in — this answer is
+      // what every page uses to decide that — so it drops the two fields.
+      let allowance = null;
+      try {
+        allowance = await accountAllowance(fastify, request.user.id);
+      } catch (err) {
+        request.log.warn({ err, evt: "quota" }, "Could not read the account's limit for /me");
+      }
+
+      return reply.send({
+        ...rows[0],
+        ...(allowance
+          ? { subdomainLimit: allowance.limit, subdomainLimitEnforced: allowance.enforced }
+          : {}),
+      });
     }
   );
 

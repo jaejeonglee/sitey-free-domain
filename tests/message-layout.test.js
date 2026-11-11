@@ -126,6 +126,34 @@ describe("the one skeleton", () => {
     }
   });
 
+  // 2026-11-11 — a message about one address opens its edit window
+  // (`/dashboard?edit=`); the renewal mail keeps its no-sign-in /renew link.
+  it("opens the one address's edit window when it is about one address", () => {
+    expect(layout.unreachableNotice(NOTICE).html).toContain(
+      'href="https://sitey.my/dashboard?edit=demo.sitey.my"'
+    );
+    expect(layout.renewalLinkPage("expired", "demo.sitey.my")).toContain(
+      "https://sitey.my/dashboard?edit=demo.sitey.my"
+    );
+    expect(
+      layout.renewalNotDuePage([{ fqdn: "demo.sitey.my", expiresAt: new Date(), opensAt: new Date() }])
+    ).toContain("https://sitey.my/dashboard?edit=demo.sitey.my");
+    // several, or none known: the list
+    expect(layout.renewalLinkPage("invalid")).not.toContain("?edit=");
+    expect(
+      layout.renewalNotDuePage([
+        { fqdn: "a.sitey.my", expiresAt: new Date(), opensAt: new Date() },
+        { fqdn: "b.sitey.my", expiresAt: new Date(), opensAt: new Date() },
+      ])
+    ).not.toContain("?edit=");
+  });
+
+  it("leaves the renewal mail's button on the no-sign-in link", () => {
+    const html = reminder([RECORD("demo", "2026-12-01T00:00:00Z")], 7).html;
+    expect(html).toContain('href="https://sitey.my/renew/MSwyLDM.abcd"');
+    expect(html).not.toContain("?edit=");
+  });
+
   it("keeps the renewal pages out of search results", () => {
     expect(layout.renewalLinkPage("expired")).toContain('name="robots" content="noindex"');
     expect(

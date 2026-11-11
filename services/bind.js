@@ -266,6 +266,44 @@ async function updateDnsRecord(subdomain, newValue, domain, recordType = "A") {
 }
 
 /**
+ * Turn a record into another type in one zone write (2026-11-11, «레코드 유형 변경»).
+ *
+ * Not a delete followed by a create: between the two the name would be absent
+ * from the zone, and a create from anyone else checks the zone for exactly
+ * that. Here the line is rewritten in place, so the name never leaves.
+ *
+ * A and REDIRECT are both an A line in the zone (zoneRecordFor), so between
+ * those two only the value moves — and A → REDIRECT writes this server's IP.
+ * named-checkzone sees the result before it goes live, as with every write:
+ * a CNAME beside a TXT of the same name is refused there and nothing changes.
+ */
+async function replaceDnsRecord(subdomain, domain, fromType, toType, newValue) {
+  return withDomainLock(domain, async () => {
+    const zoneFilePath = getZoneFilePath(domain);
+    const from = zoneRecordFor(normalizeRecordType(fromType), "").type;
+    const requested = normalizeRecordType(toType);
+    const { type, value: recordValue } = zoneRecordFor(requested, newValue);
+
+    if (isBindDevMode) {
+      logger.debug({ op: "replaceDnsRecord", subdomain, domain, from, type }, "BIND_DEV_MODE skip");
+      return { name: `${subdomain}.${domain}`, content: recordValue, type: requested };
+    }
+
+    const regex = new RegExp(`^${escapeRegex(subdomain)}[ \\t]+IN[ \\t]+${from}[ \\t]+\\S.*$`, "im");
+
+    await mutateZoneFile(domain, zoneFilePath, (content) => {
+      if (!regex.test(content)) {
+        throw new Error(`${from} record not found in zone file.`);
+      }
+      const next = content.replace(regex, () => `${subdomain}\tIN\t${type}\t${recordValue}`);
+      return next === content ? null : next;
+    });
+
+    return { name: `${subdomain}.${domain}`, content: recordValue, type: requested };
+  });
+}
+
+/**
  * Remove an existing DNS record
  */
 async function deleteDnsRecord(subdomain, domain, recordType = "A") {
@@ -562,6 +600,7 @@ module.exports = {
   listTxtRecords,
   createDnsRecord,
   updateDnsRecord,
+  replaceDnsRecord,
   deleteDnsRecord,
   normalizeRecordType,
   RECORD_TYPES,

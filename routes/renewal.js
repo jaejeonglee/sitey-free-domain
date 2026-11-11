@@ -25,10 +25,25 @@ async function renewalRoutes(fastify, options) {
 
     if (!result.valid) {
       request.outcome = `RENEW_${result.reason.toUpperCase()}`;
+      // An expired link about one subdomain sends its button to that one's
+      // edit window (?edit=). Best effort: a failed lookup is the plain link.
+      let fqdn = null;
+      if (result.reason === "expired" && result.subdomainIds?.length === 1) {
+        try {
+          const [rows] = await fastify.mysql.execute(
+            "SELECT s.subdomain, m.domain_name FROM subdomains s " +
+              "JOIN managed_domains m ON s.domain_id = m.id WHERE s.id = ?",
+            [result.subdomainIds[0]]
+          );
+          if (rows[0]) fqdn = `${rows[0].subdomain}.${rows[0].domain_name}`;
+        } catch (err) {
+          request.log.warn({ err }, "Could not name the subdomain on an expired renewal link");
+        }
+      }
       return reply
         .code(400)
         .type("text/html; charset=utf-8")
-        .send(renewalLinkPage(result.reason === "expired" ? "expired" : "invalid"));
+        .send(renewalLinkPage(result.reason === "expired" ? "expired" : "invalid", fqdn));
     }
 
     // One record at a time, through the one function that moves an expiry

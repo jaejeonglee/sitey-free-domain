@@ -40,6 +40,16 @@ const ALERT = "#8a2b2b"; // a heading that is bad news
 
 const DASHBOARD_URL = "https://sitey.my/dashboard";
 
+/**
+ * The dashboard, opened on one address's edit window when the message is
+ * about exactly one (2026-11-11, `?edit=` — public/modules/dashboard.js).
+ * 🔴 Not the renewal mail's button: that one is /renew/:token, which renews
+ * without signing in, and a dashboard link there would be a step backwards.
+ */
+function dashboardUrl(fqdn) {
+  return fqdn ? `${DASHBOARD_URL}?edit=${encodeURIComponent(fqdn)}` : DASHBOARD_URL;
+}
+
 function escapeHtml(value) {
   return String(value ?? "")
     .replace(/&/g, "&amp;")
@@ -297,7 +307,7 @@ function unreachableNotice({ subdomain, domain, recordType, recordValue, days })
         text(
           "<strong>It is still yours.</strong> Nothing has been removed, and nothing will be removed because of this. If the target moved, point it somewhere else from your dashboard; if it is meant to be down, ignore this."
         ),
-        button("Open your dashboard", DASHBOARD_URL),
+        button("Open your dashboard", dashboardUrl(fqdn)),
         text("We will not send this again unless it comes back and then goes dark once more.", {
           muted: true,
         }),
@@ -392,7 +402,7 @@ function renewalNotDuePage(notYet) {
       text("Nothing to do today. We will write again when the date is close.", {
         muted: true,
       }),
-      button("Go to your dashboard", DASHBOARD_URL),
+      button("Go to your dashboard", dashboardUrl(many ? null : notYet[0].fqdn)),
     ],
     noindex: true,
   });
@@ -404,8 +414,10 @@ function renewalNotDuePage(notYet) {
  *
  * One function for the three because the reader's next step is the same in
  * every case — open the dashboard — and only the sentence above it differs.
+ * `fqdn` when the link named exactly one subdomain we can still name — the
+ * button then opens that one.
  */
-function renewalLinkPage(reason) {
+function renewalLinkPage(reason, fqdn = null) {
   const pages = {
     expired: {
       heading: "This link has expired",
@@ -426,7 +438,7 @@ function renewalLinkPage(reason) {
     title: heading,
     heading,
     tone: "alert",
-    blocks: [text(body), button("Go to your dashboard", DASHBOARD_URL)],
+    blocks: [text(body), button("Go to your dashboard", dashboardUrl(fqdn))],
     noindex: true,
   });
 }
