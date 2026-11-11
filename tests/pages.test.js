@@ -181,16 +181,16 @@ describe("per-path canonical and Open Graph tags", () => {
       it("is English with no signal at all", async () => {
         const res = await app.inject({ method: "GET", url: "/blog/mcp-support" });
         expect(titleOf(res.body)).toBe("Let your AI agent create a subdomain (MCP support) — Sitey");
-        expect(appRootOf(res.body)).not.toContain("MCP가 뭔가요");
+        expect(appRootOf(res.body)).not.toContain("MCP가 뭔가");
       });
 
       it("is Korean with ?lang=ko", async () => {
         const post = await app.inject({ method: "GET", url: "/blog/mcp-support?lang=ko" });
-        expect(appRootOf(post.body)).toContain("MCP가 뭔가요");
+        expect(appRootOf(post.body)).toContain("MCP가 뭔가");
 
         const list = await app.inject({ method: "GET", url: "/blog?lang=ko" });
         expect(appRootOf(list.body)).toContain(
-          "AI 에이전트가 서브도메인을 만들 수 있게 되었어요 (MCP 지원)"
+          "AI 에이전트가 서브도메인을 만들 수 있게 되었습니다 (MCP 지원)"
         );
       });
 
@@ -200,7 +200,7 @@ describe("per-path canonical and Open Graph tags", () => {
           url: "/blog/mcp-support",
           headers: { "accept-language": "ko-KR,ko;q=0.9,en;q=0.8" },
         });
-        expect(appRootOf(res.body)).toContain("MCP가 뭔가요");
+        expect(appRootOf(res.body)).toContain("MCP가 뭔가");
       });
 
       it("stays English when the browser prefers English", async () => {
