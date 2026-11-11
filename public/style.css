@@ -367,9 +367,8 @@ body:has(.home) {
   overflow-wrap: break-word;
 }
 
-/* 본문·푸터가 화면 끝까지 펴지고 옆 여백만 남는다(헤더는 모든 화면이 이렇다 — 3절). */
+/* 본문이 화면 끝까지 펴지고 옆 여백만 남는다(헤더·푸터는 모든 화면이 이렇다 — 3절·14절). */
 body:has(.home) main { max-width: none; padding: 0; }
-body:has(.home) footer { max-width: none; padding: 22px var(--h-gut); border-top-color: var(--h-line); }
 
 .home { min-width: 0; color: var(--h-ink); }
 .home a { color: inherit; }
@@ -1470,16 +1469,20 @@ body.modal-open { overflow: hidden; }
 
    폭 규칙은 헤더와 같다 — 세로 flex 안에서 auto 마진만으로는
    내용 폭으로 쪼그라든다.
+
+   🔴 모든 화면이 같은 푸터다 (2026-11-11 Jay «푸터 위치가 고정이 아니네»).
+   홈의 푸터 — 화면 끝까지, 옆 여백 --h-gut(첫 링크 = 로고 왼쪽 끝, 마지막 링크 = 메뉴
+   오른쪽 끝), 홈의 선(--h-line)·글꼴 — 를 모든 화면에 쓴다. 전에는 다른 화면만 1080 칸이라
+   1440 에서 홈 ↔ 다른 화면을 넘길 때 링크가 옆으로 112px 뛰고 선 색·폰 높이가 바뀌었다.
    ============================================ */
 footer {
   display: flex;
   align-items: center;
   gap: 20px;
   width: 100%;
-  max-width: 1080px;
-  margin: 0 auto;
-  padding: 22px 28px;
-  border-top: 1px solid var(--rule-2);
+  padding: 22px var(--h-gut);
+  border-top: 1px solid var(--h-line);
+  font-family: var(--h-ui); /* 헤더처럼 홈의 글꼴 — 글꼴이 다르면 링크 폭이 달라 링크가 움찔한다 */
   font-size: 13.5px;
   color: var(--ink-3);
 }
@@ -1508,7 +1511,7 @@ footer a:hover { color: var(--ink-2); text-decoration: underline; }
      헤더가 화면 밖으로 밀렸다(2026-10-01 실측). 넘치면 두 줄로 접는다. */
   #navbar nav { flex-wrap: wrap; justify-content: flex-end; row-gap: 10px; }
   main { padding: 0 18px 56px; }
-  footer { padding: 18px; gap: 14px; flex-wrap: wrap; }
+  footer { gap: 14px; flex-wrap: wrap; }
 
   .blog-article, .docs-layout { padding-top: 32px; }
   .form-card { margin-top: 40px; }
