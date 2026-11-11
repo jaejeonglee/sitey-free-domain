@@ -1169,7 +1169,7 @@ body:has(.dash) main { max-width: calc(880px + 2 * var(--h-gut)); padding: 56px 
   .dash-row .meta-renew { grid-area: meta; align-items: center; gap: 12px; }
   .dash-row .meta-renew .renew { height: 40px; padding: 0 16px; }
   .dash-row .meta-renew .days { display: inline; }
-  .dash-skel { padding: 0; height: 97px; }
+  .dash-skel { padding: 0; height: 114px; } /* 보통 줄 높이(갱신 버튼 줄은 129) */
   .dash-empty { padding: 40px 0; }
 
   .dash-sheet {
