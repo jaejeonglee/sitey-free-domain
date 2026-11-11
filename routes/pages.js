@@ -130,7 +130,7 @@ const PAGES = {
     canonicalPath: "/login", // signup renders the same login template
   },
   "/dashboard": {
-    title: `Dashboard — ${SITE_TITLE_SUFFIX}`,
+    title: `My addresses — ${SITE_TITLE_SUFFIX}`,
     description: "Manage your sitey subdomains.",
     noindex: true, // behind auth, and already disallowed in robots.txt
   },

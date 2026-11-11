@@ -916,115 +916,288 @@ select { cursor: pointer; }
 .form-card .form-subtitle { color: var(--ink-2); font-size: 15px; margin-bottom: 24px; }
 
 /* ============================================
-   8. Dashboard
+   8. 내 주소 (/dashboard) — 한 주소 = 한 줄 + 관리 창 (2026-11-11)
 
-   목록이다. 한 줄에 주소·만료·클릭수가 있고, 그 아래 값 칸과 버튼이 늘 나와 있다.
-   접지 않는다 — 접었더니 «바꾸는 게 안 된다»로 읽혔다(2026-09-16).
+   시안 ~/Develop/design-drafts/sitey-dashboard/explore/dashboard (Jay «응»).
+   첫 화면(5절)의 팔레트(--h-*)와 서체를 그대로 쓴다 — 홈처럼 body 에서 공용
+   토큰을 바꿔 끼워 헤더·푸터도 같은 색으로 따라온다.
+
+   🔴 줄은 접지 않는다는 2026-09-16 교훈의 이번 답: 줄마다 «수정 ›» 이 늘 보이고,
+   그 버튼의 눌림 영역이 줄 전체다(::after). ↗·[갱신]은 그 위에 올린 별개 요소 —
+   버튼 안에 버튼을 넣지 않는다.
+
+   주소는 첫 화면처럼 이름 · 마침표 · 꼬리이고 마침표가 상태등이다(파랑 정상 ·
+   빨강 접속 불가 · 회색 확인 전). 데스크톱 줄은 subgrid 라 열이 세로로 맞는다:
+   [주소 ↗] [→ 연결 대상] [상태] [만료] [갱신] [수정 ›]. 폰은 세 줄 묶음이고
+   셋째 자리는 하나만(갱신 > 접속 불가 > 만료).
    ============================================ */
-.dashboard-section { max-width: 760px; margin: 0 auto; padding-top: 48px; }
-.dashboard-section h1 { font-size: 26px; margin-bottom: 4px; }
-.dashboard-subtitle { color: var(--ink-2); margin-bottom: 28px; }
-
-.dashboard-list-container { display: flex; flex-direction: column; min-width: 0; }
-
-.dashboard-item { border-bottom: 1px solid var(--rule-2); min-width: 0; }
-
-/* Nothing folds any more (2026-09-16). The head is what the record is; the
-   detail below is what you can do to it, and both are always on screen. */
-.dashboard-item-head {
-  padding: 14px 4px 8px;
-  min-width: 0;
+body:has(.dash) {
+  --paper: var(--h-bg);
+  --ink: var(--h-ink);
+  --ink-2: var(--h-ink-2);
+  --ink-3: var(--h-ink-3);
+  --rule: var(--h-line);
+  --rule-2: var(--h-chip);
+  --go: var(--h-blue);
+  --bad: var(--h-red-ink);
+  --mock: var(--h-surface);
+  font-family: var(--h-ui);
+  word-break: keep-all;
+  overflow-wrap: break-word;
 }
+body:has(.dash) main { max-width: calc(880px + 2 * var(--h-gut)); padding: 56px var(--h-gut) 96px; }
 
-.dashboard-item-domain { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.dash { min-width: 0; color: var(--h-ink); }
+.dash a { color: inherit; text-decoration: none; }
+/* 공용 button 규칙(6절 — inline-flex·간격 8·배경·테두리·hover 채움)이 여기로 새지
+   않게 지운다. hover 채움은 (0,2,1)이라 아래 각 버튼의 hover 가 그보다 세게 쓴다. */
+.dash button { font: inherit; color: inherit; cursor: pointer; border-radius: 0; gap: 0; transition: none; }
+.dash button:hover:not(:disabled) { background: none; }
+.dash :focus-visible { outline: 2px solid var(--h-blue); outline-offset: 2px; border-radius: 4px; }
 
-.dashboard-item .domain-name {
-  font-size: 15.5px;
-  font-weight: 700;
-  overflow-wrap: anywhere;
-  min-width: 0;
+/* 제목 줄 — 제목 왼쪽 끝 = 목록 주소 왼쪽 끝 */
+.dash-head { display: flex; align-items: center; justify-content: space-between; gap: 16px; margin-bottom: 24px; }
+.dash-head h1 { margin: 0; font: 600 28px/1.25 var(--h-ui); letter-spacing: -0.01em; }
+.dash-count { margin: 4px 0 0; min-height: 24px; font-size: 15px; line-height: 24px; color: var(--h-ink-2); font-variant-numeric: tabular-nums; }
+.dash-new { min-height: 40px; display: flex; align-items: center; }
+.dash-full { margin: 0; font-size: 15px; color: var(--h-ink-2); text-align: right; }
+
+.dash .dash-btn {
+  height: 40px; padding: 0 16px; border-radius: 8px; border: 1px solid var(--h-line-2);
+  background: transparent; font-size: 15px; font-weight: 500; line-height: 1; white-space: nowrap;
+  display: inline-flex; align-items: center; justify-content: center; gap: 8px;
+  transition: background-color 0.16s var(--h-ease), transform 0.08s var(--h-ease);
 }
+.dash .dash-btn:hover:not(:disabled) { background: var(--h-chip); }
+.dash .dash-btn:active { transform: translateY(1px); }
+.dash .dash-btn.solid { background: var(--h-ink); color: var(--h-bg); border-color: var(--h-ink); }
+.dash .dash-btn.solid:hover:not(:disabled) { background: var(--h-ink); opacity: 0.9; }
+.dash .dash-btn.red:hover:not(:disabled) { background: var(--h-red); opacity: 0.9; }
+.dash .dash-btn.red { background: var(--h-red); border-color: var(--h-red); color: #fff; }
+.dash .dash-btn[disabled] { background: transparent; color: var(--h-ink-3); border-color: var(--h-line); cursor: default; transform: none; opacity: 1; }
 
-.record-type-badge {
-  flex: none;
-  background: var(--rule-2);
-  color: var(--ink-2);
-  border-radius: 5px;
-  font-size: 11px;
-  font-weight: 700;
-  letter-spacing: 0.04em;
-  padding: 1px 6px;
+/* 주소 — 이름 잉크 · 꼬리 회색 · 가운데 마침표가 상태등 */
+.dash .addr { font: 600 20px/1.3 var(--h-round); letter-spacing: -0.01em; }
+.dash .addr .nm { color: var(--h-ink); }
+.dash .addr .tl { color: var(--h-ink-2); }
+.dash .addr .pt { display: inline-block; color: var(--h-ink-3); transform: scale(1.35); transform-origin: 50% 80%; }
+.dash .addr .pt.ok { color: var(--h-blue); }
+.dash .addr .pt.down { color: var(--h-red); }
+
+/* 목록 — 모든 줄이 같은 격자(subgrid). 만료 열 152px, 갱신 칸 72px 고정(영어 «Renew» 가 들어가는 폭) */
+.dash-list {
+  list-style: none; margin: 0 -12px; padding: 0;
+  display: grid;
+  grid-template-columns: max-content minmax(0, 1fr) max-content 152px 72px max-content;
+  border-top: 1px solid var(--h-line);
 }
-
-/* When it runs out, under where it points. Quiet by default — it is only
-   news for a fortnight of every three months. */
-.dashboard-item .record-expiry {
-  display: block;
-  color: var(--ink-3);
-  font-size: 12.5px;
+.dash-row {
+  position: relative; grid-column: 1 / -1;
+  display: grid; grid-template-columns: subgrid; align-items: center; column-gap: 24px;
+  min-height: 64px; padding: 12px;
+  border-bottom: 1px solid var(--h-line);
+  transition: background-color 0.16s var(--h-ease);
 }
+.dash-row:hover, .dash-row:has(.edit:active) { background: var(--h-chip); }
+.dash-row.flash { animation: dash-flash 1.4s var(--h-ease); }
+@keyframes dash-flash { 0%, 40% { background: color-mix(in srgb, var(--h-blue) 10%, transparent); } 100% { background: transparent; } }
+.dash-row.gone { animation: dash-fold 0.2s var(--h-ease) forwards; overflow: hidden; }
+@keyframes dash-fold { to { min-height: 0; height: 0; padding-top: 0; padding-bottom: 0; opacity: 0; border-bottom-width: 0; } }
 
-/* Inside the window the renew button opens in. --bad is the palette's one
-   alarm colour, the same red the delete button and error text already use. */
-.dashboard-item .record-expiry.soon { color: var(--bad); font-weight: 700; }
-
-/* How many visits a REDIRECT has answered. Same weight as the expiry line —
-   it is news, not a headline. Only REDIRECT rows have one. */
-.dashboard-item .record-hits {
-  display: block;
-  color: var(--ink-3);
-  font-size: 12.5px;
+.dash-row .who { display: flex; align-items: center; min-width: 0; }
+.dash-row .out {
+  position: relative; z-index: 1;
+  width: 44px; height: 44px; margin: -12px -16px -12px 4px; padding-left: 4px; flex: none;
+  display: inline-grid; place-items: center start; color: var(--h-ink-2); border-radius: 8px; font-size: 17px;
 }
-
-.dashboard-item-detail {
-  padding: 0 4px 16px;
-  min-width: 0;
+.dash-row .out:hover { color: var(--h-ink); background: var(--h-chip); }
+.dash-row .to { font: 400 15px/1.4 var(--h-mono); font-variant-ligatures: none; color: var(--h-ink-2); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; min-width: 0; }
+.dash-row .to::before { content: "→ "; color: var(--h-ink-3); }
+.dash-row .alert { font-size: 15px; font-weight: 500; color: var(--h-red-ink); white-space: nowrap; }
+.dash-row .alert.quiet { font-weight: 400; color: var(--h-ink-2); }
+.dash-row .days { justify-self: end; font-size: 15px; color: var(--h-ink-2); white-space: nowrap; font-variant-numeric: tabular-nums; }
+.dash-row .days.soon { color: var(--h-red-ink); font-weight: 500; }
+.dash-row .days.done { color: var(--h-ink); font-weight: 500; }
+.dash .new { display: inline-block; animation: dash-rise 0.24s var(--h-ease); }
+@keyframes dash-rise { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+.dash-row .act { justify-self: end; }
+.dash-row .renew {
+  position: relative; z-index: 1;
+  height: 32px; padding: 0 12px; border-radius: 8px; border: 0;
+  background: var(--h-ink); color: var(--h-bg); font-size: 14px; font-weight: 500; white-space: nowrap;
+  transition: transform 0.08s var(--h-ease), opacity 0.16s var(--h-ease);
 }
-
-/* 🔴 The value and its buttons on one line, and this is the reason: a hundred
-   records is inside the rules, and a stacked label-input-buttons block per
-   record turns that into a page nobody can find anything in. One line per
-   record keeps forty of them on three screens. */
-.dashboard-item-line {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
+.dash .dash-row .renew:hover:not(:disabled) { background: var(--h-ink); }
+.dash-row .renew:active { transform: translateY(1px); }
+.dash-row .renew[disabled] { opacity: 0.5; cursor: default; }
+.dash-row .edit {
+  display: inline-flex; align-items: baseline;
+  border: 0; background: none; padding: 0 0 0 4px;
+  font-size: 15px; font-weight: 500; color: var(--h-ink); white-space: nowrap;
 }
+.dash-row .edit::after { content: ""; position: absolute; inset: 0; }
+.dash-row .edit .chev { color: var(--h-ink-2); margin-left: 4px; }
+.dash-row .edit:focus-visible { outline: none; }
+.dash-row:has(.edit:focus-visible) { background: var(--h-chip); outline: 2px solid var(--h-blue); outline-offset: -2px; }
+.dash-row .meta-renew { display: none; }
 
-.dashboard-item-line .dashboard-record-input { flex: 1 1 auto; min-width: 0; }
-.dashboard-item-line button { flex: none; }
+/* 불러오는 중 — 직전 개수만큼 같은 높이의 빈 줄(들썩임 0) */
+.dash-skel { grid-column: 1 / -1; height: 64px; display: flex; align-items: center; padding: 0 12px; border-bottom: 1px solid var(--h-line); }
+.dash-skel i { display: block; height: 12px; width: 40%; border-radius: 6px; background: var(--h-chip); }
 
-.dashboard-item-field { margin-top: 10px; min-width: 0; }
-.dashboard-item-field label {
-  display: block;
-  font-size: 14px;
-  color: var(--ink-2);
-  margin-bottom: 6px;
-}
-.dashboard-item-field input { width: 100%; }
-/* A shut box and the sentence saying why. Shown rather than hidden: a CNAME
-   owner who cannot see the field concludes the feature is not there. It has to
-   read as shut at a glance, though — an empty box that merely will not take
-   focus reads as broken, so the border goes dashed and the fill goes flat. */
-.dashboard-item-field input:disabled {
-  color: var(--ink-3);
-  background: var(--rule);
-  border-style: dashed;
-  cursor: not-allowed;
-}
-.dashboard-field-note {
-  margin: 6px 0 0;
-  font-size: 13.5px;
-  line-height: 1.5;
-  color: var(--ink-3);
-}
+.dash-empty { grid-column: 1 / -1; padding: 48px 12px; }
+.dash-empty p { margin: 0 0 16px; font-size: 19px; color: var(--h-ink-2); }
 
-/* Narrow: the box takes the width and the buttons drop under it, rather than
-   three buttons squeezing a redirect URL into a peephole. */
-@media (max-width: 640px) {
-  .dashboard-item-line { flex-wrap: wrap; }
-  .dashboard-item-line .dashboard-record-input { flex: 1 1 100%; }
+/* 알림 — 아래 가운데 한 줄. 줄이 화면에 보이면 줄이 말하고 알림은 생략한다 */
+.dash-toast {
+  position: fixed; left: 50%; bottom: 24px; z-index: 10; transform: translate(-50%, 8px);
+  max-width: calc(100vw - 32px); padding: 12px 16px; border-radius: 8px;
+  background: var(--h-ink); color: var(--h-bg); font-size: 15px; line-height: 1.5;
+  opacity: 0; pointer-events: none;
+  transition: opacity 0.2s var(--h-ease), transform 0.2s var(--h-ease);
+}
+.dash-toast.on { opacity: 1; transform: translate(-50%, 0); }
+.dash-toast.on:has(button) { pointer-events: auto; }
+.dash-toast button { margin-left: 12px; border: 0; background: none; padding: 0; color: inherit; font-weight: 500; text-decoration: underline; text-underline-offset: 3px; }
+
+/* 관리 창 — 데스크톱은 위쪽 끝이 고정된 상자(내용이 바뀌면 아래로만 늘고 준다),
+   폰은 아래에서 올라오는 판 */
+.dash-sheet {
+  width: min(560px, calc(100vw - 32px)); max-width: none; max-height: calc(100dvh - 12vh - 32px);
+  margin: 12vh auto auto;
+  padding: 0; border: 0; border-radius: 12px;
+  background: var(--h-surface); color: var(--h-ink);
+  box-shadow: 0 24px 64px rgba(0, 0, 0, 0.18), 0 0 0 1px var(--h-line);
+  overflow: hidden;
+  font-family: var(--h-ui);
+}
+.dash-sheet[open] { display: flex; flex-direction: column; animation: dash-pop 0.16s var(--h-ease); }
+.dash-sheet.closing { animation: dash-unpop 0.14s var(--h-ease) forwards; }
+.dash-sheet::backdrop { background: rgba(17, 20, 24, 0.32); animation: dash-fade 0.16s var(--h-ease); }
+.dash-sheet.closing::backdrop { animation: dash-unfade 0.14s var(--h-ease) forwards; }
+@keyframes dash-pop { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
+@keyframes dash-unpop { to { opacity: 0; transform: translateY(4px); } }
+@keyframes dash-fade { from { opacity: 0; } to { opacity: 1; } }
+@keyframes dash-unfade { to { opacity: 0; } }
+
+.dash-sheet .grab { display: none; }
+.dash-sheet .scroll { overflow-y: auto; overscroll-behavior: contain; padding: 24px 24px 32px; }
+.dash-sheet .sh-top { display: flex; align-items: flex-start; gap: 8px; }
+.dash-sheet .sh-top h2 { flex: 1; min-width: 0; margin: 0; }
+.dash-sheet .sh-top .addr { font-size: 26px; letter-spacing: -0.015em; overflow-wrap: anywhere; line-height: 1.25; }
+.dash-sheet .sh-top .ar { font-size: 17px; color: var(--h-ink-2); margin-left: 8px; vertical-align: 0.3em; font-family: var(--h-ui); }
+.dash-sheet .sh-top a:hover .ar { color: var(--h-ink); }
+.dash-sheet .x { flex: none; width: 40px; height: 40px; margin: -8px -8px 0 0; padding: 0; border: 0; background: none; border-radius: 8px; color: var(--h-ink-2); font-size: 20px; }
+.dash .dash-sheet .x:hover:not(:disabled) { background: var(--h-chip); color: var(--h-ink); }
+.dash-sheet .sh-live { margin: 8px 0 0; font-size: 15px; color: var(--h-ink-2); }
+.dash-sheet .sh-live strong { color: var(--h-ink); font-weight: 500; }
+.dash-sheet .sh-live.down strong { color: var(--h-red-ink); }
+.dash-sheet .textbtn { border: 0; background: none; padding: 0; margin-left: 8px; color: var(--h-ink); text-decoration: underline; text-underline-offset: 3px; font-size: 15px; }
+.dash-sheet .textbtn[disabled] { color: var(--h-ink-2); text-decoration: none; cursor: default; }
+.dash-sheet .sh-hits { margin: 2px 0 0; font-size: 15px; color: var(--h-ink-2); font-variant-numeric: tabular-nums; }
+.dash-sheet .sh-exp { display: flex; align-items: center; justify-content: space-between; gap: 12px; min-height: 56px; margin-top: 16px; padding: 8px 0; border-top: 1px solid var(--h-line); border-bottom: 1px solid var(--h-line); font-size: 15px; }
+.dash-sheet .when { color: var(--h-ink); font-variant-numeric: tabular-nums; }
+.dash-sheet .when.soon { color: var(--h-red-ink); font-weight: 500; }
+
+.dash-sheet .form { margin-top: 24px; display: flex; flex-direction: column; gap: 24px; }
+.dash-sheet .lab { display: flex; align-items: center; gap: 8px; font-size: 15px; font-weight: 500; }
+.dash-sheet .tag { font: 500 12px/1 var(--h-mono); color: var(--h-ink-2); padding: 4px 6px; border-radius: 4px; background: var(--h-chip); }
+.dash-sheet .retype { border: 0; background: none; padding: 0; margin-left: auto; font-size: 14px; font-weight: 400; color: var(--h-ink-2); text-decoration: underline; text-underline-offset: 3px; }
+.dash-sheet .retype:hover { color: var(--h-ink); }
+.dash-sheet .types { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 8px; }
+.dash-sheet .types button { height: 36px; padding: 0 12px; border-radius: 8px; border: 1px solid var(--h-line-2); background: transparent; font-size: 14px; }
+.dash .dash-sheet .types button[aria-pressed="true"] { background: var(--h-ink); color: var(--h-bg); border-color: var(--h-ink); }
+.dash .dash-sheet .types button:hover:not(:disabled):not([aria-pressed="true"]) { background: var(--h-chip); }
+.dash-sheet .field input, .dash-sheet .field textarea {
+  display: block; width: 100%; min-height: 48px; margin-top: 8px; padding: 12px 16px;
+  border: 1px solid var(--h-line-2); border-radius: 8px; background: transparent; color: var(--h-ink);
+  font: 400 16px/1.5 var(--h-mono); font-variant-ligatures: none; letter-spacing: 0; outline: none;
+  transition: border-color 0.16s var(--h-ease);
+}
+.dash-sheet .field textarea { resize: none; overflow: hidden; word-break: break-all; field-sizing: content; }
+.dash-sheet .field input:focus, .dash-sheet .field textarea:focus { border-color: var(--h-blue); box-shadow: none; }
+.dash-sheet .field input.bad { border-color: var(--h-red); }
+.dash-sheet .field input::placeholder, .dash-sheet .field textarea::placeholder { color: var(--h-ink-3); }
+.dash-sheet .err { margin: 8px 0 0; font-size: 14px; color: var(--h-red-ink); }
+.dash-sheet details summary { display: flex; align-items: center; gap: 8px; cursor: pointer; list-style: none; font-size: 15px; font-weight: 500; }
+.dash-sheet details summary::-webkit-details-marker { display: none; }
+.dash-sheet details summary::before { content: "›"; display: inline-block; width: 12px; color: var(--h-ink-2); transition: transform 0.16s var(--h-ease); }
+.dash-sheet details[open] summary::before { transform: rotate(90deg); }
+.dash-sheet details summary .opt { font-weight: 400; color: var(--h-ink-2); overflow-wrap: anywhere; }
+
+.dash-sheet .danger { margin-top: 40px; padding-top: 24px; border-top: 1px solid var(--h-line); }
+.dash-sheet .del { border: 0; background: none; padding: 0; color: var(--h-red-ink); font-size: 15px; }
+.dash-sheet .del:hover { text-decoration: underline; text-underline-offset: 3px; }
+.dash-sheet .confirm p { margin: 0 0 16px; font-size: 15px; line-height: 1.6; }
+.dash-sheet .confirm p strong { color: var(--h-red-ink); font-weight: 500; }
+.dash-sheet .confirm .acts { display: flex; justify-content: space-between; gap: 12px; }
+
+.dash-sheet .foot {
+  flex: none; display: flex; align-items: center; justify-content: flex-end; gap: 8px;
+  padding: 12px 24px; border-top: 1px solid var(--h-line); background: var(--h-surface);
+}
+.dash-sheet .foot[hidden] { display: none; }
+.dash-sheet .foot .ask { flex: 1; font-size: 15px; color: var(--h-ink); }
+.dash-sheet .foot .dash-btn { height: 44px; }
+
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .dash-sheet::backdrop { background: rgba(0, 0, 0, 0.5); }
+}
+:root[data-theme="dark"] .dash-sheet::backdrop { background: rgba(0, 0, 0, 0.5); }
+
+/* 폰 — 줄은 세 줄 묶음, 관리 창은 아래에서 올라오는 판 */
+@media (max-width: 720px) {
+  body:has(.dash) main { padding-top: 32px; }
+  .dash-head h1 { font-size: 24px; }
+  .dash-list { display: block; margin: 0; }
+  .dash-row {
+    display: grid; grid-template-columns: minmax(0, 1fr) max-content;
+    grid-template-areas: "who edit" "to to" "meta meta";
+    row-gap: 4px; column-gap: 12px; padding: 16px 0;
+  }
+  .dash-row:hover { background: transparent; }
+  .dash-row:has(.edit:active) { background: var(--h-chip); }
+  .dash-row .who { grid-area: who; align-items: flex-start; }
+  .dash .addr { font-size: 19px; overflow-wrap: anywhere; }
+  .dash-row .out { margin-top: -10px; }
+  .dash-row .edit { grid-area: edit; align-self: start; padding-top: 2px; }
+  .dash-row .to { grid-area: to; }
+  .dash-row .alert, .dash-row .days, .dash-row .act { grid-area: meta; justify-self: start; display: none; }
+  .dash-row.m-renew .meta-renew { display: flex; }
+  .dash-row.m-down .alert { display: block; }
+  .dash-row.m-days .days { display: block; }
+  .dash-row .meta-renew { grid-area: meta; align-items: center; gap: 12px; }
+  .dash-row .meta-renew .renew { height: 40px; padding: 0 16px; }
+  .dash-row .meta-renew .days { display: inline; }
+  .dash-skel { padding: 0; height: 97px; }
+  .dash-empty { padding: 40px 0; }
+
+  .dash-sheet {
+    width: 100vw; max-width: 100vw; margin: auto 0 0; border-radius: 16px 16px 0 0;
+    max-height: calc(var(--vvh, 100dvh) - 24px);
+    box-shadow: 0 -8px 32px rgba(0, 0, 0, 0.16);
+  }
+  .dash-sheet[open] { animation: dash-up 0.28s var(--h-ease); }
+  .dash-sheet.closing { animation: dash-down 0.2s var(--h-ease) forwards; }
+  .dash-sheet .grab { display: block; flex: none; height: 24px; touch-action: none; cursor: grab; }
+  .dash-sheet .grab::before { content: ""; display: block; width: 40px; height: 4px; margin: 10px auto 0; border-radius: 2px; background: var(--h-line-2); }
+  .dash-sheet .scroll { padding: 4px 20px 32px; }
+  .dash-sheet .sh-top .addr { font-size: 23px; }
+  .dash-sheet .sh-exp { flex-direction: column; align-items: flex-start; gap: 8px; padding: 12px 0; }
+  .dash-sheet .sh-exp .dash-btn { width: 100%; height: 44px; }
+  .dash-sheet .foot { padding: 12px 20px calc(12px + env(safe-area-inset-bottom)); }
+  .dash-sheet .foot .dash-btn { flex: 1; }
+  .dash-sheet .foot .ask { flex-basis: 100%; }
+  .dash-sheet .foot:has(.ask) { flex-wrap: wrap; }
+  .dash-sheet .confirm .acts .dash-btn { flex: 1; height: 44px; }
+}
+@keyframes dash-up { from { transform: translateY(100%); } to { transform: none; } }
+@keyframes dash-down { to { transform: translateY(100%); } }
+
+@media (prefers-reduced-motion: reduce) {
+  .dash-row, .dash-row.flash, .dash-row.gone, .dash .new,
+  .dash-sheet, .dash-sheet[open], .dash-sheet.closing,
+  .dash-sheet::backdrop, .dash-toast, .dash-btn { animation: none !important; transition: none !important; }
 }
 
 /* ============================================
@@ -1337,7 +1510,7 @@ footer a:hover { color: var(--ink-2); text-decoration: underline; }
   main { padding: 0 18px 56px; }
   footer { padding: 18px; gap: 14px; flex-wrap: wrap; }
 
-  .dashboard-section, .blog-article, .docs-layout { padding-top: 32px; }
+  .blog-article, .docs-layout { padding-top: 32px; }
   .form-card { margin-top: 40px; }
 }
 

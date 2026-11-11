@@ -1,4 +1,4 @@
-import { router, navigateTo, isClientRoute } from './modules/router.js';
+import { router, navigateTo, isClientRoute, handlePopState } from './modules/router.js';
 import { getSavedLang, loadLang } from './modules/i18n.js';
 import { fetchCurrentUser, getCurrentUser } from './modules/api.js';
 import { initPrivacyModal } from './modules/privacy-modal.js';
@@ -37,8 +37,9 @@ document.addEventListener("DOMContentLoaded", async () => {
     }
   });
 
-  // Listen for browser back/forward button clicks
-  window.addEventListener("popstate", router);
+  // Listen for browser back/forward button clicks — an open dialog that owns
+  // a history entry closes first (router.js setBackHandler).
+  window.addEventListener("popstate", handlePopState);
 
   // Bound once, outside the router: the footer and the modal live outside
   // <main id="app-root">, so a re-render must not re-bind them.

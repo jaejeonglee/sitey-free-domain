@@ -86,6 +86,23 @@ describe("every key the page asks for exists", () => {
   // looks their words up through a variable — t(host.where), t(host.example) —
   // which the test above cannot follow. Every "home.…" string literal in that
   // file is a key, so each one has to exist in both languages.
+  // The dashboard builds some keys from a state or a type
+  // (`dashboard.status.${state}`, TYPE_LABEL) — the literal-call check above
+  // cannot see those, so every "dashboard.…" string in the module is checked,
+  // and the three states by name.
+  it("finds the keys the dashboard keeps in its tables", () => {
+    const source = fs.readFileSync(path.join(PUBLIC, "modules", "dashboard.js"), "utf8");
+    const named = new Set(
+      [...source.matchAll(/"(dashboard\.[a-z_]+(?:\.[a-z_]+)*)"/g)].map((m) => m[1])
+    );
+    for (const state of ["ok", "down", "unknown"]) named.add(`dashboard.status.${state}`);
+    expect(named).toContain("dashboard.type.redirect");
+    for (const key of named) {
+      expect(en, key).toHaveProperty(key);
+      expect(ko, key).toHaveProperty(key);
+    }
+  });
+
   it("finds the keys the home page keeps in its tables", () => {
     const homeSource = fs.readFileSync(path.join(PUBLIC, "modules", "home.js"), "utf8");
     const named = new Set(

@@ -46,12 +46,20 @@ export async function apiFetch(url, options = {}) {
         data?.error ||
         data?.message ||
         `Request failed with status ${response.status}`;
-      throw new Error(message);
+      // The status and the body travel with the message: a screen that has to
+      // tell «signed out» (401) from «too fast» (429) from a refusal with a
+      // code cannot do it from English text.
+      throw Object.assign(new Error(message), {
+        status: response.status,
+        code: data?.code || null,
+        data,
+      });
     }
 
     return data ?? {};
   } catch (error) {
     console.error("API request failed:", error);
+    if (error.status) throw error;
     throw new Error(error.message || "Network error, please try again.");
   }
 }

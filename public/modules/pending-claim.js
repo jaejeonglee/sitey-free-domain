@@ -120,3 +120,63 @@ export function takeHeldClaim() {
   held = null;
   return claim;
 }
+
+/* ============================================
+   The address somebody was opening (2026-11-11)
+
+   `/dashboard?edit=jay.sitey.my` opens that address's edit window — the link
+   in the «not loading» mail and on an expired renewal page. Signed out, the
+   router sends them to sign in first and the query does not survive Google;
+   and a save refused because the session ran out sends them the same way with
+   what they had typed. Both are put down here and picked up by the dashboard,
+   under the same two rules as the claim above: every touch wrapped, reading
+   deletes.
+   ============================================ */
+
+const EDIT_KEY = "sitey-edit";
+const FQDN = /^(?=.{3,253}$)[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?(?:\.[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?)+$/;
+const MAX_TXT_LENGTH = 512;
+
+/**
+ * @param {string} key - the address, e.g. "jay.sitey.my"
+ * @param {{value?: string, txt?: string, type?: string}} [draft] - what was
+ *   typed in its edit window, when there was something.
+ */
+export function savePendingEdit(key, draft = null) {
+  const edit = { key: String(key || "").toLowerCase() };
+  if (draft) edit.draft = { value: draft.value, txt: draft.txt, type: draft.type };
+  try {
+    sessionStorage.setItem(EDIT_KEY, JSON.stringify(edit));
+  } catch {
+    // Storage is off: the window simply is not reopened.
+  }
+}
+
+/**
+ * @returns {{key: string, draft: {value: string, txt: string, type: string}|null}|null}
+ *   null for absent or not an address; a draft in any other shape is dropped
+ *   and the address kept.
+ */
+export function takePendingEdit() {
+  let raw = null;
+  try {
+    raw = sessionStorage.getItem(EDIT_KEY);
+    sessionStorage.removeItem(EDIT_KEY);
+  } catch {
+    return null;
+  }
+  if (!raw) return null;
+
+  try {
+    const { key, draft } = JSON.parse(raw) || {};
+    if (typeof key !== "string" || !FQDN.test(key)) return null;
+    const ok =
+      draft &&
+      typeof draft.value === "string" && draft.value.length <= MAX_VALUE_LENGTH &&
+      typeof draft.txt === "string" && draft.txt.length <= MAX_TXT_LENGTH &&
+      RECORD_TYPES.has(draft.type);
+    return { key, draft: ok ? { value: draft.value, txt: draft.txt, type: draft.type } : null };
+  } catch {
+    return null;
+  }
+}

@@ -8,6 +8,7 @@ import { initializeAbuseForm } from './abuse.js';
 import { renderNavbar } from './ui.js';
 import { applyTranslations, loadLang, getLang } from './i18n.js';
 import { getCurrentUser } from './api.js';
+import { savePendingEdit } from './pending-claim.js';
 
 // Paths the server fills in; the client must not paint over them.
 // 🔴 A new markdown page in routes/pages.js goes here too — otherwise the
@@ -30,7 +31,7 @@ const routes = {
     "/index.html": { templateId: "template-home", init: initializeLandingPage, title: "Sitey — your AI-built site, on your own address" },
     "/login": { templateId: "template-login", init: initializeLoginPage, title: "Login - Sitey" },
     "/signup": { templateId: "template-login", init: initializeLoginPage, title: "Login - Sitey" },
-    "/dashboard": { templateId: "template-dashboard", init: initializeDashboardPage, title: "Dashboard - Sitey", auth: true },
+    "/dashboard": { templateId: "template-dashboard", init: initializeDashboardPage, title: "My addresses - Sitey", auth: true },
     "/docs": { templateId: "template-docs", init: initializeDocsPage, title: "Docs - Sitey" },
     "/guide": { templateId: "template-docs", init: initializeDocsPage, title: "Docs - Sitey" },
     "/blog": { templateId: "template-blog", init: initializeBlogPage, title: "Domain Name Ideas - Sitey" },
@@ -59,6 +60,20 @@ export function navigateTo(path) {
   router();
 }
 
+// A dialog that put its own entry on the history stack (the dashboard's edit
+// window on a phone) gets Back first. Returning true means it was handled and
+// the page under it is not drawn again.
+let backHandler = null;
+
+export function setBackHandler(handler) {
+  backHandler = handler;
+}
+
+export function handlePopState() {
+  if (backHandler && backHandler() === true) return;
+  router();
+}
+
 export async function router() {
   let path = window.location.pathname;
   if (path.endsWith('/index.html')) {
@@ -76,6 +91,10 @@ export async function router() {
 
   // Redirect to login if auth required and not logged in
   if (route.auth && !getCurrentUser()) {
+    // /dashboard?edit=<address> has to survive the sign-in: the query does
+    // not come back from Google (the callback lands on /dashboard).
+    const edit = path === "/dashboard" && new URLSearchParams(window.location.search).get("edit");
+    if (edit) savePendingEdit(edit);
     return navigateTo("/login");
   }
 

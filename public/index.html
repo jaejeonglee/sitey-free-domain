@@ -228,7 +228,7 @@
                 /><span class="mirror" aria-hidden="true"></span></span><span class="tail"><span class="dot" aria-hidden="true">.</span><span class="tld" id="addr-tld">sitey.my</span><a class="go-out" id="addr-open" href="/" target="_blank" rel="noopener" hidden>&#8599;</a></span>
             </label>
             <div class="status" id="home-status" aria-live="polite">
-              <p class="say" data-i18n="home.say.idle">Type the name you want. We'll tell you right away if it's free</p>
+              <p class="say" data-i18n="home.say.idle">Availability is checked as you type</p>
             </div>
           </div>
 
@@ -274,7 +274,7 @@
                   <span>Vercel</span><span>Netlify</span><span>GitHub Pages</span><span>Lovable</span><span data-i18n="home.how.where.server">your server</span>
                 </div>
               </div>
-              <h3 data-i18n="home.how.where.title">2. Tell us where it's hosted</h3>
+              <h3 data-i18n="home.how.where.title">2. Enter the target</h3>
               <p data-i18n="home.how.where.desc">Paste the address your host gave you — Vercel, Netlify, GitHub Pages, Lovable, or your own server's IP.</p>
             </li>
             <li>
@@ -286,7 +286,7 @@
                 </div>
               </div>
               <h3 data-i18n="home.how.done.title">3. Done</h3>
-              <p data-i18n="home.how.done.desc">Your site answers on the new address, usually within a minute.</p>
+              <p data-i18n="home.how.done.desc">The site is reachable at the new address, usually within a minute.</p>
             </li>
           </ol>
         </section>
@@ -304,13 +304,24 @@
       </div>
     </template>
 
+    <!-- 내 주소 (2026-11-11) — 한 주소 = 한 줄, 줄의 «수정 ›» 이 관리 창(dialog)을 연다.
+         줄과 창 안은 public/modules/dashboard.js 가 그린다. -->
     <template id="template-dashboard">
-      <div class="dashboard-section">
-        <h1 data-i18n="dashboard.title">My Domains</h1>
-        <p class="dashboard-subtitle" data-i18n="dashboard.subtitle">Manage your active domains below.</p>
-        <div id="dashboard-list" class="dashboard-list-container">
-          <p>Loading your domains...</p>
+      <div class="dash">
+        <div class="dash-head">
+          <div>
+            <h1 data-i18n="dashboard.title">My addresses</h1>
+            <p class="dash-count" id="dash-count"></p>
+          </div>
+          <div class="dash-new" id="dash-new"></div>
         </div>
+        <ul class="dash-list" id="dash-list" data-i18n-aria="dashboard.list" aria-label="Addresses" aria-busy="true"></ul>
+        <dialog class="dash-sheet" id="dash-sheet" aria-labelledby="sheet-name">
+          <div class="grab" aria-hidden="true"></div>
+          <div class="scroll" id="sheet-scroll"></div>
+          <div class="foot" id="sheet-foot"></div>
+        </dialog>
+        <div class="dash-toast" id="dash-toast" role="status" aria-live="polite"></div>
       </div>
     </template>
 

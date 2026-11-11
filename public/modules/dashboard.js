@@ -1,532 +1,830 @@
+// public/modules/dashboard.js — 내 주소 (/dashboard), 2026-11-11.
+//
+// One address, one row; the row's «수정 ›» opens the address's edit window
+// (a <dialog>: a box pinned at the top on a desktop, a sheet from the bottom
+// on a phone). Mockup and its review history:
+// ~/Develop/design-drafts/sitey-dashboard (Jay «응 그리고 목록에서 누르면 모달 떠서
+// 그 안에서 수정을 하는게 낫지 않나»).
+//
+// 🔴 The 2026-09-16 lesson still holds — folded rows read as «nothing here can
+// be changed». So every row shows «수정 ›» all the time, and that one button's
+// hit area is the whole row (style.css `.edit::after`). ↗ and [갱신] sit above
+// it as separate elements; there is never a button inside a button.
+//
+// Order is decided once, on the first draw (renewable → unreachable → soonest
+// to expire). After a save or a renewal the row stays where it is and flashes;
+// rows that jump away from under the cursor are worse than a stale order.
 import { getCurrentUser, apiFetch } from "./api.js";
-import { navigateTo } from "./router.js";
-import { showMessage, setButtonLoading, clearButtonLoading, showLoader, hideLoader, resetMessage } from "./ui.js";
-import { normalizeRecordType, validateRecordValue } from "./util.js";
-import { RECORD_TYPE_UI, RENEWAL_WINDOW_DAYS } from "./constants.js";
+import { setBackHandler } from "./router.js";
+import { validateRecordValue } from "./util.js";
+import { IPV4_REGEX, RENEWAL_WINDOW_DAYS } from "./constants.js";
 import { t, getLang } from "./i18n.js";
+import { savePendingEdit, takePendingEdit } from "./pending-claim.js";
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+const COUNT_KEY = "sitey-dash-count";
+const TYPES = ["CNAME", "A", "REDIRECT"];
+const TYPE_LABEL = {
+  CNAME: "dashboard.type.cname",
+  A: "dashboard.type.a",
+  REDIRECT: "dashboard.type.redirect",
+};
+const TYPE_TAG = { CNAME: "CNAME", A: "A", REDIRECT: "Redirect" };
+const VALUE_PLACEHOLDER = { CNAME: "cname.vercel-dns.com", A: "203.0.113.24", REDIRECT: "https://" };
+const TXT_PLACEHOLDER = { CNAME: "vc-domain-verify=…", SELF: "v=MCPv1; k=ed25519; p=…" };
 
-/** "Sep 24" / "9월 24일" — a date short enough to sit inside a button. */
-function shortDate(value) {
-  return new Date(value).toLocaleDateString(getLang(), {
-    month: "short",
-    day: "numeric",
-  });
+const esc = (value) =>
+  String(value ?? "").replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]);
+
+/** Which TXT name a type writes to — services/subdomain.js txtPrefixFor. */
+const txtSlot = (type) => (type === "CNAME" ? "_vercel" : "@");
+
+/** Whole days until the date — the same floor renewState used, so the same day count the server agrees with. */
+function daysUntil(date) {
+  return Math.floor((date.getTime() - Date.now()) / DAY_MS);
 }
 
 /**
- * "2026-12-09 · 90 days left", and whether that is close enough to say loudly.
- *
- * Both halves, because neither works alone: a date on its own is a sum the
- * reader has to do, and "90 days" on its own cannot be put in a calendar.
- *
- * A record with no expiry (expires_at NULL — see deploy/migrations/002) says
- * so rather than showing an empty space, which reads as a value we failed to
- * load.
- *
- * `soon` is the fortnight renewal opens in, so what is highlighted here is
- * exactly what the button on the site would accept today.
+ * Whether the renew button is offered. The rule is enforced in
+ * services/expiry.js; this only has to agree with it (RENEWAL_WINDOW_DAYS) —
+ * a button the server will refuse is a 409 the person did nothing to earn.
  */
-function expiryLine(expiresAt) {
-  if (!expiresAt) {
-    return { text: t("dashboard.expires_never"), soon: false };
-  }
+function renewable(item) {
+  return Boolean(item.exp) && !item.renewedTo && daysUntil(item.exp) <= RENEWAL_WINDOW_DAYS;
+}
 
-  const due = new Date(expiresAt);
-  const daysLeft = Math.floor((due.getTime() - Date.now()) / DAY_MS);
+const isoDate = (date) => date.toISOString().slice(0, 10);
+const monthDay = (date) => date.toLocaleDateString(getLang(), { month: "long", day: "numeric" });
 
-  let left;
-  if (daysLeft < 0) left = t("dashboard.expired");
-  else if (daysLeft === 0) left = t("dashboard.expires_today");
-  else if (daysLeft === 1) left = t("dashboard.expires_tomorrow");
-  else left = t("dashboard.expires_days", { days: daysLeft });
+/**
+ * «정상» · «접속 불가» · «확인 전». A fresh answer from this session (save or
+ * «지금 확인») wins over the nightly one; with no nightly check yet and no
+ * fresh answer, nothing is guessed.
+ */
+function liveState(item) {
+  if (item.fresh) return item.fresh.reachable ? "ok" : "down";
+  if (!item.checked) return "unknown";
+  return item.warn > 0 ? "down" : "ok";
+}
 
+function failedDays(item) {
+  if (!(item.warn > 0)) return "";
+  return item.warn === 1 ? t("dashboard.status.day") : t("dashboard.status.days", { days: item.warn });
+}
+
+/** «만료 7일 전» on a row. */
+function rowExpiry(item) {
+  if (!item.exp) return t("dashboard.expires_never");
+  const days = daysUntil(item.exp);
+  if (days < 0) return t("dashboard.expired");
+  if (days === 0) return t("dashboard.expires_today");
+  if (days === 1) return t("dashboard.expires_tomorrow");
+  return t("dashboard.expires_days", { days });
+}
+
+/** «만료일 2026-12-07 (26일 남음)» in the window. */
+function windowExpiry(item) {
+  const days = daysUntil(item.exp);
+  const left =
+    days < 0
+      ? t("dashboard.expired")
+      : days === 0
+        ? t("dashboard.expires_today")
+        : days === 1
+          ? t("dashboard.day_left")
+          : t("dashboard.days_left", { days });
+  return `${t("dashboard.expiry_on", { date: isoDate(item.exp) })} (${left})`;
+}
+
+export function fromApi(row) {
+  const type = String(row.record_type || "A").toUpperCase();
   return {
-    text: t("dashboard.expires", { date: due.toISOString().slice(0, 10), left }),
-    soon: daysLeft <= RENEWAL_WINDOW_DAYS,
+    key: `${row.subdomain}.${row.domain_name}`.toLowerCase(),
+    sub: row.subdomain,
+    dom: row.domain_name,
+    type: TYPES.includes(type) ? type : "A",
+    value: row.record_value ?? "",
+    txt: row.txt_value || "",
+    exp: row.expires_at ? new Date(row.expires_at) : null,
+    hits: row.hits || null,
+    warn: Number(row.warning_count || 0),
+    checked: row.last_checked_at ? new Date(row.last_checked_at) : null,
+    fresh: null,
+    renewedTo: null,
   };
 }
 
-/**
- * What a REDIRECT record's visit counts read as.
- *
- * Zero gets a sentence rather than "0 · 0": somebody who has just made a link
- * and sees three zeroes cannot tell "nobody has clicked it" from "this is
- * broken". Only REDIRECT rows are handed a `hits` object at all — an A or
- * CNAME is reached straight from DNS and never passes through this server, so
- * there is nothing of theirs to count (routes/domain.js).
- */
-function hitsLine(hits) {
-  if (!hits) return null;
-  if (!hits.total) return t("dashboard.hits_none");
-  return t("dashboard.hits", {
-    month: hits.this_month,
-    total: hits.total,
-    date: hits.last_at ? shortDate(hits.last_at) : "—",
-  });
+function addrHTML(item) {
+  const state = liveState(item);
+  const word = t(`dashboard.status.${state}`);
+  return `<span class="addr" aria-label="${esc(item.key)}, ${esc(word)}"><span class="nm">${esc(item.sub)}</span><span class="pt${state === "unknown" ? "" : ` ${state}`}" aria-hidden="true">.</span><span class="tl">${esc(item.dom)}</span></span>`;
 }
 
-/**
- * Whether the renew button can be pressed, and what it should say if not.
- *
- * The rule itself lives in services/expiry.js and is enforced there; this only
- * decides what the screen shows, and it has to agree — a button offered before
- * the server will take it produces a 409 the person did nothing to deserve.
- *
- * `show: false` only for a record with no expiry at all. There is nothing to
- * wait for there, so a permanently dead button would be furniture. Everything
- * else shows the button even when it is shut, with the date on its face:
- * hiding it is how people end up not knowing renewal exists.
- */
-function renewState(expiresAt) {
-  if (!expiresAt) return { show: false };
+/** One row. Exported for tests/redirect-hits.test.js — the markup is the contract. */
+export function rowHTML(item, { flash = false, fresh = false } = {}) {
+  const state = liveState(item);
+  const soon = renewable(item);
+  const alert =
+    state === "down"
+      ? [t("dashboard.status.down"), failedDays(item)].filter(Boolean).join(" · ")
+      : state === "unknown"
+        ? t("dashboard.status.unknown")
+        : "";
+  const renewed = item.renewedTo
+    ? `<span class="days done"><span class="${fresh ? "new" : ""}">${esc(t("dashboard.renewed"))}</span></span>`
+    : null;
+  const days = renewed || `<span class="days${soon ? " soon" : ""}">${esc(rowExpiry(item))}</span>`;
+  const renewButton = soon
+    ? `<button class="renew" type="button" data-renew aria-label="${esc(t("dashboard.renew_aria", { fqdn: item.key }))}">${esc(t("dashboard.renew"))}</button>`
+    : "";
+  const phone = soon || item.renewedTo ? "m-renew" : state === "down" ? "m-down" : "m-days";
+  const shown = item.value.replace(/^https:\/\//, "");
 
-  const due = new Date(expiresAt);
-  const daysLeft = Math.floor((due.getTime() - Date.now()) / DAY_MS);
-  if (daysLeft <= RENEWAL_WINDOW_DAYS) {
-    return { show: true, open: true, label: t("dashboard.renew") };
-  }
-
-  const opensAt = new Date(due.getTime() - RENEWAL_WINDOW_DAYS * DAY_MS);
-  const date = shortDate(opensAt);
-  return {
-    show: true,
-    open: false,
-    // The date is the label, not a tooltip: a title attribute is invisible on
-    // a phone, which is where most of these are read.
-    label: t("dashboard.renew_from", { date }),
-    title: t("dashboard.renew_from_title", { date }),
-  };
+  return `
+    <li class="dash-row ${phone}${flash ? " flash" : ""}" data-key="${esc(item.key)}">
+      <div class="who">
+        ${addrHTML(item)}
+        <a class="out" href="https://${esc(item.key)}" target="_blank" rel="noopener" aria-label="${esc(t("dashboard.open_tab", { fqdn: item.key }))}">↗</a>
+      </div>
+      <span class="to" title="${esc(item.value)}">${esc(shown)}</span>
+      <span class="alert${state === "unknown" ? " quiet" : ""}">${esc(alert)}</span>
+      ${days}
+      <span class="act">${renewButton}</span>
+      <div class="meta-renew">${renewed || `<span class="days soon">${esc(rowExpiry(item))}</span>${renewButton}`}</div>
+      <button class="edit" type="button" data-edit aria-label="${esc(t("dashboard.edit_aria", { fqdn: item.key }))}">${esc(t("dashboard.edit"))}<span class="chev" aria-hidden="true">›</span></button>
+    </li>`;
 }
 
+
 /**
- * Paint a renew button for the date a record currently expires on.
- *
- * One function for both the first draw and the redraw after a renewal, so the
- * shut button somebody sees after pressing it is built by exactly the code
- * that decided it was pressable a second earlier.
+ * A REDIRECT's visits, in the edit window. Only REDIRECT rows carry `hits` —
+ * an A or CNAME is reached straight from DNS and never passes through this
+ * server — and zero gets a phrase rather than «0 · 0», which reads as broken.
  */
-function applyRenewState(button, expiresAt) {
-  const state = renewState(expiresAt);
-  button.textContent = state.label || "";
-  button.disabled = !state.open;
-  if (state.open) {
-    button.removeAttribute("title");
-    button.removeAttribute("aria-label");
-  } else {
-    button.title = state.title || "";
-    button.setAttribute("aria-label", state.title || "");
-  }
+export function hitsText(item) {
+  if (item.type !== "REDIRECT" || !item.hits) return "";
+  return item.hits.total
+    ? t("dashboard.hits", { month: item.hits.this_month, total: item.hits.total })
+    : t("dashboard.hits_none");
 }
 
-/**
- * A labelled TXT box under the record's line.
- *
- * Two of these can appear on one record and they write to different names, so
- * neither goes without a label — a second box with no word beside it is a
- * guess, which is why the Vercel one has had one from the start.
- *
- * `note` is the reason the box is shut, and a shut box needs one: a disabled
- * field with nothing beside it reads as broken rather than as not applicable.
- * It is tied to the input by id, because a disabled input is out of the tab
- * order and a screen reader would otherwise reach the sentence separately from
- * the thing it is about.
- */
-function txtField({ id, label, value, placeholder, inputClass, note }) {
-  const field = document.createElement("div");
-  field.className = "dashboard-item-field";
-
-  const labelElement = document.createElement("label");
-  labelElement.setAttribute("for", id);
-  labelElement.textContent = label;
-
-  const input = document.createElement("input");
-  input.type = "text";
-  input.id = id;
-  input.className = inputClass;
-  input.value = value || "";
-  input.autocomplete = "off";
-  input.autocapitalize = "none";
-  input.spellcheck = false;
-  input.placeholder = note ? "" : placeholder;
-  input.disabled = Boolean(note);
-
-  field.appendChild(labelElement);
-  field.appendChild(input);
-
-  if (note) {
-    const why = document.createElement("p");
-    why.className = "dashboard-field-note";
-    why.id = `${id}-note`;
-    why.textContent = note;
-    input.setAttribute("aria-describedby", why.id);
-    field.appendChild(why);
-  }
-
-  return field;
-}
-
-/**
- * One record, open.
- *
- * 🔴 Nothing folds. Every row shows its value in an editable box with Save,
- * Renew and Delete beside it, because the fold was doing the opposite of
- * what a control panel is for: Jay, 2026-09-16 — "마이페이지에서 지금 레코드를
- * 바꾸거나 이런건 안되네?" It was never that it could not be done, only that
- * nothing on screen said it could.
- *
- * Laid out to survive a long list — a hundred records is within the rules —
- * so the value and its three buttons share one line rather than stacking,
- * and the read-only copy of the value that used to sit in the header is
- * gone: the input is the value now, and showing it twice only cost height.
- */
-export function createDashboardItem(item, index) {
-  const wrapper = document.createElement("article");
-  wrapper.className = "dashboard-item";
-  wrapper.dataset.subdomain = item.subdomain;
-  wrapper.dataset.domain = item.domain_name;
-  const recordType = normalizeRecordType(item.record_type || item.recordType);
-  const recordConfig = RECORD_TYPE_UI[recordType] || RECORD_TYPE_UI.A;
-  const recordValue =
-    item.record_value ?? item.recordValue ?? item.ip ?? "";
-  wrapper.dataset.recordType = recordType;
-  // The renew button is drawn from this and redrawn from it after a renewal,
-  // so the row carries the date rather than the button carrying a copy.
-  const expiresAt = item.expires_at ?? item.expiresAt;
-  if (expiresAt) wrapper.dataset.expiresAt = new Date(expiresAt).toISOString();
-
-  const header = document.createElement("div");
-  header.className = "dashboard-item-head";
-
-  const domainName = document.createElement("span");
-  domainName.className = "domain-name";
-  domainName.textContent = `${item.subdomain}.${item.domain_name}`;
-
-  const typeBadge = document.createElement("span");
-  typeBadge.className = `record-type-badge type-${recordType.toLowerCase()}`;
-  typeBadge.textContent = recordType;
-
-  const domainGroup = document.createElement("div");
-  domainGroup.className = "dashboard-item-domain";
-  domainGroup.appendChild(domainName);
-  domainGroup.appendChild(typeBadge);
-
-  const expiry = expiryLine(expiresAt);
-  const expiryDisplay = document.createElement("span");
-  expiryDisplay.className = expiry.soon ? "record-expiry soon" : "record-expiry";
-  expiryDisplay.textContent = expiry.text;
-
-  header.appendChild(domainGroup);
-  header.appendChild(expiryDisplay);
-
-  const hitsText = hitsLine(item.hits);
-  if (hitsText) {
-    const hitsDisplay = document.createElement("span");
-    hitsDisplay.className = "record-hits";
-    hitsDisplay.textContent = hitsText;
-    header.appendChild(hitsDisplay);
-  }
-
-  const detail = document.createElement("div");
-  detail.className = "dashboard-item-detail";
-
-  const line = document.createElement("div");
-  line.className = "dashboard-item-line";
-
-  const valueInput = document.createElement("input");
-  valueInput.type = "text";
-  valueInput.id = `dashboard-record-${index}`;
-  valueInput.className = "dashboard-record-input";
-  valueInput.value = recordValue;
-  valueInput.placeholder = recordConfig.placeholder;
-  // No visible label: the type badge above already names what this is, and a
-  // label per row is a line of height per row. Readers that cannot see the
-  // badge get the same words here.
-  valueInput.setAttribute("aria-label", `${item.subdomain}.${item.domain_name} — ${recordConfig.detailLabel}`);
-  valueInput.autocomplete = "off";
-  valueInput.autocapitalize = "none";
-  valueInput.spellcheck = false;
-  valueInput.inputMode = recordConfig.inputMode;
-
-  const saveButton = document.createElement("button");
-  saveButton.type = "button";
-  saveButton.className = "primary-button small";
-  saveButton.dataset.action = "update";
-  saveButton.textContent = t("dashboard.save");
-
-  line.appendChild(valueInput);
-  line.appendChild(saveButton);
-
-  if (renewState(expiresAt).show) {
-    const renewButton = document.createElement("button");
-    renewButton.type = "button";
-    renewButton.className = "small";
-    renewButton.dataset.action = "renew";
-    applyRenewState(renewButton, expiresAt);
-    line.appendChild(renewButton);
-  }
-
-  const deleteButton = document.createElement("button");
-  deleteButton.type = "button";
-  deleteButton.className = "danger-button small";
-  deleteButton.dataset.action = "delete";
-  deleteButton.textContent = t("dashboard.delete");
-  line.appendChild(deleteButton);
-
-  detail.appendChild(line);
-
-  // Two names a TXT record can go on, and the record type decides which of
-  // them this record may use.
-  //
-  // A CNAME keeps the box it has always had: the value goes to `_vercel` at
-  // the root domain, which is the only name a verification service reads for a
-  // subdomain of a root that is not on the Public Suffix List.
-  if (recordType === "CNAME") {
-    detail.appendChild(
-      txtField({
-        id: `dashboard-txt-${index}`,
-        label: t("dashboard.txt_label"),
-        value: item.txt_value || "",
-        placeholder: "e.g. vc-domain-verify=...",
-        inputClass: "dashboard-txt-input",
-      })
-    );
-  }
-
-  // ...and everything else gets the record's own name, which is where a reader
-  // handed that one hostname looks. Drawn on a CNAME too, shut, with the
-  // reason in the space: leaving it out would make a CNAME owner think the
-  // feature does not exist, and drawing it open would hand them a refusal they
-  // could have been spared. DNS allows nothing beside a CNAME.
-  detail.appendChild(
-    txtField({
-      id: `dashboard-self-txt-${index}`,
-      label: t("dashboard.self_txt_label", {
-        fqdn: `${item.subdomain}.${item.domain_name}`,
-      }),
-      value: recordType === "CNAME" ? "" : item.txt_value || "",
-      placeholder: "e.g. v=MCPv1; k=ed25519; p=...",
-      inputClass: "dashboard-self-txt-input",
-      note: recordType === "CNAME" ? t("dashboard.self_txt_cname") : null,
-    })
-  );
-
-  wrapper.appendChild(header);
-  wrapper.appendChild(detail);
-
-  return wrapper;
+/** Renewable → unreachable → soonest to expire. Used once, on the first draw. */
+export function sortKeys(items) {
+  const rank = (item) => (renewable(item) ? 0 : liveState(item) === "down" ? 1 : 2);
+  const left = (item) => (item.exp ? item.exp.getTime() : Infinity);
+  return [...items].sort((a, b) => rank(a) - rank(b) || left(a) - left(b)).map((item) => item.key);
 }
 
 export function initializeDashboardPage() {
-  resetMessage();
   const user = getCurrentUser();
+  if (!user) return; // the router has already sent this visitor to /login
 
-  if (!user) {
-    navigateTo("/login");
-    return;
+  const root = document.querySelector(".dash");
+  const listEl = document.getElementById("dash-list");
+  const countEl = document.getElementById("dash-count");
+  const newSlot = document.getElementById("dash-new");
+  const sheet = document.getElementById("dash-sheet");
+  const scrollEl = document.getElementById("sheet-scroll");
+  const foot = document.getElementById("sheet-foot");
+  const toastEl = document.getElementById("dash-toast");
+  if (!root || !listEl || !sheet) return;
+
+  let items = [];
+  let order = null;
+
+  // Which window to open once the list is in: ?edit=<address> from a mail, or
+  // the one a sign-in interrupted (with what had been typed).
+  const pending = takePendingEdit();
+  const asked = new URLSearchParams(window.location.search).get("edit");
+  if (asked) history.replaceState(null, "", "/dashboard");
+  const target = (asked || pending?.key || "").toLowerCase() || null;
+  const restoredDraft = pending && pending.key === target ? pending.draft : null;
+
+  /* ---------- 알림 ---------- */
+  let toastTimer = null;
+  function toast(text, action = null) {
+    toastEl.textContent = text;
+    if (action) {
+      const button = document.createElement("button");
+      button.type = "button";
+      button.textContent = action.label;
+      button.addEventListener("click", action.run);
+      toastEl.append(button);
+    }
+    toastEl.classList.add("on");
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(() => toastEl.classList.remove("on"), action ? 8000 : 3200);
   }
 
-  const dashboardList = document.getElementById("dashboard-list");
-  if (!dashboardList) return;
+  /** Signed out somewhere else: say so, and offer the way back to this same spot. */
+  function relogin(draftToKeep) {
+    if (draftToKeep) savePendingEdit(draftToKeep.key, draftToKeep.draft);
+    window.location.assign("/api/auth/google");
+  }
 
-  async function fetchSubdomains() {
-    showLoader();
-    dashboardList.innerHTML = `<p>${t("dashboard.loading")}</p>`;
-
-    try {
-      const data = await apiFetch("/api/subdomains", {
-      });
-
-      const items = Array.isArray(data) ? data : [];
-      dashboardList.innerHTML = "";
-
-      if (!items.length) {
-        dashboardList.innerHTML =
-          `<p>${t("dashboard.empty")}</p>`;
-        return;
-      }
-
-      const fragment = document.createDocumentFragment();
-      items.forEach((item, index) => {
-        fragment.appendChild(createDashboardItem(item, index));
-      });
-
-      dashboardList.appendChild(fragment);
-    } catch (error) {
-      showMessage(error.message, "error");
-      dashboardList.innerHTML =
-        `<p class="error">${t("dashboard.load_error")}</p>`;
-    } finally {
-      hideLoader();
+  function sayError(error, keep) {
+    if (error.status === 401) {
+      toast(t("dashboard.session_expired"), { label: t("dashboard.relogin"), run: () => relogin(keep) });
+    } else if (error.status === 429) {
+      toast(t("dashboard.too_many"));
+    } else {
+      toast(error.message);
     }
   }
 
-  async function handleUpdate(button) {
-    if (!button) return;
+  /* ---------- 목록 ---------- */
+  function skeleton() {
+    let n = 3;
+    try {
+      n = Math.max(1, Math.min(12, Number(localStorage.getItem(COUNT_KEY)) || 3));
+    } catch {
+      // storage off: three rows
+    }
+    listEl.innerHTML = Array.from({ length: n }, () => '<li class="dash-skel" aria-hidden="true"><i></i></li>').join("");
+    listEl.setAttribute("aria-busy", "true");
+  }
 
-    const item = button.closest(".dashboard-item");
-    if (!item) return;
 
-    const subdomain = item.dataset.subdomain;
-    const domain = item.dataset.domain;
-    const recordType = normalizeRecordType(item.dataset.recordType);
-    const valueInput = item.querySelector(".dashboard-record-input");
-    const newValue = valueInput?.value;
+  const ordered = () => order.map((key) => items.find((item) => item.key === key)).filter(Boolean);
+  const byKey = (key) => items.find((item) => item.key === key);
+  const rowOf = (item) => listEl.querySelector(`[data-key="${CSS.escape(item.key)}"]`);
 
-    if (!subdomain || !domain || !valueInput) return;
+  function drawHead() {
+    const used = items.length;
+    const limit = Number.isFinite(user.subdomainLimit) ? user.subdomainLimit : null;
+    countEl.textContent =
+      limit !== null ? t("dashboard.count", { used, limit }) : t("dashboard.count_plain", { used });
+    // «reached» only when it stops anything: with the limit not enforced the
+    // home page still creates, so the button stays (services/quota.js).
+    newSlot.innerHTML =
+      limit !== null && user.subdomainLimitEnforced && used >= limit
+        ? `<p class="dash-full">${esc(t("dashboard.limit_reached", { limit }))}</p>`
+        : `<a class="dash-btn" href="/">${esc(t("dashboard.add"))}</a>`;
+  }
 
-    const validation = validateRecordValue(recordType, newValue, {
-      subdomain,
-      domain,
-    });
-    if (!validation.valid) {
-      showMessage(validation.message, "error");
-      valueInput.focus();
-      valueInput.select?.();
+  function renderList() {
+    const list = ordered();
+    listEl.innerHTML = list.length
+      ? list.map((item) => rowHTML(item)).join("")
+      : `<li class="dash-empty"><p>${esc(t("dashboard.empty"))}</p><a class="dash-btn solid" href="/">${esc(t("dashboard.add"))}</a></li>`;
+    listEl.removeAttribute("aria-busy");
+    drawHead();
+    try {
+      localStorage.setItem(COUNT_KEY, String(items.length));
+    } catch {
+      // nothing to remember the count in
+    }
+  }
+
+  function redrawRow(item, opts) {
+    const row = rowOf(item);
+    if (row) row.outerHTML = rowHTML(item, opts);
+    return rowOf(item);
+  }
+
+  const rowVisible = (row) => {
+    if (!row) return false;
+    const box = row.getBoundingClientRect();
+    return box.bottom > 0 && box.top < window.innerHeight;
+  };
+
+  function showListProblem(error) {
+    listEl.removeAttribute("aria-busy");
+    if (error.status === 401) {
+      listEl.innerHTML = `<li class="dash-empty"><p>${esc(t("dashboard.session_expired"))}</p><button class="dash-btn solid" type="button" data-relogin>${esc(t("dashboard.relogin"))}</button></li>`;
       return;
     }
-    const recordValue = validation.value;
-    valueInput.value = recordValue;
+    listEl.innerHTML = `<li class="dash-empty"><p>${esc(t("dashboard.load_error"))}</p><button class="dash-btn" type="button" data-retry>${esc(t("dashboard.retry"))}</button></li>`;
+  }
 
-    const body = { value: recordValue, domain };
+  // The address and the value are drawn in Open Runde and JetBrains Mono. A
+  // row painted before they arrive is repainted a moment later at another
+  // width, and every column after it moves — so the first paint waits for
+  // them, for as long as the list itself takes and at most a second.
+  const fontsReady = document.fonts?.load
+    ? Promise.race([
+        Promise.all([
+          document.fonts.load('600 20px "Open Runde"'),
+          document.fonts.load('400 15px "JetBrains Mono"'),
+        ]).catch(() => {}),
+        new Promise((resolve) => setTimeout(resolve, 1000)),
+      ])
+    : Promise.resolve();
 
-    // One box per record. Which name the server writes it to follows from the
-    // record type and is decided there, not here (services/subdomain.js
-    // txtPrefixFor) — so the screen sends the value and nothing about where it
-    // goes. An empty box clears the record, which is how it has always worked.
-    // The shut box on a CNAME is skipped: it is a sentence, not an input.
-    const txtInput = item.querySelector(
-      recordType === "CNAME" ? ".dashboard-txt-input" : ".dashboard-self-txt-input"
-    );
-    if (txtInput && !txtInput.disabled) {
-      body.txtValue = txtInput.value.trim();
+  async function load() {
+    skeleton();
+    try {
+      const [data] = await Promise.all([apiFetch("/api/subdomains"), fontsReady]);
+      items = (Array.isArray(data) ? data : []).map(fromApi);
+      if (!order) order = sortKeys(items);
+      else order = [...order.filter((key) => byKey(key)), ...items.map((i) => i.key).filter((k) => !order.includes(k))];
+      renderList();
+    } catch (error) {
+      showListProblem(error);
+      return;
     }
 
-    setButtonLoading(button, "Updating…");
-    showLoader();
+    if (target) {
+      const item = byKey(target);
+      if (item) openSheet(item, rowOf(item)?.querySelector("[data-edit]"), restoredDraft);
+      else toast(t("dashboard.not_found", { fqdn: target }));
+    }
+  }
+
+  listEl.addEventListener("click", (event) => {
+    if (event.target.closest("[data-retry]")) return load();
+    if (event.target.closest("[data-relogin]")) return relogin(null);
+    const row = event.target.closest(".dash-row");
+    if (!row) return;
+    const item = byKey(row.dataset.key);
+    if (!item) return;
+    const renewButton = event.target.closest("[data-renew]");
+    if (renewButton) return renew(item, renewButton, "row");
+    if (event.target.closest(".out")) return;
+    if (event.target.closest("[data-edit]")) openSheet(item, row.querySelector("[data-edit]"));
+  });
+
+  async function renew(item, button, from) {
+    // Dimmed while it works, same word on it — «갱신 중…» is wider than the
+    // column the button sits in and would run into the date beside it.
+    button.disabled = true;
+    button.setAttribute("aria-busy", "true");
     try {
-      await apiFetch(`/api/subdomains/${encodeURIComponent(subdomain)}`, {
-        method: "PUT",
-        body,
+      const result = await apiFetch(`/api/subdomains/${encodeURIComponent(item.sub)}/renew`, {
+        method: "POST",
+        body: { domain: item.dom },
       });
-
-      const successMessage = t("dashboard.update_success", { type: recordType, domain: `${subdomain}.${domain}` });
-      showMessage(successMessage, "success");
-    } catch (error) {
-      showMessage(error.message, "error");
-    } finally {
-      clearButtonLoading(button);
-      hideLoader();
-    }
-  }
-
-  /**
-   * Extend the lease, and show the new date where the old one was.
-   *
-   * Redrawing the whole list would work and would throw away anything typed in
-   * another row's box; the only thing that changed is this record's date, so
-   * only that is rewritten.
-   */
-  async function handleRenew(button) {
-    if (!button || button.disabled) return;
-
-    const item = button.closest(".dashboard-item");
-    if (!item) return;
-
-    const subdomain = item.dataset.subdomain;
-    const domain = item.dataset.domain;
-    if (!subdomain || !domain) return;
-
-    setButtonLoading(button, "…");
-    showLoader();
-    try {
-      const result = await apiFetch(
-        `/api/subdomains/${encodeURIComponent(subdomain)}/renew`,
-        { method: "POST", body: { domain } }
-      );
-
-      const expiry = expiryLine(result.expires_at);
-      const expiryDisplay = item.querySelector(".record-expiry");
-      if (expiryDisplay) {
-        expiryDisplay.textContent = expiry.text;
-        expiryDisplay.className = expiry.soon ? "record-expiry soon" : "record-expiry";
+      item.exp = new Date(result.expires_at);
+      item.renewedTo = item.exp;
+      const row = redrawRow(item, { fresh: true });
+      if (sheet.open && current === item) drawSheet();
+      // A row on screen says it itself; only an unseen one needs the line.
+      if (from !== "row" || !rowVisible(row)) {
+        toast(t("dashboard.renew_success", { domain: item.key, date: isoDate(item.exp) }));
       }
-
-      showMessage(
-        t("dashboard.renew_success", {
-          domain: `${subdomain}.${domain}`,
-          date: new Date(result.expires_at).toISOString().slice(0, 10),
-        }),
-        "success"
-      );
-
-      item.dataset.expiresAt = new Date(result.expires_at).toISOString();
     } catch (error) {
-      showMessage(error.message, "error");
-    } finally {
-      // clearButtonLoading restores the old label and re-enables; the button
-      // then has to be repainted, because a record that has just been renewed
-      // is shut again until a fortnight before its new date.
-      clearButtonLoading(button);
-      applyRenewState(button, item.dataset.expiresAt || null);
-      hideLoader();
+      button.disabled = false;
+      button.removeAttribute("aria-busy");
+      if (error.status === 409 && error.data?.renew_from) {
+        toast(t("dashboard.renew_from_title", { date: monthDay(new Date(error.data.renew_from)) }));
+      } else {
+        sayError(error, null);
+      }
     }
   }
 
-  async function handleDelete(button) {
-    if (!button) return;
+  /* ---------- 관리 창 ---------- */
+  let current = null;
+  let opener = null;
+  let draft = null;
+  let mode = "edit"; // edit · delete · discard · signin
+  let pushed = false;
+  let expectPop = false;
+  const phone = () => window.matchMedia("(max-width: 720px)").matches;
+  const reduced = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
-    const item = button.closest(".dashboard-item");
-    if (!item) return;
+  /** The TXT value the window starts from for a type: the record's own when the name is the same one. */
+  const baseTxt = (type) => (txtSlot(type) === txtSlot(current.type) ? current.txt : "");
 
-    const subdomain = item.dataset.subdomain;
-    const domain = item.dataset.domain;
-    const recordType = normalizeRecordType(item.dataset.recordType);
-    if (!subdomain || !domain) return;
-
-    const confirmed = window.confirm(
-      t("dashboard.delete_confirm", { type: recordType, domain: `${subdomain}.${domain}` })
+  function dirty() {
+    if (!draft || !current) return false;
+    return (
+      draft.value.trim() !== current.value ||
+      draft.type !== current.type ||
+      draft.txt.trim() !== baseTxt(draft.type)
     );
-    if (!confirmed) return;
+  }
 
-    setButtonLoading(button, "Deleting…");
-    showLoader();
+  function liveLine(item) {
+    if (item.checking) return esc(t("dashboard.status.checking"));
+    const state = liveState(item);
+    if (item.fresh) {
+      return `<strong>${esc(t(`dashboard.status.${state}`))}</strong> · ${esc(t("dashboard.status.checked", { date: t("dashboard.status.now") }))}`;
+    }
+    if (state === "unknown") return esc(t("dashboard.status.unknown"));
+    const parts = [`<strong>${esc(t(`dashboard.status.${state}`))}</strong>`];
+    if (state === "down" && failedDays(item)) parts.push(esc(failedDays(item)));
+    parts.push(esc(t("dashboard.status.checked", { date: monthDay(item.checked) })));
+    return parts.join(" · ");
+  }
+
+  function expiryHTML(item) {
+    if (item.renewedTo) {
+      return `<span class="when"><span class="new">${esc(t("dashboard.renewed_line", { date: isoDate(item.exp) }))}</span></span>`;
+    }
+    if (!item.exp) return `<span class="when">${esc(t("dashboard.expires_never"))}</span>`;
+    if (renewable(item)) {
+      return `<span class="when soon">${esc(windowExpiry(item))}</span><button class="dash-btn solid" type="button" data-renew>${esc(t("dashboard.renew"))}</button>`;
+    }
+    return `<span class="when">${esc(windowExpiry(item))}</span>`;
+  }
+
+  function hitsHTML(item) {
+    const text = hitsText(item);
+    return text ? `<p class="sh-hits">${esc(text)}</p>` : "";
+  }
+
+  function confirmHTML(item) {
+    const [before, after = ""] = t("dashboard.delete_confirm").split("{domain}");
+    return `<div class="confirm" role="group" aria-labelledby="cf-text">
+        <p id="cf-text">${esc(before)}<strong>${esc(item.key)}</strong>${esc(after)}</p>
+        <div class="acts"><button class="dash-btn" type="button" data-keep>${esc(t("dashboard.cancel"))}</button><button class="dash-btn red" type="button" data-delete>${esc(t("dashboard.delete"))}</button></div>
+      </div>`;
+  }
+
+  function drawSheet() {
+    const item = current;
+    const type = draft.type;
+    const txtHost = type === "CNAME" ? `_vercel.${item.dom}` : item.key;
+    const openTxt = Boolean(baseTxt(type) || draft.txt);
+
+    // Keep the caret where it was — a «check now» answer redraws the window
+    // while somebody may be typing in it.
+    const active = document.activeElement;
+    const keep = active && sheet.contains(active) && active.id ? { id: active.id, start: active.selectionStart, end: active.selectionEnd } : null;
+
+    scrollEl.innerHTML = `
+      <div class="sh-top">
+        <h2 id="sheet-name"><a href="https://${esc(item.key)}" target="_blank" rel="noopener">${addrHTML(item)}<span class="ar" aria-label="${esc(t("dashboard.open_tab", { fqdn: item.key }))}">↗</span></a></h2>
+        <button class="x" type="button" data-close aria-label="${esc(t("dashboard.close"))}">✕</button>
+      </div>
+      <p class="sh-live${liveState(item) === "down" && !item.checking ? " down" : ""}">${liveLine(item)}<button class="textbtn" type="button" data-recheck${item.checking ? " disabled" : ""}>${esc(t("dashboard.check_now"))}</button></p>
+      ${hitsHTML(item)}
+      <div class="sh-exp">${expiryHTML(item)}</div>
+
+      <div class="form">
+        <div class="field">
+          <div class="lab"><label for="sheet-value">${esc(t("dashboard.target"))}</label><span class="tag">${TYPE_TAG[type]}</span><button class="retype" type="button" data-retype aria-expanded="${draft.showTypes ? "true" : "false"}">${esc(t("dashboard.retype"))}</button></div>
+          ${draft.showTypes ? `<div class="types" role="group" aria-label="${esc(t("dashboard.types"))}">${TYPES.map((k) => `<button type="button" data-type="${k}" aria-pressed="${k === type}">${esc(t(TYPE_LABEL[k]))}</button>`).join("")}</div>` : ""}
+          <input id="sheet-value" value="${esc(draft.value)}" placeholder="${VALUE_PLACEHOLDER[type]}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false" inputmode="${type === "A" ? "decimal" : "url"}" enterkeyhint="done"${draft.err ? ' class="bad" aria-invalid="true" aria-describedby="sheet-err"' : ""}>
+          ${draft.err ? `<p class="err" id="sheet-err">${esc(draft.err)}</p>` : ""}
+        </div>
+        <details class="field"${openTxt ? " open" : ""}>
+          <summary>${esc(t("dashboard.txt"))} <span class="opt">${esc(t("dashboard.txt_host", { host: txtHost }))}</span></summary>
+          <textarea id="sheet-txt" rows="1" aria-label="${esc(t("dashboard.txt_value"))}" placeholder="${type === "CNAME" ? TXT_PLACEHOLDER.CNAME : TXT_PLACEHOLDER.SELF}" autocomplete="off" autocapitalize="none" autocorrect="off" spellcheck="false">${esc(draft.txt)}</textarea>
+        </details>
+      </div>
+
+      <div class="danger">
+        ${mode === "delete" ? confirmHTML(item) : `<button class="del" type="button" data-ask-delete>${esc(t("dashboard.delete_address"))}</button>`}
+      </div>`;
+
+    // While a delete is being confirmed there is one pair of decisions on
+    // screen, not two.
+    foot.hidden = mode === "delete";
+    if (mode === "discard") {
+      foot.innerHTML = `<span class="ask">${esc(t("dashboard.unsaved"))}</span><button class="dash-btn" type="button" data-stay>${esc(t("dashboard.keep_editing"))}</button><button class="dash-btn solid" type="button" data-discard>${esc(t("dashboard.discard"))}</button>`;
+    } else if (mode === "signin") {
+      foot.innerHTML = `<span class="ask">${esc(t("dashboard.session_expired"))}</span><button class="dash-btn solid" type="button" data-relogin>${esc(t("dashboard.relogin"))}</button>`;
+    } else {
+      foot.innerHTML = `<button class="dash-btn" type="button" data-close>${esc(t("dashboard.cancel"))}</button><button class="dash-btn solid" type="button" data-save${dirty() && !draft.saving ? "" : " disabled"}>${esc(draft.saving ? t("dashboard.saving") : t("dashboard.save"))}</button>`;
+    }
+    grow(document.getElementById("sheet-txt"));
+
+    if (keep) {
+      const again = document.getElementById(keep.id);
+      if (again) {
+        again.focus();
+        try {
+          if (keep.start !== null && keep.start !== undefined) again.setSelectionRange(keep.start, keep.end);
+        } catch {
+          // not a text field
+        }
+      }
+    }
+  }
+
+  // field-sizing does it where it is known; elsewhere (some Safari) by hand.
+  const autoSize = window.CSS?.supports?.("field-sizing", "content");
+  function grow(area) {
+    if (!area || autoSize || !area.offsetParent) return;
+    area.style.height = "auto";
+    area.style.height = `${area.scrollHeight + 2}px`;
+  }
+
+  function openSheet(item, from, restored = null) {
+    current = item;
+    opener = from || null;
+    mode = "edit";
+    draft = restored
+      ? { value: restored.value, txt: restored.txt, type: restored.type, showTypes: restored.type !== item.type, err: null, saving: false }
+      : { value: item.value, txt: item.txt, type: item.type, showTypes: false, err: null, saving: false };
+    draft.txtBySlot = { [txtSlot(item.type)]: item.txt };
+    drawSheet();
+    sheet.classList.remove("closing");
+    sheet.setAttribute("tabindex", "-1");
+    sheet.showModal();
+    // On a phone the keyboard does not come up first — most come to look, check or renew.
+    if (phone()) {
+      sheet.focus();
+      history.pushState({ sheet: 1 }, "");
+      pushed = true;
+    } else {
+      const input = document.getElementById("sheet-value");
+      input.focus();
+      input.setSelectionRange(input.value.length, input.value.length);
+    }
+    fitViewport();
+  }
+
+  function closeSheet(force = false, after = null) {
+    if (!sheet.open) return true;
+    if (!force && dirty() && mode !== "discard") {
+      mode = "discard";
+      drawSheet();
+      foot.querySelector("[data-stay]")?.focus();
+      return false;
+    }
+    const key = current?.key;
+    sheet.classList.add("closing");
+    setTimeout(() => {
+      sheet.close();
+      sheet.classList.remove("closing");
+      if (pushed) {
+        pushed = false;
+        expectPop = true;
+        history.back();
+      }
+      current = null;
+      draft = null;
+      mode = "edit";
+      if (after) return after();
+      const back = key && listEl.querySelector(`[data-key="${CSS.escape(key)}"] [data-edit]`);
+      (back || opener)?.focus?.();
+    }, reduced() ? 0 : 180);
+    return true;
+  }
+
+  // Back on a phone closes the sheet, not the page under it.
+  setBackHandler(() => {
+    if (!document.contains(sheet)) return false;
+    if (expectPop) {
+      expectPop = false;
+      return true;
+    }
+    if (!sheet.open) return false;
+    pushed = false;
+    if (dirty()) {
+      history.pushState({ sheet: 1 }, "");
+      pushed = true;
+      mode = "discard";
+      drawSheet();
+      return true;
+    }
+    closeSheet(true);
+    return true;
+  });
+
+  function check(type, raw) {
+    const value = raw.trim();
+    if (type === "CNAME" && IPV4_REGEX.test(value)) {
+      return { valid: false, message: t("dashboard.ip_needs_a"), offerTypes: true };
+    }
+    const result = validateRecordValue(type, value, { subdomain: current.sub, domain: current.dom });
+    if (!result.valid && type === "A") result.offerTypes = true;
+    return result;
+  }
+
+  async function save() {
+    const item = current;
+    if (draft.saving || !dirty()) return;
+    const type = draft.type;
+
+    if (type === "CNAME" && item.type !== "CNAME" && item.txt) {
+      draft.err = t("dashboard.txt_blocks_cname");
+      drawSheet();
+      return;
+    }
+    const result = check(type, draft.value);
+    if (!result.valid) {
+      draft.err = result.message;
+      if (result.offerTypes) draft.showTypes = true;
+      drawSheet();
+      document.getElementById("sheet-value")?.focus();
+      return;
+    }
+
+    const body = { domain: item.dom, value: result.value };
+    if (type !== item.type) body.recordType = type;
+    const txt = draft.txt.trim();
+    // Same TXT name as before: the box is the record's TXT, and empty clears
+    // it. A type change that moves to the other name only writes when
+    // something was typed there.
+    const sameSlot = txtSlot(type) === txtSlot(item.type);
+    if (sameSlot || txt) body.txtValue = txt;
+
+    draft.saving = true;
+    drawSheet();
     try {
-      await apiFetch(`/api/subdomains/${encodeURIComponent(subdomain)}`, {
+      const response = await apiFetch(`/api/subdomains/${encodeURIComponent(item.sub)}`, { method: "PUT", body });
+      const moved = result.value !== item.value || type !== item.type;
+      item.value = result.value;
+      item.type = type;
+      item.txt = sameSlot || txt ? txt : "";
+      // The nightly run of failed days was about the old target; until the
+      // night looks again the row says only what this save saw.
+      if (moved) {
+        item.fresh = { reachable: Boolean(response.reachable) };
+        item.warn = 0;
+      }
+      closeSheet(true, () => {
+        const row = redrawRow(item, { flash: true });
+        row?.querySelector("[data-edit]")?.focus();
+        toast(
+          !moved
+            ? t("dashboard.update_success", { domain: item.key })
+            : response.reachable
+              ? t("dashboard.saved_ok", { domain: item.key })
+              : t("dashboard.saved_down", { domain: item.key })
+        );
+      });
+    } catch (error) {
+      draft.saving = false;
+      if (error.status === 401) {
+        mode = "signin";
+      } else if (error.code === "CNAME_CANNOT_HOLD_TXT") {
+        draft.err = t("dashboard.txt_blocks_cname");
+      } else if (error.status === 429) {
+        draft.err = t("dashboard.too_many");
+      } else {
+        draft.err = error.message;
+      }
+      drawSheet();
+    }
+  }
+
+  async function recheck() {
+    const item = current;
+    item.checking = true;
+    drawSheet();
+    try {
+      const result = await apiFetch(`/api/subdomains/${encodeURIComponent(item.sub)}/check`, {
+        method: "POST",
+        body: { domain: item.dom },
+      });
+      item.warn = Number(result.warning_count || 0);
+      if (result.last_checked_at) item.checked = new Date(result.last_checked_at);
+      item.fresh = { reachable: Boolean(result.reachable) };
+    } catch (error) {
+      if (error.status === 401) mode = "signin";
+      else sayError(error, null);
+    }
+    item.checking = false;
+    if (sheet.open && current === item) drawSheet();
+    redrawRow(item);
+  }
+
+  async function remove(button) {
+    const item = current;
+    button.disabled = true;
+    try {
+      await apiFetch(`/api/subdomains/${encodeURIComponent(item.sub)}`, {
         method: "DELETE",
-        body: { domain },
+        body: { domain: item.dom },
       });
-
-      const successMessage = t("dashboard.delete_success", { type: recordType, domain: `${subdomain}.${domain}` });
-      showMessage(successMessage, "success");
-      await fetchSubdomains();
     } catch (error) {
-      showMessage(error.message, "error");
-    } finally {
-      clearButtonLoading(button);
-      hideLoader();
+      button.disabled = false;
+      if (error.status === 401) {
+        mode = "signin";
+        drawSheet();
+      } else {
+        sayError(error, null);
+      }
+      return;
     }
+    const list = ordered();
+    const index = list.indexOf(item);
+    closeSheet(true, () => {
+      rowOf(item)?.classList.add("gone");
+      setTimeout(() => {
+        items = items.filter((other) => other !== item);
+        order = order.filter((key) => key !== item.key);
+        renderList();
+        const rest = ordered();
+        const next = rest[Math.min(index, rest.length - 1)];
+        (next ? rowOf(next)?.querySelector("[data-edit]") : listEl.querySelector(".dash-empty a"))?.focus();
+        toast(t("dashboard.delete_success", { domain: item.key }));
+      }, reduced() ? 0 : 200);
+    });
   }
 
-  fetchSubdomains();
-
-  dashboardList.addEventListener("click", (event) => {
-    const updateButton = event.target.closest("[data-action='update']");
-    if (updateButton) {
-      handleUpdate(updateButton);
+  sheet.addEventListener("click", (event) => {
+    if (event.target === sheet) return closeSheet(); // the backdrop
+    const hit = (selector) => event.target.closest(selector);
+    if (hit("[data-close]")) return closeSheet();
+    if (hit("[data-save]")) return save();
+    if (hit("[data-renew]")) return renew(current, hit("[data-renew]"), "sheet");
+    if (hit("[data-recheck]")) return recheck();
+    if (hit("[data-retype]")) {
+      draft.showTypes = !draft.showTypes;
+      drawSheet();
       return;
     }
-
-    const renewButton = event.target.closest("[data-action='renew']");
-    if (renewButton) {
-      handleRenew(renewButton);
+    if (hit("[data-type]")) {
+      const next = hit("[data-type]").dataset.type;
+      if (next === draft.type) return;
+      // The TXT box follows the name it writes to: what was typed for the old
+      // name is kept for it, the other name starts from what we know of it.
+      draft.txtBySlot[txtSlot(draft.type)] = draft.txt;
+      draft.type = next;
+      draft.txt = draft.txtBySlot[txtSlot(next)] ?? "";
+      draft.err = next === "CNAME" && current.type !== "CNAME" && current.txt ? t("dashboard.txt_blocks_cname") : null;
+      drawSheet();
+      document.getElementById("sheet-value")?.focus();
       return;
     }
-
-    const deleteButton = event.target.closest("[data-action='delete']");
-    if (deleteButton) {
-      handleDelete(deleteButton);
+    if (hit("[data-ask-delete]")) {
+      mode = "delete";
+      drawSheet();
+      sheet.querySelector("[data-keep]")?.focus();
+      sheet.querySelector(".confirm")?.scrollIntoView({ block: "nearest" });
+      return;
+    }
+    if (hit("[data-keep]")) {
+      mode = "edit";
+      drawSheet();
+      sheet.querySelector("[data-ask-delete]")?.focus();
+      return;
+    }
+    if (hit("[data-delete]")) return remove(hit("[data-delete]"));
+    if (hit("[data-stay]")) {
+      mode = "edit";
+      drawSheet();
+      return;
+    }
+    if (hit("[data-discard]")) return closeSheet(true);
+    if (hit("[data-relogin]")) {
+      return relogin({ key: current.key, draft: { value: draft.value, txt: draft.txt, type: draft.type } });
     }
   });
+
+  sheet.addEventListener("input", (event) => {
+    if (!draft) return;
+    if (event.target.id === "sheet-value") {
+      draft.value = event.target.value;
+      if (draft.err) {
+        draft.err = null;
+        event.target.classList.remove("bad");
+        event.target.removeAttribute("aria-invalid");
+        sheet.querySelector(".err")?.remove();
+      }
+    }
+    if (event.target.id === "sheet-txt") {
+      draft.txt = event.target.value;
+      grow(event.target);
+    }
+    const saveButton = foot.querySelector("[data-save]");
+    if (saveButton) saveButton.disabled = !dirty() || draft.saving;
+  });
+
+  sheet.addEventListener("keydown", (event) => {
+    if (event.key === "Enter" && event.target.matches("input") && dirty()) {
+      event.preventDefault();
+      save();
+    }
+  });
+  sheet.addEventListener("toggle", (event) => {
+    if (event.target.matches("details")) grow(document.getElementById("sheet-txt"));
+  }, true);
+  sheet.addEventListener("cancel", (event) => {
+    event.preventDefault(); // Esc — through the same «unsaved changes» question
+    closeSheet();
+  });
+
+  // Phone sheet: the height follows the visible viewport when the keyboard
+  // comes up; dragging the handle down past 80px and letting go closes it.
+  function fitViewport() {
+    const viewport = window.visualViewport;
+    document.documentElement.style.setProperty("--vvh", `${viewport ? viewport.height : window.innerHeight}px`);
+  }
+  window.visualViewport?.addEventListener("resize", fitViewport);
+  sheet.addEventListener("focusin", (event) => {
+    if (phone() && event.target.matches("input, textarea")) {
+      setTimeout(() => event.target.scrollIntoView({ block: "center" }), 250);
+    }
+  });
+  const grabber = sheet.querySelector(".grab");
+  let startY = null;
+  grabber.addEventListener("pointerdown", (event) => {
+    startY = event.clientY;
+    grabber.setPointerCapture(event.pointerId);
+    sheet.style.transition = "none";
+  });
+  grabber.addEventListener("pointermove", (event) => {
+    if (startY === null) return;
+    sheet.style.transform = `translateY(${Math.max(0, event.clientY - startY)}px)`;
+  });
+  grabber.addEventListener("pointerup", (event) => {
+    const moved = event.clientY - (startY ?? event.clientY);
+    startY = null;
+    sheet.style.transition = "transform 0.2s var(--h-ease)";
+    if (moved > 80 && closeSheet() !== false) return;
+    sheet.style.transform = "";
+  });
+  sheet.addEventListener("close", () => {
+    sheet.style.transform = "";
+    sheet.style.transition = "";
+  });
+
+  load();
 }

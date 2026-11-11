@@ -540,128 +540,137 @@ const byClass = (root, name) =>
 const byAction = (root, action) =>
   walk(root).filter((node) => node.dataset.action === action);
 
-describe("a REDIRECT row on the dashboard", () => {
+describe("a row on the dashboard (2026-11-11)", () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
-  let createDashboardItem;
+  let dash;
 
   beforeEach(async () => {
-    ({ createDashboardItem } = await installBrowser("en"));
+    dash = await installBrowser("en");
   });
 
-  const redirectRow = (overrides = {}) => ({
+  const apiRow = (overrides = {}) => ({
     id: 1,
     subdomain: "myapp",
     domain_name: "sitey.my",
     record_type: "REDIRECT",
     record_value: "https://github.com/jay/myapp",
     expires_at: new Date(Date.now() + 60 * DAY_MS).toISOString(),
+    warning_count: 0,
+    last_checked_at: "2026-11-10T15:00:00.000Z",
     ...overrides,
   });
+  const row = (overrides) => dash.rowHTML(dash.fromApi(apiRow(overrides)));
 
-  it("shows the value in an editable box with its buttons, unfolded", () => {
-    const node = createDashboardItem(redirectRow(), 0);
-
-    const input = byClass(node, "dashboard-record-input")[0];
-    expect(input).toBeDefined();
-    expect(input.value).toBe("https://github.com/jay/myapp");
-    expect(byAction(node, "update")).toHaveLength(1);
-    expect(byAction(node, "delete")).toHaveLength(1);
-
-    // nothing is hidden, and nothing is a fold: the accordion's role, its
-    // aria-expanded and its chevron are gone with it
-    expect(walk(node).some((n) => n.hidden)).toBe(false);
-    expect(walk(node).some((n) => n.attrs.role === "button")).toBe(false);
-    expect(walk(node).some((n) => "aria-expanded" in n.attrs)).toBe(false);
-    expect(byClass(node, "dashboard-item-chevron")).toHaveLength(0);
+  // 🔴 The 2026-09-16 lesson: «수정» is on every row, always. One real button
+  // per row, its hit area the whole row (CSS), and nothing nested inside it.
+  it("always shows one «Edit» button, with nothing inside it", () => {
+    const html = row();
+    expect(html.match(/<button class="edit"/g)).toHaveLength(1);
+    const edit = html.slice(html.indexOf('<button class="edit"') + 1);
+    expect(edit.slice(0, edit.indexOf("</button>"))).not.toMatch(/<button|<a /);
+    expect(html).toContain('aria-label="Edit myapp.sitey.my"');
+    expect(html).not.toContain("aria-expanded");
   });
 
-  it("says how many visits it has answered", () => {
-    const node = createDashboardItem(
-      redirectRow({ hits: { total: 31, this_month: 4, last_at: "2026-09-16T01:00:00.000Z" } }),
-      0
-    );
-    const hits = byClass(node, "record-hits")[0];
-    expect(hits).toBeDefined();
+  it("opens the address in a new tab from a link beside it, not inside the button", () => {
+    const html = row();
+    expect(html).toMatch(/<a class="out" href="https:\/\/myapp\.sitey\.my" target="_blank" rel="noopener"/);
+  });
+
+  it("draws the address as name · dot · tail, the dot carrying the state", () => {
+    expect(row()).toContain('<span class="nm">myapp</span><span class="pt ok" aria-hidden="true">.</span><span class="tl">sitey.my</span>');
+    expect(row({ warning_count: 3 })).toContain('<span class="pt down"');
+    // never checked: a grey dot and «Not checked yet», not a guess
+    const fresh = row({ last_checked_at: null });
+    expect(fresh).toContain('<span class="pt" aria-hidden="true">');
+    expect(fresh).toContain("Not checked yet");
+  });
+
+  it("says how long an unreachable one has been down", () => {
+    expect(row({ warning_count: 3 })).toContain("Unreachable · 3 days");
+    expect(row({ warning_count: 1 })).toContain("Unreachable · 1 day");
+  });
+
+  it("escapes the value it was handed", () => {
+    const html = row({ record_type: "CNAME", record_value: '"><img src=x onerror=alert(1)>' });
+    expect(html).not.toContain("<img");
+    expect(html).toContain("&lt;img");
+  });
+
+  it("keeps a REDIRECT's visits for the edit window, and only a REDIRECT has any", () => {
+    const item = dash.fromApi(apiRow({ hits: { total: 31, this_month: 4, last_at: "2026-09-16T01:00:00.000Z" } }));
     // the real phrase from public/locales/en.json, with the numbers in it
-    expect(hits.textContent).toBe("4 this month \u00b7 31 total \u00b7 last Sep 16");
-  });
-
-  it("says so plainly when nobody has clicked it", () => {
-    const node = createDashboardItem(
-      redirectRow({ hits: { total: 0, this_month: 0, last_at: null } }),
-      0
-    );
-    // the empty phrase, not "0 · 0 · —": three zeroes read as a failure to load
-    expect(byClass(node, "record-hits")[0].textContent).toBe("No visits yet");
-  });
-
-  it("draws no count on an A or CNAME record", () => {
+    expect(dash.hitsText(item)).toBe("Visits · 4 this month · 31 total");
+    expect(dash.hitsText(dash.fromApi(apiRow({ hits: { total: 0, this_month: 0, last_at: null } })))).toBe("No visits yet");
     for (const [type, value] of [["A", "203.0.113.10"], ["CNAME", "x.example.com"]]) {
-      const node = createDashboardItem(
-        redirectRow({ record_type: type, record_value: value, hits: undefined }),
-        0
-      );
-      expect(byClass(node, "record-hits"), type).toHaveLength(0);
+      expect(dash.hitsText(dash.fromApi(apiRow({ record_type: type, record_value: value }))), type).toBe("");
     }
   });
 });
 
-describe("the renew button on the dashboard", () => {
+describe("the renew button on a dashboard row", () => {
   const DAY_MS = 24 * 60 * 60 * 1000;
-  let createDashboardItem;
+  let dash;
 
   beforeEach(async () => {
-    ({ createDashboardItem } = await installBrowser("en"));
+    dash = await installBrowser("en");
   });
 
   // A second of slack on top of the days, because the clock is read twice: once
-  // here to build the date and again inside renewState(). Exactly `days * DAY_MS`
-  // makes the floor() in there land on `days` only when both reads fall in the
-  // same millisecond, so the boundary case below failed whenever the machine was
-  // a hair slower. The slack is far smaller than the day it must not cross.
+  // here to build the date and again inside daysUntil(). The slack is far
+  // smaller than the day it must not cross.
   const rowExpiringIn = (days) =>
-    createDashboardItem(
-      {
+    dash.rowHTML(
+      dash.fromApi({
         subdomain: "demo",
         domain_name: "sitey.my",
         record_type: "A",
         record_value: "203.0.113.10",
-        expires_at: new Date(Date.now() + days * DAY_MS + 1000).toISOString(),
-      },
-      0
+        expires_at: days === null ? null : new Date(Date.now() + days * DAY_MS + 1000).toISOString(),
+        warning_count: 0,
+        last_checked_at: null,
+      })
     );
 
-  it("is pressable inside the window the server accepts", () => {
-    const button = byAction(rowExpiringIn(3), "renew")[0];
-    expect(button).toBeDefined();
-    expect(button.disabled).toBe(false);
+  it("is on the row inside the window the server accepts", () => {
+    expect(rowExpiringIn(3)).toContain("data-renew");
+    expect(rowExpiringIn(3)).toContain("Expires in 3 days");
   });
 
-  it("is shown and shut before then, with the date on its face", () => {
-    const button = byAction(rowExpiringIn(60), "renew")[0];
-    // shown, not hidden: a button nobody can see is a feature nobody waits for
-    expect(button).toBeDefined();
-    expect(button.disabled).toBe(true);
-    // the date is on the button, not only in a tooltip — a title attribute is
-    // invisible on a phone, which is where most of these are read
-    const opensAt = new Date(Date.now() + (60 - expiry.RENEWAL_WINDOW_DAYS) * DAY_MS);
-    const date = opensAt.toLocaleDateString("en", { month: "short", day: "numeric" });
-    expect(button.textContent).toBe(`From ${date}`);
-    expect(button.attrs["aria-label"]).toContain(date);
+  // The new screen does not draw a shut button with a date on it — outside the
+  // window the row says when it expires and nothing more (설명 줄 걷어내기).
+  it("is not drawn before then; the row says when it expires", () => {
+    expect(rowExpiringIn(60)).not.toContain("data-renew");
+    expect(rowExpiringIn(60)).toContain("Expires in 60 days");
   });
 
   it("opens exactly where services/expiry.js opens it", () => {
-    expect(byAction(rowExpiringIn(expiry.RENEWAL_WINDOW_DAYS), "renew")[0].disabled).toBe(false);
-    expect(byAction(rowExpiringIn(expiry.RENEWAL_WINDOW_DAYS + 1), "renew")[0].disabled).toBe(true);
+    expect(rowExpiringIn(expiry.RENEWAL_WINDOW_DAYS)).toContain("data-renew");
+    expect(rowExpiringIn(expiry.RENEWAL_WINDOW_DAYS + 1)).not.toContain("data-renew");
   });
 
-  it("is not drawn at all for a record that never expires", () => {
-    const node = createDashboardItem(
-      { subdomain: "demo", domain_name: "sitey.my", record_type: "A", record_value: "203.0.113.10", expires_at: null },
-      0
+  it("is not drawn for a record that never expires", () => {
+    expect(rowExpiringIn(null)).not.toContain("data-renew");
+    expect(rowExpiringIn(null)).toContain("Never expires");
+  });
+
+  it("puts what can be renewed first, then what is down, then the soonest", () => {
+    const items = [
+      { subdomain: "later", days: 80, warn: 0 },
+      { subdomain: "down", days: 60, warn: 2 },
+      { subdomain: "soon", days: 5, warn: 0 },
+      { subdomain: "sooner", days: 30, warn: 0 },
+    ].map(({ subdomain, days, warn }) =>
+      dash.fromApi({
+        subdomain,
+        domain_name: "sitey.my",
+        record_type: "A",
+        record_value: "203.0.113.10",
+        expires_at: new Date(Date.now() + days * DAY_MS).toISOString(),
+        warning_count: warn,
+        last_checked_at: "2026-11-10T15:00:00.000Z",
+      })
     );
-    // nothing to wait for, so there is nothing to show — unlike the shut
-    // button above, which is waiting for a date
-    expect(byAction(node, "renew")).toHaveLength(0);
+    expect(dash.sortKeys(items)).toEqual(["soon.sitey.my", "down.sitey.my", "sooner.sitey.my", "later.sitey.my"]);
   });
 });

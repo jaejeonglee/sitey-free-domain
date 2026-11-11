@@ -1,5 +1,5 @@
 import { describe, it, expect, beforeEach, afterEach } from "vitest";
-import { savePendingClaim, takePendingClaim } from "../public/modules/pending-claim.js";
+import { savePendingClaim, takePendingClaim, savePendingEdit, takePendingEdit } from "../public/modules/pending-claim.js";
 
 // The claim rides sessionStorage across the Google sign-in. Since the first
 // screen creates in place (2026-11-10) it also carries the hosting chip, the
@@ -114,5 +114,64 @@ describe("pending claim", () => {
     };
     expect(() => savePendingClaim("myapp", "sitey.my", { host: "vercel" })).not.toThrow();
     expect(takePendingClaim()).toBeNull();
+  });
+});
+
+// /dashboard?edit=<address> (2026-11-11) — the address whose edit window a
+// mail link opens, kept across the sign-in it may have to go through; and,
+// when a save found the session gone, what had been typed in that window.
+describe("pending edit (?edit=)", () => {
+  let original;
+
+  beforeEach(() => {
+    original = globalThis.sessionStorage;
+    globalThis.sessionStorage = fakeStorage();
+  });
+
+  afterEach(() => {
+    globalThis.sessionStorage = original;
+  });
+
+  it("keeps the address across the sign-in, and only once", () => {
+    savePendingEdit("Jay.Sitey.My");
+    expect(takePendingEdit()).toEqual({ key: "jay.sitey.my", draft: null });
+    expect(takePendingEdit()).toBeNull();
+  });
+
+  it("brings back what was typed when the session ran out mid-save", () => {
+    savePendingEdit("jay.sitey.my", { value: "mysite.netlify.app", txt: "vc-domain-verify=x", type: "CNAME" });
+    expect(takePendingEdit()).toEqual({
+      key: "jay.sitey.my",
+      draft: { value: "mysite.netlify.app", txt: "vc-domain-verify=x", type: "CNAME" },
+    });
+  });
+
+  it("drops anything that is not an address", () => {
+    for (const key of ["", "jay", "../etc", "jay.sitey.my/x", "<b>.sitey.my", "a".repeat(260) + ".my"]) {
+      sessionStorage.setItem("sitey-edit", JSON.stringify({ key }));
+      expect(takePendingEdit(), key).toBeNull();
+    }
+  });
+
+  it("drops a draft in a shape it did not write, and keeps the address", () => {
+    sessionStorage.setItem("sitey-edit", JSON.stringify({ key: "jay.sitey.my", draft: { value: 1, txt: "", type: "MX" } }));
+    expect(takePendingEdit()).toEqual({ key: "jay.sitey.my", draft: null });
+  });
+
+  it("does not throw when storage does", () => {
+    globalThis.sessionStorage = {
+      getItem: () => { throw new Error("denied"); },
+      setItem: () => { throw new Error("denied"); },
+      removeItem: () => { throw new Error("denied"); },
+    };
+    expect(() => savePendingEdit("jay.sitey.my")).not.toThrow();
+    expect(takePendingEdit()).toBeNull();
+  });
+
+  it("is a different slot from the home page's claim", () => {
+    savePendingClaim("myapp", "sitey.my");
+    savePendingEdit("jay.sitey.my");
+    expect(takePendingClaim()).toMatchObject({ subdomain: "myapp" });
+    expect(takePendingEdit()).toMatchObject({ key: "jay.sitey.my" });
   });
 });

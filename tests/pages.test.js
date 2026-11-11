@@ -338,7 +338,7 @@ describe("per-path canonical and Open Graph tags", () => {
       await signedApp.close();
     });
 
-    it("draws «My domains · Log out» for a token that verifies", async () => {
+    it("draws «My addresses · Log out» for a token that verifies", async () => {
       const token = signedApp.jwt.sign({ id: 1, email: "a@b.c" });
       const res = await signedApp.inject({
         method: "GET",
@@ -346,7 +346,7 @@ describe("per-path canonical and Open Graph tags", () => {
         headers: { cookie: `__Host-sitey_token=${token}` },
       });
 
-      expect(res.body).toContain('class="active" data-label="My domains">My domains</a>');
+      expect(res.body).toContain('class="active" data-label="My addresses">My addresses</a>');
       expect(res.body).toContain('id="nav-logout-btn"');
       expect(res.body).not.toContain('href="/login" class=');
     });
